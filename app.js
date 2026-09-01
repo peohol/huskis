@@ -11833,6 +11833,60 @@
     return webChannel.capable() && !pushDeployAllowed();
   }
 
+  /* EN DEPLOY SOM IKKE FÅR HA WEB PUSH, SKAL HELLER IKKE HA ET.
+
+     Porten over stopper NYE påmeldinger, men den sier ingenting om det som
+     allerede ligger der. En forhåndsvisning som ble åpnet før porten fantes,
+     har en service worker og et abonnement på sitt eget origin — og det
+     abonnementet lever videre og teller som en enhet i produksjonskontoens
+     liste, mens panelet på nettopp den siden sier at varsler er slått av her.
+     To påstander som ikke kan være sanne samtidig.
+
+     Derfor rigges den ned. Best effort hele veien: en forhåndsvisning skal
+     ikke bli ubrukelig av at opprydningen feilet, så hvert ledd står for seg.
+
+     BARE VÅRT. `getRegistration()` uten argument gir registreringen som dekker
+     DETTE dokumentet — Huskis' egen på Huskis' eget origin. En annen apps
+     service worker ligger på et annet origin og er utenfor rekkevidde, og
+     `getRegistrations()` (som ville sett alle våre) brukes ikke.
+
+     To skritt, fordi de trenger hver sin ting: nedriggingen trenger ingen
+     innlogging og skal skje med det samme, mens serverraden trenger en økt.
+     Endepunktet tas vare på mellom dem — etter `unregister()` finnes det ikke
+     å hente lenger. */
+  let blockedPushSwept = false;    // den lokale nedriggingen er gjort
+  let blockedPushEndpoint = null;  // … og serverraden som ennå ikke er ryddet
+  async function sweepBlockedPush() {
+    if (pushDeployAllowed() || !webChannel.capable()) return;
+    if (!blockedPushSwept) {
+      blockedPushSwept = true;
+      /* Bryteren er per ORIGIN (`localStorage`), så dette valget gjelder bare
+         forhåndsvisningen — produksjonens egen bryter står urørt. */
+      setNotifChannelWanted(false);
+      notifPushMark = null; notifPushMarkAt = 0;
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          const sub = (reg.pushManager && await reg.pushManager.getSubscription()) || null;
+          blockedPushEndpoint = (sub && sub.endpoint) || null;
+          // Avmeldingen snakker med pushtjenesten og kan feile uten nett;
+          // avregistreringen under er den harde garantien.
+          try { if (sub) await sub.unsubscribe(); } catch (e) { /* dekkes under */ }
+          await reg.unregister();
+        }
+      } catch (e) { /* best effort — previewen skal fortsatt virke */ }
+      await refreshNotifChannelState();
+      refreshNotifModal(true);
+    }
+    if (!blockedPushEndpoint) return;
+    const client = acli();
+    if (!client || !authUser) return;   // serverraden venter til økten er der
+    const endpoint = blockedPushEndpoint;
+    blockedPushEndpoint = null;
+    try { await client.rpc('push_unsubscribe', { p_endpoint: endpoint }); }
+    catch (e) { /* best effort: et avmeldt endepunkt dør uansett av 410 */ }
+  }
+
   /* Serveren har tilbakekalt abonnementet vårt. Den lokale nedriggingen er den
      som faktisk stopper varslene (docs/varsler.md, «Avmeldingen går lokalt
      FØRST»), og bryteren settes av så `syncNotifChannel` ikke melder oss på
@@ -12060,6 +12114,10 @@
     notifPendingTarget = { type: raw.slice(0, i), id: raw.slice(i + 1) };
   }
   readNotifParam();
+  /* … og rydd et abonnement som ligger igjen på en deploy som ikke får ha et.
+     Uten innlogging her: den lokale nedriggingen skal skje med det samme, og
+     serverraden tas av `cloudStart()` når økten er der. */
+  sweepBlockedPush();
 
   if ('serviceWorker' in navigator && navigator.serviceWorker.addEventListener) {
     navigator.serviceWorker.addEventListener('message', (ev) => {
@@ -16908,6 +16966,9 @@
     // Meld økten levende med det samme, så «Innloggede enheter» kan navngi
     // den fra første runde og ikke først etter et kvarter.
     touchSession(true);
+    // Nå finnes det en økt: er dette en deploy som ikke får ha web push, kan
+    // serverraden til et gammelt abonnement herfra endelig ryddes.
+    sweepBlockedPush();
     await cloudCycle();
     // Demoen kommer FØR pollet rekker en ny runde, men etter at første pull har
     // malt board-et — ellers ville en runde landet midt i simuleringen. Den
@@ -18637,6 +18698,7 @@
     pushDeployAllowed, deployKind, pushPreviewBlocked,
     clientBrowser, clientPlatform, clientOriginHost,
     loadDevices, openDevicesPanel, logoutOtherSessions, touchSession,
+    sweepBlockedPush,
     get devices() { return devicesRows; },
     get pushRevokedHere() { return notifPushRevoked; },
     notifChannelWanted, setNotifChannelWanted, notifExternalLabels,

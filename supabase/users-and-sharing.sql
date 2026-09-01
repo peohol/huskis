@@ -2850,14 +2850,20 @@ $$;
 create or replace function public.push_sub_max()
 returns integer language sql immutable set search_path = public as $$ select 20 $$;
 
-/* Hvor lenge et DØDT spor blir liggende. Et abonnement som er slått av — av
-   push-tjenesten eller av brukeren — har fortsatt en verdi en stund: det er
-   det som gjør at en klient kan oppdage at den ble slått av, og det er
-   historikken i listen. Etter dette er det bare en rad som vokser.
+/* Hvor lenge et spor som døde av seg selv blir liggende. Et endepunkt
+   push-tjenesten svarte 404/410 på finnes ikke lenger, og raden er da bare
+   historikk — etter dette er den en rad som vokser.
 
-   Merk hva regelen IKKE er: den rører aldri et AKTIVT abonnement. En enhet
-   skal kunne motta varsler selv om Huskis ikke har vært åpnet der på et år —
-   det er nettopp da et varsel er verdt mest. Se docs/varsler.md. */
+   To ting regelen IKKE gjelder, og begge er invarianter:
+
+     · et AKTIVT abonnement. En enhet skal kunne motta varsler selv om Huskis
+       ikke har vært åpnet der på et år — det er nettopp da et varsel er verdt
+       mest;
+     · et abonnement BRUKEREN har slått av (`revoked_at`). Det sporet er selve
+       håndhevelsen av valget, ikke historikk, og det blir stående for godt.
+       Se `push_revoke()` og docs/varsler.md.
+
+   Se docs/varsler.md. */
 create or replace function public.push_keep_days()
 returns integer language sql immutable set search_path = public as $$ select 90 $$;
 
@@ -2974,25 +2980,42 @@ begin
      Taket kaster ut den ELDST SETTE, ikke den nyeste: den som nettopp meldte
      seg på er alltid den brukeren står med i hånden, og en bruker med mange
      nettlesere skal miste den de sluttet å bruke — ikke bli stengt ute fra
-     den de bruker nå. Kaskaden tar utboksen til den som ryker med seg. */
+     den de bruker nå. Kaskaden tar utboksen til den som ryker med seg.
+
+     TAKET GJELDER DET AKTIVE SETTET, og det følger av hva taket er til for.
+     Forsterkeren er sendingen: bare et aktivt abonnement får en utbokslinje og
+     et HTTP-kall. En rad som er død (404/410) eller slått av av brukeren
+     koster ingenting der — og for den siste ville det vært direkte galt å telle
+     den med, for da kunne tjue nye påmeldinger ha kastet ut nettopp det sporet
+     som håndhever en avslåing. */
   delete from public.push_subscriptions s
    where s.user_id = uid
      and s.id <> sub_id                     -- den som nettopp meldte seg på ryker aldri
+     and s.disabled_at is null and s.revoked_at is null
      and s.id not in (select x.id from public.push_subscriptions x
                        where x.user_id = uid and x.id <> sub_id
+                         and x.disabled_at is null and x.revoked_at is null
                        order by x.seen_at desc, x.created_at desc, x.id desc
                        limit greatest(public.push_sub_max() - 1, 0));
 
   /* OPPRYDNING av brukerens EGNE døde spor, mens vi likevel er inne på
      radene hans. Ingen global feiing og ingen egen kjøreplan: den som melder
-     seg på rydder etter seg selv, og et aktivt abonnement røres aldri
-     (`push_keep_days()`). */
+     seg på rydder etter seg selv.
+
+     REGELEN TREFFER KUN 404/410-spor. Et abonnement brukeren har slått av fra
+     en annen enhet blir stående for godt, og det er ikke en detalj — det er
+     hele håndhevelsen. Ryddet vi det bort, ville en nettleser som ikke ble
+     åpnet innen fristen møtt en database uten noe spor av avslåingen, og den
+     automatiske fornyelsen hadde meldt den på igjen uten at brukeren gjorde
+     noe. Valget ville altså hatt en utløpsdato ingen ba om.
+
+     Et aktivt abonnement røres aldri (se `push_keep_days()`). */
   delete from public.push_subscriptions s
    where s.user_id = uid
      and s.id <> sub_id
-     and greatest(coalesce(s.disabled_at, 0), coalesce(s.revoked_at, 0)) > 0
-     and greatest(coalesce(s.disabled_at, 0), coalesce(s.revoked_at, 0))
-         < now_ms - public.push_keep_days() * 86400000::bigint;
+     and s.revoked_at is null
+     and s.disabled_at is not null
+     and s.disabled_at < now_ms - public.push_keep_days() * 86400000::bigint;
 
   perform public.push_enqueue(uid);
   return jsonb_build_object('id', sub_id, 'revoked', false);
@@ -3016,12 +3039,25 @@ begin
 end;
 $$;
 
-/* FJERN-AVSLÅING. Brukeren står på én nettleser og slår av en annen. Raden
-   blir stående som et spor (den er historikken i listen, og det er den som
-   gjør at den avslåtte klienten kan oppdage hva som skjedde), men den er ikke
-   aktiv lenger: utboksen får ingen nye rader, senderen plukker ingen opp, og
-   det som allerede lå i kø AVSLUTTES her — ellers ville et varsel brukeren
-   nettopp slo av kommet fram noen minutter senere.
+/* FJERN-AVSLÅING. Brukeren står på én nettleser og slår av en annen.
+
+   RADEN BLIR STÅENDE FOR GODT, og det er ikke historikk — det er selve
+   håndhevelsen. Den avslåtte nettleseren fornyer abonnementet sitt hver gang
+   den åpnes, og `push_subscribe()` kjenner igjen endepunktet og lar være.
+   Forsvant sporet, ville den samme fornyelsen meldt nettleseren på igjen uten
+   at brukeren gjorde noe: avslåingen ville hatt en utløpsdato. Derfor rører
+   verken taket eller opprydningen en rad med `revoked_at` satt.
+
+   NØKLENE TØMMES samtidig. `p256dh`/`auth` er mottakernøklene som gjør det
+   mulig å KRYPTERE til nettleseren, og et abonnement brukeren har slått av
+   skal ikke bli liggende med dem i det uendelige. Raden trenger bare
+   endepunktet — det er identiteten fornyelsen kjennes igjen på — og
+   `push_subscribe()` skriver ferske nøkler den dagen brukeren slår varslene
+   på igjen der.
+
+   Ellers er raden inert: utboksen får ingen nye rader, senderen plukker ingen
+   opp, og det som allerede lå i kø AVSLUTTES her — ellers ville et varsel
+   brukeren nettopp slo av kommet fram noen minutter senere.
 
    Autorisasjonen er hele poenget: `user_id = auth.uid()`. En id som ikke er
    min treffer ingen rad, og svaret er `false` — ikke en feil som ville
@@ -3036,8 +3072,9 @@ begin
   if uid is null then raise exception 'ikke innlogget'; end if;
   if p_id is null then return false; end if;
   update public.push_subscriptions
-     set revoked_at = coalesce(revoked_at, now_ms)
-   where id = p_id and user_id = uid;
+     set revoked_at = coalesce(revoked_at, now_ms),
+         p256dh = '', auth = '', labels = '{}'::jsonb, tz = null
+   where id = p_id and user_id = uid and revoked_at is null;
   get diagnostics traff = row_count;
   if traff = 0 then return false; end if;
   perform public.push_end_queue(p_id, now_ms, 'slått av av brukeren');
@@ -3047,23 +3084,24 @@ $$;
 
 /* «Slå av varsler på alle andre enheter.» Endepunktet som skal BLI stående er
    nettleserens eget — den brukeren står med i hånden. Uten et endepunkt slås
-   alle av, som er den riktige tolkningen fra en klient som ikke har et. */
+   alle av, som er den riktige tolkningen fra en klient som ikke har et.
+
+   Bare de AKTIVE slås av — det er dem listen viser, og det er dem handlingen
+   heter. En rad som alt er død (404/410) skal ikke gjøres om til et
+   brukerinitiert, permanent spor av en handling brukeren mente om noe annet. */
 create or replace function public.push_revoke_others(p_endpoint text default null)
 returns integer language plpgsql security definer set search_path = public as $$
 declare
   uid    uuid   := auth.uid();
-  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
-  r      record;
   antall integer := 0;
+  r      record;
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
   for r in select id from public.push_subscriptions
-            where user_id = uid and revoked_at is null
+            where user_id = uid and revoked_at is null and disabled_at is null
               and (p_endpoint is null or endpoint <> p_endpoint)
   loop
-    update public.push_subscriptions set revoked_at = now_ms where id = r.id;
-    perform public.push_end_queue(r.id, now_ms, 'slått av av brukeren');
-    antall := antall + 1;
+    if public.push_revoke(r.id) then antall := antall + 1; end if;
   end loop;
   return antall;
 end;

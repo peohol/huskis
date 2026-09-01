@@ -571,7 +571,7 @@
     db.notifications.forEach(function (n) {
       if (n.user_id !== uid || !(n.at > now)) return;
       db.push_subscriptions.forEach(function (sub) {
-        if (sub.user_id !== uid || sub.disabled_at || sub.revoked_at) return;
+        if (sub.user_id !== uid || !pushActive(sub)) return;
         var finnes = db.push_deliveries.some(function (d) {
           return d.notification_id === n.id && d.subscription_id === sub.id;
         });
@@ -590,6 +590,10 @@
      taket multipliserer hvert endepunkt både utboksen og antallet HTTP-kall
      senderen gjør. */
   var PUSH_SUB_MAX = 20;
+  // … og hvor lenge et spor som døde AV SEG SELV (404/410) blir liggende. Et
+  // spor brukeren satte (`revoked_at`) ryddes aldri — se pushSubscribe().
+  var PUSH_KEEP_DAYS = 90;
+  var pushActive = function (x) { return !x.disabled_at && !x.revoked_at; };
   function pushSubscribe(db, uid, p) {
     var e = p.p_endpoint;
     /* Endepunktet blir målet for et HTTP-kall senderen gjør. Kravene er
@@ -643,9 +647,12 @@
     row.disabled_at = null;
     row.revoked_at = null;
     /* TAKET, som serveren: den eldst sette ryker, og den som NETTOPP meldte
-       seg på ryker aldri — den er den brukeren står med i hånden. */
+       seg på ryker aldri — den er den brukeren står med i hånden. Det måles på
+       de AKTIVE: forsterkeren er sendingen, og et tilbakekalt spor koster
+       ingenting der. Telte vi det med, kunne tjue nye påmeldinger kastet ut
+       nettopp raden som håndhever en avslåing. */
     var mine = db.push_subscriptions.filter(function (x) {
-      return x.user_id === uid && x.id !== row.id;
+      return x.user_id === uid && x.id !== row.id && pushActive(x);
     }).sort(function (a, b) { return (b.seen_at || 0) - (a.seen_at || 0) ||
         (b.created_at || 0) - (a.created_at || 0); });
     if (mine.length > PUSH_SUB_MAX - 1) {
@@ -654,6 +661,14 @@
       db.push_subscriptions = db.push_subscriptions.filter(function (x) { return !vekk[x.id]; });
       db.push_deliveries = db.push_deliveries.filter(function (d) { return !vekk[d.subscription_id]; });
     }
+    /* OPPRYDNING, som serveren: kun 404/410-spor eldre enn horisonten. Et spor
+       BRUKEREN satte blir stående for godt — ryddet vi det, ville den avslåtte
+       nettleseren meldt seg på igjen av seg selv den dagen den ble åpnet. */
+    var grense = Date.now() - PUSH_KEEP_DAYS * 86400000;
+    db.push_subscriptions = db.push_subscriptions.filter(function (x) {
+      return !(x.user_id === uid && x.id !== row.id && !x.revoked_at &&
+               x.disabled_at && x.disabled_at < grense);
+    });
     pushEnqueue(db, uid);
     return { id: row.id, revoked: false };
   }
@@ -669,20 +684,26 @@
     });
   }
   function pushRevoke(db, uid, id) {
-    var row = db.push_subscriptions.find(function (x) { return x.id === id && x.user_id === uid; });
+    var row = db.push_subscriptions.find(function (x) {
+      return x.id === id && x.user_id === uid && !x.revoked_at;
+    });
     if (!row) return false;      // en fremmed id røper aldri at raden finnes
-    row.revoked_at = row.revoked_at || Date.now();
+    row.revoked_at = Date.now();
+    /* Nøklene tømmes, som serveren: raden trenger bare endepunktet (identiteten
+       fornyelsen kjennes igjen på), og et abonnement brukeren har slått av skal
+       ikke bli liggende med mottakernøklene sine i det uendelige. */
+    row.p256dh = ''; row.auth = ''; row.labels = {}; row.tz = null;
     pushEndQueue(db, row.id);
     return true;
   }
   function pushRevokeOthers(db, uid, endpoint) {
     var n = 0;
-    db.push_subscriptions.forEach(function (x) {
-      if (x.user_id !== uid || x.revoked_at) return;
+    // Bare de AKTIVE, som serveren: en rad som alt er død skal ikke gjøres om
+    // til et brukerinitiert, permanent spor.
+    db.push_subscriptions.slice().forEach(function (x) {
+      if (x.user_id !== uid || !pushActive(x)) return;
       if (endpoint && x.endpoint === endpoint) return;
-      x.revoked_at = Date.now();
-      pushEndQueue(db, x.id);
-      n++;
+      if (pushRevoke(db, uid, x.id)) n++;
     });
     return n;
   }

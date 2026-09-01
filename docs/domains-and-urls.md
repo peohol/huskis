@@ -259,6 +259,12 @@ nytt: den leses fra guardens `window.__huskisCanonical` (over), som er den ene
 kilden. Semantikken for hva brukeren ser i varselpanelet ligger i
 [`varsler.md`](varsler.md).
 
+Porten rydder også opp etter seg: en forhåndsvisning som ble åpnet FØR porten
+fantes, kan ha et abonnement og en service worker liggende, og det abonnementet
+ville stått som en enhet i produksjonskontoens liste. Det rigges ned ved
+oppstart, best effort. Semantikken ligger i [`varsler.md`](varsler.md)
+(«Hvilke deployer som får melde seg på»).
+
 `?mock=1` er upåvirket — preview-deployer BEHOLDER testmodusen, og
 nettlesertestene kjører på `localhost`.
 
@@ -617,7 +623,10 @@ aktiv på samme måte som for de to andre — kontrollert mot produksjon
 - `tests/devices-sessions.test.js` — preview-porten for web push, KJØRT i den
   ekte appen: produksjonsdomenet og `huskis.vercel.app` slipper gjennom, en
   flyktig `huskis-*-peohols-projects.vercel.app` gjør det ikke, `localhost` er
-  åpen, og et `preview`-stempel stenger porten uansett host.
+  åpen, og et `preview`-stempel stenger porten uansett host. Stempelet settes
+  ved å skrive om HTML-en i transporten — nøyaktig slik `build.js` gjør det —
+  ikke i DOM-et etterpå, som ville kappløpt med parseren. Del 12 dekker
+  opprydningen av et abonnement som lå der fra før.
 - `tests/build-version.test.js` — at `build.js` stempler `huskis-deploy` med
   `VERCEL_ENV`, og at et ukjent miljø blir `dev`.
 - `tests/canonical-origin.test.js` — 308-reglene i `vercel.json` (én per

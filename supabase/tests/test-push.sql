@@ -633,5 +633,107 @@ select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
 select public.t_fails('… og et abonnement kan ikke tilbakekalles ved å skrive i tabellen',
   $$update public.push_subscriptions set revoked_at = 1 where id is not null$$);
 
+-- ---------- 12d. REVOKASJONEN OVERLEVER OPPRYDNINGEN ----------
+/* Det farligste hullet i en fjern-avslåing er ikke at den ikke virker nå — det
+   er at den slutter å virke SENERE, uten at noen gjorde noe.
+
+   Enhet A får varslene sine slått av fra enhet B. A blir så liggende ubrukt:
+   den oppdager aldri tilbakekallingen lokalt, for den blir aldri åpnet. Ryddet
+   serveren bort sporet etter `push_keep_days()`, ville A den dagen den ble
+   åpnet igjen møtt en database uten noe minne om avslåingen — og den helt
+   vanlige, automatiske fornyelsen hadde meldt den på igjen. Brukeren hadde
+   ikke rørt noe, og varslene var tilbake.
+
+   Derfor: et 404/410-spor ryddes, et brukerinitiert spor gjør det aldri. */
+reset role;
+select set_config('request.jwt.claims', '', false);
+select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+delete from public.push_subscriptions where user_id = :'A';
+delete from public.notifications where user_id = :'A';
+
+select (public.push_subscribe('https://push.example.com/sovende', :'k_a1', :'s_a1',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Android', 'www.huskis.no', 'd-sovende') ->> 'id') as sub_sov \gset
+select (public.push_subscribe('https://push.example.com/dodt-gammelt', :'k_b', :'s_b',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo') ->> 'id') as sub_gam \gset
+
+-- Enhet B slår av A.
+select public.push_revoke(:'sub_sov'::uuid);
+select public.t_check('nøklene er tømt i det abonnementet ble slått av',
+  (select p256dh = '' and auth = '' and labels = '{}'::jsonb and tz is null
+     from public.push_subscriptions where id = :'sub_sov'::uuid));
+
+/* … og så går det lang tid. Begge sporene backdates forbi horisonten: det ene
+   fordi push-tjenesten sa 404/410, det andre fordi brukeren slo det av. */
+reset role;
+update public.push_subscriptions
+   set revoked_at = (extract(epoch from now()) * 1000)::bigint
+                    - (public.push_keep_days() + 110) * 86400000::bigint
+ where id = :'sub_sov'::uuid;
+update public.push_subscriptions
+   set disabled_at = (extract(epoch from now()) * 1000)::bigint
+                     - (public.push_keep_days() + 110) * 86400000::bigint
+ where id = :'sub_gam'::uuid;
+select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+
+-- En helt vanlig påmelding fra en ANNEN nettleser kjører opprydningen.
+select public.push_subscribe('https://push.example.com/en-annen', :'k_c', :'s_c',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo');
+select public.t_check('et 404/410-spor eldre enn horisonten ryddes bort',
+  (select count(*) from public.push_subscriptions where id = :'sub_gam'::uuid) = 0);
+select public.t_check('… men et spor BRUKEREN satte blir stående, uansett hvor gammelt',
+  (select revoked_at is not null from public.push_subscriptions where id = :'sub_sov'::uuid));
+
+/* Den sovende enheten våkner endelig, med det SAMME lokale abonnementet, og
+   gjør det den alltid gjør: fornyer seg. Dette er øyeblikket hullet ville
+   åpnet seg i. */
+select public.push_subscribe('https://push.example.com/sovende', :'k_a2', :'s_a2',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Android', 'www.huskis.no', 'd-sovende') as vekket \gset
+select public.t_check('en automatisk fornyelse etter horisonten aktiverer IKKE abonnementet',
+  (:'vekket'::jsonb ->> 'revoked') = 'true');
+select public.t_check('… raden er fortsatt tilbakekalt, og teller ikke som aktiv',
+  (select revoked_at is not null from public.push_subscriptions where id = :'sub_sov'::uuid)
+  and (select count(*) from public.push_subscriptions
+        where user_id = :'A' and disabled_at is null and revoked_at is null
+          and endpoint = 'https://push.example.com/sovende') = 0);
+select public.t_check('… og nøklene ble ikke skrevet tilbake av fornyelsen',
+  (select p256dh = '' from public.push_subscriptions where id = :'sub_sov'::uuid));
+
+-- Bare brukeren, på nettopp den klienten, tar det tilbake.
+select public.push_subscribe('https://push.example.com/sovende', :'k_a2', :'s_a2',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Android', 'www.huskis.no', 'd-sovende', true) as slatt_pa \gset
+select public.t_check('et eksplisitt «slå på varsler» der aktiverer det igjen',
+  (:'slatt_pa'::jsonb ->> 'revoked') = 'false'
+  and (select revoked_at is null and p256dh = :'k_a2'
+         from public.push_subscriptions where id = :'sub_sov'::uuid));
+
+-- ---------- 12e. TAKET kaster aldri ut et brukerinitiert spor ----------
+/* Taket finnes for SENDINGEN: hvert aktive abonnement er en utbokslinje og et
+   HTTP-kall til. Et tilbakekalt spor koster ingenting der — og telte det med,
+   kunne tjue nye påmeldinger ha kastet ut nettopp raden som håndhever en
+   avslåing. Det ville vært den samme feilen som opprydningen over, bare med en
+   annen utløser. */
+select public.push_revoke(:'sub_sov'::uuid);
+do $$
+declare i int;
+begin
+  for i in 1..25 loop
+    perform public.push_subscribe('https://push.example.com/tak2-' || i,
+      'BP' || repeat('k', 83) || 't2', repeat('s', 22));
+  end loop;
+end $$;
+select public.t_check('taket holder fortsatt, målt på de AKTIVE',
+  (select count(*) from public.push_subscriptions
+    where user_id = :'A' and disabled_at is null and revoked_at is null)
+    = public.push_sub_max());
+select public.t_check('… og det tilbakekalte sporet står der fortsatt',
+  (select revoked_at is not null from public.push_subscriptions where id = :'sub_sov'::uuid));
+select public.push_subscribe('https://push.example.com/sovende', :'k_a2', :'s_a2',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo') as etter_tak \gset
+select public.t_check('… så en automatisk fornyelse blir avvist også etter tjuefem påmeldinger',
+  (:'etter_tak'::jsonb ->> 'revoked') = 'true');
+
 reset role;
 \echo '✅ test-push.sql: alle sjekker grønne'

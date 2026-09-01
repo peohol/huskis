@@ -35,6 +35,10 @@
         LUKKET modal gjør det ikke (trekkspillet nullstilles først ved neste
         åpning), og et svar som var i lufta da kontoen byttet forkastes i
         stedet for å male forrige brukers enheter.
+    12. Et abonnement som ALLEREDE lå på en forhåndsvisning ryddes når siden
+        åpnes: meldt av, service workeren avregistrert, bryteren av og
+        serverraden borte — og ingen ny påmelding skjer etterpå. Andre enheters
+        abonnementer røres ikke.
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
@@ -163,19 +167,24 @@ function fakePlattform() {
   Object.defineProperty(window, 'Notification', { value: FakeNotification, configurable: true, writable: true });
 
   const nøkkel = (n) => new Uint8Array(n === 'auth' ? 16 : 65).fill(n === 'auth' ? 7 : 4).buffer;
+  const lagAbo = () => ({
+    endpoint: 'https://push.test/abc', getKey: nøkkel,
+    unsubscribe: async () => { window.__kanal.avmeldt = true; abo = null; return true; },
+  });
+  /* `?forhaand=1` etterligner en nettleser som ALLEREDE har et Huskis-
+     abonnement og en registrert service worker fra før — situasjonen på en
+     forhåndsvisning som ble åpnet før porten fantes. */
+  const fraFør = q.get('forhaand') === '1';
   let abo = null;
   const reg = {
     pushManager: {
       getSubscription: async () => abo,
-      subscribe: async () => {
-        abo = { endpoint: 'https://push.test/abc', getKey: nøkkel,
-          unsubscribe: async () => { abo = null; return true; } };
-        return abo;
-      },
+      subscribe: async () => { abo = lagAbo(); return abo; },
     },
-    unregister: async () => { window.__kanal.avregistrert = true; return true; },
+    unregister: async () => { window.__kanal.avregistrert = true; registrert = null; return true; },
   };
   let registrert = null;
+  if (fraFør) { abo = lagAbo(); registrert = reg; }
   Object.defineProperty(navigator, 'serviceWorker', {
     configurable: true,
     value: {
@@ -196,17 +205,33 @@ function fakePlattform() {
   });
 }
 
-async function seed(p, url, db) {
+/* Stempler siden som en Vercel preview-deploy — nøyaktig slik `build.js` gjør
+   det. HTML-en skrives om i transporten, ikke i DOM-et etterpå: appen leser
+   stempelet mens den laster, og et skript som kappløper med parseren ville
+   gjort testen tilfeldig. */
+async function stemplePreview(ctx) {
+  await ctx.route((u) => u.origin === new URL(BASE).origin &&
+    (u.pathname === '/' || u.pathname === '/index.html'), async (route) => {
+    const svar = await route.fetch();
+    const html = (await svar.text()).replace(
+      '<meta name="huskis-deploy" content="dev" />',
+      '<meta name="huskis-deploy" content="preview" />');
+    await route.fulfill({ response: svar, body: html });
+  });
+}
+
+async function seed(p, url, db, lokalt) {
   await p.goto(url);
-  await p.evaluate(({ db, uid, sid }) => {
+  await p.evaluate(({ db, uid, sid, lokalt }) => {
     localStorage.clear(); sessionStorage.clear();
     localStorage.setItem('hk-mock-db', JSON.stringify(db));
+    Object.keys(lokalt || {}).forEach((k) => localStorage.setItem(k, lokalt[k]));
     sessionStorage.setItem('hk-mock-session', JSON.stringify({
       id: uid, email: 'e@x.no', session_id: sid,
       user_metadata: { onboarding: { v: 3, status: 'done' },
         tips: { drag: true, trash: true, moveList: true, dragTrash: true } },
     }));
-  }, { db, uid, sid: SESS_HER });
+  }, { db, uid, sid: SESS_HER, lokalt: lokalt || {} });
   await p.goto(url);
   await p.waitForFunction(() => window.__huskis && window.__huskis.authUser && window.__huskis.lastMy,
     null, { timeout: 20000, polling: 200 });
@@ -297,20 +322,7 @@ async function bekreft(p) {
     p.on('pageerror', (e) => feil.push(String(e)));
     await p.addInitScript(fakePlattform);
     // Stemple siden som en preview-deploy FØR app.js leser stempelet.
-    await p.addInitScript(() => {
-      document.addEventListener('readystatechange', () => {}, { once: true });
-      const sett = () => {
-        const m = document.querySelector('meta[name="huskis-deploy"]');
-        if (m) m.setAttribute('content', 'preview');
-      };
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', sett, { once: true });
-        // <head> finnes lenge før DOMContentLoaded; sett så tidlig som mulig.
-        const t = setInterval(() => {
-          if (document.querySelector('meta[name="huskis-deploy"]')) { sett(); clearInterval(t); }
-        }, 1);
-      } else sett();
-    });
+    await stemplePreview(ctx);
     await seed(p, BASE + '/index.html?mock=1', buildDB(Date.now()));
 
     const st = await p.evaluate(async () => {
@@ -572,6 +584,69 @@ async function bekreft(p) {
       await p.evaluate(() => window.__huskis.devices === null),
       JSON.stringify(await p.evaluate(() => window.__huskis.devices)));
     log('11: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
+    await ctx.close();
+  }
+
+  /* ---------- Del 12: et gammelt abonnement på en preview ryddes ---------- */
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+    const p = await ctx.newPage();
+    const feil = [];
+    p.on('pageerror', (e) => feil.push(String(e)));
+    await p.addInitScript(fakePlattform);
+    await stemplePreview(ctx);
+
+    /* Nettleseren har ALLEREDE et Huskis-abonnement og en registrert service
+       worker her — forhåndsvisningen ble åpnet før porten fantes — og
+       serveren har raden. Porten alene ville bare sagt «slått av i
+       forhåndsvisninger» mens abonnementet levde videre. */
+    const nå = Date.now();
+    await seed(p, BASE + '/index.html?mock=1&forhaand=1', buildDB(nå),
+      { 'hk-notif-channel': 'on' });
+
+    await p.waitForFunction(() => {
+      const k = window.__kanal || {};
+      return k.avmeldt === true && k.avregistrert === true;
+    }, null, { timeout: 15000, polling: 100 });
+    log('12a det gamle abonnementet er meldt av, og service workeren avregistrert',
+      await p.evaluate(() => !!(window.__kanal.avmeldt && window.__kanal.avregistrert)));
+
+    log('12b … bryteren for denne deployen står av',
+      await p.evaluate(() => localStorage.getItem('hk-notif-channel') !== 'on'),
+      await p.evaluate(() => localStorage.getItem('hk-notif-channel')));
+
+    // Serverraden ryddes så snart det finnes en økt (cloudStart).
+    await p.waitForFunction((e) => {
+      const db = window.HK_MOCK._loadDB();
+      return !db.push_subscriptions.some((x) => x.endpoint === e);
+    }, ENDE_HER, { timeout: 15000, polling: 150 });
+    const db12 = await dbOf(p);
+    log('12c … og serverraden er borte, så den ikke teller som en enhet i produksjon',
+      !db12.push_subscriptions.some((x) => x.endpoint === ENDE_HER),
+      db12.push_subscriptions.map((x) => x.origin));
+    log('12d … mens de andre enhetenes abonnementer står urørt',
+      db12.push_subscriptions.some((x) => x.endpoint === ENDE_DER && !x.revoked_at && !x.disabled_at));
+
+    /* Og den melder seg IKKE på igjen: porten stenger både bryteren og
+       fornyelsen, runde etter runde. */
+    const førSub = await p.evaluate(() => window.__kanal.kall.push_subscribe || 0);
+    await p.evaluate(async () => {
+      await window.__huskis.cloudCycle();
+      await window.__huskis.syncNotifChannel();
+      await window.__huskis.sweepBlockedPush();
+    });
+    log('12e … og ingen ny påmelding skjer, verken av synk-runden eller speilingen',
+      (await p.evaluate(() => window.__kanal.kall.push_subscribe || 0)) === førSub &&
+      (await p.evaluate(async () => {
+        const reg = await navigator.serviceWorker.getRegistration();
+        return !reg;
+      })), { før: førSub, etter: await p.evaluate(() => window.__kanal.kall.push_subscribe || 0) });
+
+    const st12 = await p.evaluate(() => ({
+      tilstand: window.__huskis.notifChState, kanal: !!window.__huskis.notifChannel() }));
+    log('12f panelet melder fortsatt «preview», ikke «på»',
+      st12.tilstand === 'preview' && st12.kanal === false, st12);
+    log('12: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
     await ctx.close();
   }
 

@@ -997,6 +997,25 @@ preview-adresse er. Domenelisten står ETT sted — guarden øverst i `index.htm
 Testene er upåvirket: de kjører på `localhost`, og `?mock=1` bytter hele
 backenden. Det trengs ingen egen testmodus for dette.
 
+**Porten rydder også opp etter seg.** Den stopper NYE påmeldinger, men sier
+ingenting om det som allerede ligger der: en forhåndsvisning som ble åpnet før
+porten fantes, har en service worker og et abonnement på sitt eget origin — og
+det abonnementet lever videre og teller som en enhet i produksjonskontoens
+liste, mens panelet på nettopp den siden sier at varsler er slått av her. To
+påstander som ikke kan være sanne samtidig.
+
+`sweepBlockedPush()` rigger det derfor ned ved oppstart på en deploy porten
+stenger: abonnementet meldes av, service workeren avregistreres, bryteren for
+DETTE originet settes av, og serverraden fjernes (`push_unsubscribe`) så snart
+det finnes en økt å gjøre det med — nedriggingen venter ikke på en innlogging,
+men serverkallet må. Endepunktet tas vare på mellom de to skrittene; etter
+`unregister()` finnes det ikke å hente lenger.
+
+Alt er **best effort**: en forhåndsvisning skal ikke bli ubrukelig av at
+opprydningen feilet, så hvert ledd står for seg. Og bare VÅRT ryddes —
+`getRegistration()` uten argument gir registreringen som dekker dette
+dokumentet, altså Huskis' egen på Huskis' eget origin.
+
 ### Enhetene med varsler
 
 Panelet sier hvor mange nettlesere som har varsler på, og «Vis enheter» åpner
@@ -1044,16 +1063,45 @@ Nedriggingen lar raden BLI STÅENDE på serveren (`disable({ keepRow: true })`) 
 det er `revoked_at` som holder et gjenbrukt endepunkt fra å våkne som aktivt, og
 sletter vi raden, kaster vi den garantien.
 
+**Sporet er selve håndhevelsen, og det står for godt.** Den avslåtte nettleseren
+har ikke lovet å bli åpnet igjen. Blir den liggende ubrukt, oppdager den aldri
+tilbakekallingen lokalt — og den dagen den ÅPNES, gjør den det den alltid gjør:
+fornyer abonnementet sitt. Fantes ikke raden lenger, ville den fornyelsen vært
+en helt vanlig påmelding, og varslene hadde vært tilbake uten at brukeren rørte
+noe. Avslåingen ville altså hatt en utløpsdato ingen ba om.
+
+Derfor rører **verken opprydningen eller taket** en rad med `revoked_at` satt:
+
+- opprydningen under gjelder kun 404/410-spor;
+- taket (`push_sub_max()`) telles og håndheves på det AKTIVE settet. Det følger
+  av hva taket er til for — forsterkeren er sendingen, og et tilbakekalt spor
+  koster ingenting der. Telte det med, kunne tjue nye påmeldinger ha kastet ut
+  nettopp raden som håndhever en avslåing.
+
+**Nøklene tømmes når raden tilbakekalles.** `p256dh`/`auth` er mottakernøklene
+som gjør det mulig å KRYPTERE til nettleseren, og et abonnement brukeren har
+slått av skal ikke bli liggende med dem i det uendelige. Raden trenger bare
+endepunktet — det er identiteten fornyelsen kjennes igjen på — og
+`push_subscribe()` skriver ferske nøkler den dagen brukeren slår varslene på
+igjen der.
+
+Grensen er verdt å kjenne: sporet er nøklet på ENDEPUNKTET, fordi det er
+endepunktet som ER abonnementet. Ruller nettleseren endepunktet sitt
+(`pushsubscriptionchange`), er det en ny mottaker, og den melder seg på som en
+ny. Å knytte tilbakekallingen til noe annet — en enhets-id klienten selv sender
+— ville vært å bygge en identitet appen ikke har, og som brukeren når som helst
+kan nullstille.
+
 #### Opprydning
 
-Et dødt eller tilbakekalt spor blir liggende i `push_keep_days()` (90 dager) — så
-lenge er det både historikken i listen og måten en klient oppdager at den ble
-slått av. Etter det ryddes det bort, av `push_subscribe()` mens den likevel er
-inne på brukerens egne rader (ingen global feiing, ingen egen kjøreplan).
+Et spor som døde AV SEG SELV — push-tjenesten svarte 404/410 — blir liggende i
+`push_keep_days()` (90 dager) og ryddes så bort av `push_subscribe()` mens den
+likevel er inne på brukerens egne rader (ingen global feiing, ingen egen
+kjøreplan).
 
 Regelen rører **aldri et aktivt abonnement**. En enhet skal kunne motta varsler
 selv om Huskis ikke har vært åpnet der på et år — det er nettopp da et varsel er
-verdt mest.
+verdt mest. Og den rører **aldri et spor brukeren satte** (se over).
 
 ### Service workeren (`sw.js`)
 
@@ -1360,7 +1408,10 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   preferansene og kontosletting.
 - `tests/devices-sessions.test.js` — de to listene i konto-modalen, KJØRT:
   preview-porten (produksjonsdomenet og `huskis.vercel.app` slipper gjennom, en
-  flyktig preview-host og et `preview`-stempel gjør det ikke), panelets
+  flyktig preview-host og et `preview`-stempel gjør det ikke), at et abonnement
+  som ALLEREDE lå på en forhåndsvisning ryddes når siden åpnes — meldt av,
+  service workeren avregistrert, bryteren av, serverraden borte, og ingen ny
+  påmelding etterpå, mens andre enheters abonnementer står urørt — panelets
   preview-tekst, «denne enheten» øverst i begge listene, fjern-utlogging av én
   økt og av alle andre, at vanlig «Logg ut» er LOKAL, at en fjern-utlogget klient
   som står åpen går til innloggingssiden uten å miste bufferen, og at et
@@ -1374,9 +1425,11 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   idempotens, kaskaden som avlyser en levering, at et EIERSKIFTE tømmer køen og
   at senderen aldri plukker opp en levering som ikke hører til abonnementets
   eier, grensene for hva et abonnement får være (endepunkt, nøkkelform og taket
-  på antall enheter), fjern-avslåingen (riktig rad, køen avsluttet, ingen
-  automatisk gjenpåmelding, og at et eksplisitt «slå på» tar den tilbake), at en
-  PLANLAGT rad får et ferskt navn mens historikken ikke skrives om, at et dødt endepunkt tar hele køen sin med seg, at senderens
+  på antall enheter), fjern-avslåingen (riktig rad, nøklene tømt, køen avsluttet,
+  ingen automatisk gjenpåmelding, og at et eksplisitt «slå på» tar den tilbake),
+  at sporet OVERLEVER både opprydningshorisonten og taket — en sovende enhet som
+  våkner etter 200 dager og fornyer seg blir fortsatt avvist — at en PLANLAGT rad
+  får et ferskt navn mens historikken ikke skrives om, at et dødt endepunkt tar hele køen sin med seg, at senderens
   funksjoner er stengt for klienten, hent/send/meld-runden med alle tre
   utfallene, tidssone-hevdelsen, og `push_headers()` — kjørt, ikke lest: en ny
   secret key får ingen `Authorization`-header i det hele tatt.
