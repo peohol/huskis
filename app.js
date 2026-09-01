@@ -1355,6 +1355,9 @@
     afterDrop: () => { /* board-et er allerede riktig */ },
     reindexColors: () => reindexContainerColors(boardScope),
     lockedTargetMsg: tr('dnd.listLocked'),  // avvist slipp i en frossen mål-container
+    // Ville slippet i denne containeren blitt avvist? Samme spørsmål som ved
+    // slippet (`boardRejectTarget`), stilt UNDER draget — se `retargetDragTrash`.
+    refusesRow: (targetCardId) => !!boardRejectTarget(targetCardId, boardRowSourceCardId),
   };
   const navScope = {
     key: 'nav',
@@ -1400,6 +1403,7 @@
     afterDrop: () => { updateCrumbs(); renderBoard(); },
     reindexColors: () => reindexContainerColors(navScope),
     lockedTargetMsg: tr('dnd.universeLocked'),
+    refusesRow: (targetCardId) => !!navRejectTarget(targetCardId, navSourceCardId),
   };
   const dragScope = () => drag.scope || boardScope;
 
@@ -4764,16 +4768,41 @@
      den forsvinner ikke.
 
      Bare rader har en vert å bytte. En LISTE og et OMRÅDE slippes i kassen i
-     topplinja respektive nav-modalens bunnrad — én kasse, ingen vert. */
+     topplinja respektive nav-modalens bunnrad — én kasse, ingen vert.
+
+     EN CONTAINER SOM IKKE TAR IMOT RADEN FÅR HELLER INGEN KASSE. Sikter man mot
+     en låst liste / et låst område, blir slippet der avvist og rullet tilbake
+     med en beskjed — men kassen fulgte etter og foldet seg ut rett under
+     siktet, og et slipp som bommet med noen piksler SLETTET i stedet. Én gest,
+     to helt forskjellige utfall, uten noe som skilte dem. Spørsmålet stilles på
+     nytt hver runde, og også om VERTEN: en container kan bli låst MENS draget
+     pågår. Se de tre trinnene i `retargetDragTrash`. */
   function retargetDragTrash() {
     if (!drag.trashArmed || drag.kind !== 'item') return;
+    const S = dragScope();
+    // Avviser containeren raden (låst, virtuell, uten opprettelsesrett)? Samme
+    // svar slippet ville gitt — `*RejectTarget` er autoriteten, her og der.
+    const nekter = (el) => !el || !el.isConnected || S.refusesRow(el.dataset.id);
     // «Hvilken liste er objektet i?» besvares ÉTT sted (`dragOverCard`:
     // objektets midtre 1/3 innenfor kortet), og kassen bruker det samme svaret
     // som plasseringen og ekstraheringen. En egen terskel for kassen ville vært
     // en andre regel på det samme spørsmålet — og da kan knappen stå i en annen
     // liste enn den raden ville landet i.
-    const host = dragOverCard();
-    if (!host || host === drag.trashHost) return;
+    const over = dragOverCard();
+    /* Hvor kassen skal stå NÅ, i tre trinn:
+         1. containeren raden svever over — når den tar imot raden,
+         2. ellers der kassen står — men bare så lenge DEN fortsatt tar imot
+            raden: et mål kan bli låst MENS draget pågår (en synk-runde), og en
+            vert som begynner å avvise raden etter at kassen flyttet dit ville
+            ellers blitt stående med et slette-mål slippet ikke kan lande i,
+         3. ellers hjem til kilden, som aldri avvises (`*RejectTarget` svarer
+            null for containeren raden kom fra). Er kilden borte fra DOM-en,
+            svarer `dragTrashBtn()` null og `armDragTrash` armer ingenting —
+            ingen kasse er det riktige svaret når ingen container kan ha den. */
+    const host = (over && !nekter(over)) ? over
+      : !nekter(drag.trashHost) ? drag.trashHost
+        : anchorTrashHome;
+    if (host === drag.trashHost) return;
     // Siktemarkeringen tas av FØR knappen forlates: `setDragTrashTarget` er
     // kantstyrt, så et flagg som ble nullstilt bak ryggen på den ville latt
     // objektet stå rødt.
@@ -7656,8 +7685,10 @@
     drag.peekCard = null;
     drag.peekCat = null;
     drag.overCard = el.closest('.card');
-    // Kassen som gjelder er den i LISTA raden kom fra — ikke den man tilfeldigvis
-    // svever over. Slettingen legger raden i kildens kasse.
+    // Kassen starter i lista raden løftes fra og FØLGER den derfra til de
+    // listene som tar imot den (`retargetDragTrash`). Verten er bare hvor
+    // knappen står mens man drar: slettingen legger uansett raden i sin EGEN
+    // listes kasse (`dropIntoTrash` leser `it.home`).
     drag.trashHost = el.closest('.card');
     drag.crumbTarget = false;
     boardExtract = false;
