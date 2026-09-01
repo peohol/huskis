@@ -1098,7 +1098,18 @@ Statusen meldes av `native_notif_touch()`, og den går **sjelden med vilje**:
 | ellers: hvert kvarter | en puls, så metadataen ikke blir permanent foreldet |
 
 Ingen skriving hvert femte sekund: en runde som verken har ny status eller har
-ventet ut kvarteret sitt gjør ingenting.
+ventet ut kvarteret sitt gjør ingenting — den går ikke engang over pluginbroen
+for å spørre om tillatelsen, for bryteren i `localStorage` avgjør allerede at
+kanalen er av. Og signalet over nullstiller bare dempingen så lenge klienten og
+serveren er UENIGE; er nedriggingen alt gjort, står runden stille igjen.
+
+**Et svar som lander etter et kontobytte forkastes.** Statusrunden er et
+nettverkskall, og en utlogging kan rekke å skje mens det er i lufta. Et
+`revoked` fra den FORRIGE kontoen ville ellers avlyst den nye kontoens alarmer
+og slått av bryteren på enheten, for et valg ingen tok der. Både denne runden og
+web push-fornyelsen leser derfor en epoke før kallet og forkaster svaret hvis
+varseltilstanden er nullstilt i mellomtiden — samme grep som enhetslistene
+bruker.
 
 **En app som ikke har varsler på, får ingen rad.** Runden går fra hver
 innlogging på hver Android-enhet, også de som aldri slår varslene på; uten den
@@ -1128,8 +1139,9 @@ Rekkefølgen er derfor:
 
 1. serveren registrerer avslåingen **umiddelbart** (`revoked_at`), og appen
    forsvinner fra listen med det samme;
-2. en **åpen** app oppdager det i sin neste synk-runde — telleren i doc-et
-   faller, statusrunden går med én gang, serveren svarer `revoked`, og appen
+2. en **åpen** app oppdager det i sin neste synk-runde — doc-et bærer
+   `notif_revoked` for nettopp denne klienten, dempingen nullstilles,
+   statusrunden går i den samme runden, serveren svarer `revoked`, og appen
    avlyser alarmene sine, setter bryteren av og oppdaterer panelet;
 3. en **lukket** app gjør nøyaktig det samme neste gang den er i bruk og får
    kontakt med serveren;
@@ -1449,10 +1461,14 @@ utboksen, og neste tikk tar det samme arbeidet.
   lokale varsler fra den samme planen, med de samme deterministiske ID-ene.
 - `get_my_doc().push_devices` teller de aktive i BEGGE kanalene og gir tallet
   til panelet, så «på» sier hvor mange enheter det gjelder — og «Vis enheter»
-  åpner listen over dem (se «Enhetene med varsler»). Tallet er også SIGNALET
-  klientene bruker: faller det, går statusrunden med én gang i stedet for å
-  vente ut kvarteret sitt, og det er slik en fjern-avslått klient oppdager
-  valget innen én synk-runde.
+  åpner listen over dem (se «Enhetene med varsler»). Faller tallet, går web
+  push-fornyelsen med én gang i stedet for å vente ut kvarteret sitt.
+- `get_my_doc().notif_revoked` er det PRESISE signalet for den native kanalen:
+  er nettopp denne klientens kanal slått av fra en annen enhet? Et aggregat
+  duger ikke alene der — slår én enhet av mens en annen slår på i det samme
+  vinduet, står tallet stille, og telefonen hadde ventet ut kvarteret sitt med
+  alarmer brukeren nettopp slo av. Nettleseren kjenner igjen sitt eget
+  abonnement på ENDEPUNKTET, som doc-et verken har eller skal ha.
 - **To enheter varsler begge.** Det er normalt og forventet, som e-post på både
   telefon og laptop.
 - **Planen** legges derimot av ÉN enhet av gangen — den som holder tidssonen (se

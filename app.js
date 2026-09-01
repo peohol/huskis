@@ -10065,6 +10065,13 @@
      — begge deler kan kjøre før kanal-seksjonen lenger nede er nådd. */
   let notifChState = 'unsupported';
   let notifChBusy = false;   // ett tillatelsesforsøk om gangen
+  /* Bumpes hver gang varseltilstanden nullstilles — inn- og utlogging,
+     kontobytte. Et kanalkall som allerede var i LUFTA da det skjedde, bærer
+     den forrige kontoens svar, og et `revoked` derfra ville rigget ned den
+     NYE kontoens kanal: avlyst alarmene på telefonen og slått av bryteren på
+     enheten, for et valg ingen tok på denne kontoen. Samme grep som
+     `devicesEpoch` bruker for enhetslistene. */
+  let notifEpoch = 0;
 
   /* Enhetens tidssone, slik plattformen selv navngir den. Terskeltidene er
      absolutte millisekunder regnet ut av `timeMs()` fra lokal veggtid, så de
@@ -10295,10 +10302,18 @@
        runden et billig no-op. */
     const førPush = notifPushDevices;
     notifPushDevices = Number((my && my.push_devices) || 0);
-    if (notifPushDevices < førPush) {
-      notifPushMark = null; notifPushMarkAt = 0;
-      // … og den native statusrunden, som er DEN veien en Android-app oppdager
-      // at noen slo den av. Uten dette ville telefonen ventet ut kvarteret sitt.
+    if (notifPushDevices < førPush) { notifPushMark = null; notifPushMarkAt = 0; }
+    /* … og for den NATIVE kanalen et presist signal, ikke et aggregat: doc-et
+       sier om nettopp denne klientens kanal er slått av fra en annen enhet.
+       Telleren over duger ikke alene her — slår én enhet av mens en annen slår
+       på i det samme vinduet, står tallet stille, og telefonen hadde ventet ut
+       kvarteret sitt med alarmer brukeren nettopp slo av. Dempingen nullstilles,
+       og statusrunden senere i DENNE runden gjør nedriggingen.
+
+       Kun så lenge de to er UENIGE. Signalet står jo på så lenge avslåingen
+       gjør det, og en nullstilling hver runde ville sendt både en pluginbro-
+       tur og et serverkall hvert femte sekund for en jobb som alt er gjort. */
+    if (my && my.notif_revoked && (notifChannelWanted() || !notifPushRevoked)) {
       notifNativeMark = null; notifNativeMarkAt = 0; notifNativeRetryAt = 0;
     }
     paintNotifBadge();
@@ -11843,7 +11858,11 @@
       // trenger at runden går innom serveren nå og da, ikke bare når noe
       // lokalt endrer seg.
       if (merke === notifPushMark && Date.now() - notifPushMarkAt < PUSH_RENEW_MS) return;
+      const epoke = notifEpoch;
       const svar = await this.register(sub);
+      // Byttet kontoen mens vi ventet, hører svaret til den FORRIGE brukeren —
+      // og et `revoked` derfra ville rigget ned den nye kontoens kanal.
+      if (epoke !== notifEpoch) return;
       notifPushMark = merke;
       notifPushMarkAt = Date.now();
       // Fjern-avslått. Rigg ned lokalt — service workeren avregistreres og
@@ -11899,12 +11918,15 @@
     if (!eksplisitt && merke === notifNativeMark &&
         Date.now() - notifNativeMarkAt < PUSH_RENEW_MS) return;
     const d = clientDescriptor();
+    const epoke = notifEpoch;
     try {
       const { data, error } = await client.rpc('native_notif_touch', {
         p_enabled: på, p_browser: d.browser, p_platform: d.platform,
         p_origin: d.origin, p_device_id: d.deviceId, p_explicit: eksplisitt,
       });
       if (error) throw error;
+      // Byttet kontoen mens vi ventet, hører svaret til den FORRIGE brukeren.
+      if (epoke !== notifEpoch) return;
       notifNativeMark = merke;
       notifNativeMarkAt = Date.now();
       notifNativeRetryAt = 0;
@@ -12307,6 +12329,7 @@
 
   // Utlogging/kontobytte: historikken hørte til den forrige brukeren.
   function resetNotifications() {
+    notifEpoch++;
     closeNotifSnooze();
     clearNotifToasts();
     notifSeen = null;

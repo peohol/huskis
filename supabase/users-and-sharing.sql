@@ -4333,6 +4333,30 @@ begin
                       where user_id = uid and disabled_at is null
                         and revoked_at is null)
                   + (select count(*) from public.native_notif_active(uid)),
+    /* ER DENNE KLIENTENS NATIVE VARSELKANAL SLÅTT AV fra en annen enhet?
+
+       Et PRESIST signal, og ikke bare fordi det er penere: telleren over er et
+       AGGREGAT. Den faller når noen slår av en enhet — men bare hvis ingen
+       annen enhet slo sine PÅ i det samme vinduet. Skjer begge deler mellom to
+       runder, står tallet stille, og en åpen Android-app ville ventet ut
+       kvarteret sitt med alarmer brukeren nettopp slo av. Her ser den det i
+       neste runde, uansett hva de andre enhetene gjorde.
+
+       To indeksoppslag: øktens egen rad i sidebordet (primærnøkkel), og
+       klientkonteksten dens i statusbordet (unik indeks). `false` når økt-
+       claimet mangler eller klienten aldri har meldt en status — en manglende
+       opplysning skal aldri kunne lese seg som en avslåing.
+
+       KUN den native kanalen. En nettleser kjenner igjen sitt eget abonnement
+       på ENDEPUNKTET, og det har doc-et ikke — og skal ikke ha: det er
+       adressen varslene sendes til. Der er telleren fortsatt signalet. */
+    'notif_revoked', (select exists (
+        select 1 from public.device_sessions d
+          join public.native_notif_devices n
+            on n.user_id = d.user_id and n.device_id = d.device_id
+           and n.origin = d.origin
+         where d.user_id = uid and d.session_id = public.current_session_id()
+           and n.revoked_at is not null)),
     /* LEVER ØKTEN ENNÅ? Ett indeksoppslag på primærnøkkelen i `auth.sessions`,
        og den ene grunnen til at det står i det pollede doc-et: et allerede
        utstedt access-token er gyldig til det utløper, så en fjern-utlogget

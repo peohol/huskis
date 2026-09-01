@@ -29,10 +29,13 @@
      6. Lokalt AV melder fra med det samme, og lokalt PÅ igjen likeså.
      7. Fjern-avslåing mens appen er ÅPEN gjennomføres i neste synk-runde: de
         planlagte alarmene avlyses, bryteren går av, serverstatusen står, og
-        ingen automatisk runde kan slå dem på igjen.
+        ingen automatisk runde kan slå dem på igjen — også når ANTALLET
+        varselenheter står stille fordi en tredje enhet slo sine på samtidig.
      8. Et EKSPLISITT «slå på varsler» i appen opphever avslåingen, planlegger
         alarmene på nytt, og appen står i listen igjen.
      9. Utlogging tar varselstatusen med seg — og alarmene.
+    10. Et statussvar som lander ETTER et kontobytte forkastes: et «slått av»
+        fra forrige konto skal ikke rigge ned den nye kontoens kanal.
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
@@ -150,14 +153,17 @@ function fakePlattform() {
   const q = new URLSearchParams(location.search);
   const ch = q.get('ch');
   window.__kanal = { schedule: [], cancel: [], pending: [], alarmer: [],
-    perm: q.get('perm') || 'granted', spurt: 0, kall: {}, broKall: 0 };
+    perm: q.get('perm') || 'granted', spurt: 0, kall: {}, broKall: 0, hold: null };
 
   Object.defineProperty(navigator, 'userAgentData', { value: undefined, configurable: true });
 
-  /* RPC-laget instrumenteres: `__kanal.kall` teller kall per navn. Uten det
-     kan ingen test se forskjell på «statusrunden går» og «statusrunden SKRIVER
-     hver runde» — og den forskjellen er hele dempingen. Innpakningen må sitte
-     på `createClient` FØR mock-backenden tas i bruk. */
+  /* RPC-laget instrumenteres: `__kanal.kall` teller kall per navn, og
+     `__kanal.hold` holder ETT svar tilbake til testen slipper det. Uten
+     tellingen kan ingen test se forskjell på «statusrunden går» og
+     «statusrunden SKRIVER hver runde» — og den forskjellen er hele dempingen;
+     uten holdingen kan ingen test lage et svar som lander etter at kontoen
+     byttet. Innpakningen må sitte på `createClient` FØR mock-backenden tas i
+     bruk. */
   Object.defineProperty(window, 'HK_MOCK', {
     configurable: true,
     set(v) {
@@ -167,7 +173,14 @@ function fakePlattform() {
         const ekte = c.rpc.bind(c);
         c.rpc = function (navn, params) {
           window.__kanal.kall[navn] = (window.__kanal.kall[navn] || 0) + 1;
-          return ekte(navn, params);
+          const svar = ekte(navn, params);
+          if (window.__kanal.hold === navn) {
+            window.__kanal.hold = null;
+            return new Promise((slipp) => {
+              window.__kanal.slippSvar = () => svar.then(slipp);
+            });
+          }
+          return svar;
         };
         return c;
       };
@@ -488,13 +501,27 @@ const omTiDager = (p) => p.evaluate(() => {
     /* ---------- 7: fjern-avslåing mens appen er ÅPEN ---------- */
     /* En ANNEN enhet slår av denne appen. Handlingen gjøres gjennom den samme
        RPC-en en annen klient ville brukt — serveren kan ikke se forskjell, og
-       det er hele poenget: valget ligger på KONTOEN, ikke i en økt. */
+       det er hele poenget: valget ligger på KONTOEN, ikke i en økt.
+
+       Og den gjør én ting til, med vilje: en TREDJE enhet melder seg på web
+       push i det samme vinduet. Da står ANTALLET varselenheter stille — én av,
+       én på — og et signal som bare så på tallet ville vært blindt. Telefonen
+       hadde ventet ut kvarteret sitt med alarmer brukeren nettopp slo av.
+       Doc-et bærer derfor `notif_revoked`, som gjelder NETTOPP denne klienten. */
+    const førTall = await p.evaluate(() => window.__huskis.notifPushDevices);
     const nid = await p.evaluate(async () => {
       const c = window.HK_MOCK.createClient();
       const liste = (await c.rpc('list_my_devices', { p_endpoint: null,
         p_device_id: 'd-annen', p_origin: 'localhost' })).data;
       const rad = (liste.push || []).find((x) => x.kind === 'native');
       await c.rpc('native_notif_revoke', { p_id: rad.id });
+      // … og en tredje enhet slår SINE på, så totalen ikke rører seg.
+      await c.rpc('push_subscribe', {
+        p_endpoint: 'https://push.test/tredje',
+        p_p256dh: 'BP' + 'k'.repeat(83) + 'x1', p_auth: 'u'.repeat(22),
+        p_labels: {}, p_tz: 'Europe/Oslo', p_browser: 'Firefox',
+        p_platform: 'macOS', p_origin: 'www.huskis.no', p_device_id: 'd-tredje',
+      });
       return rad.id;
     });
     log('7a: en annen enhet slo av appen på serveren',
@@ -507,6 +534,9 @@ const omTiDager = (p) => p.evaluate(() => {
     log('7b: appen oppdager det i neste synk-runde og AVLYSER de planlagte alarmene',
       (await p.evaluate(() => window.__kanal.alarmer.length)) === 0,
       await p.evaluate(() => window.__kanal.alarmer.length));
+    const etterTall = await p.evaluate(() => window.__huskis.notifPushDevices);
+    log('7b2: … selv om ANTALLET varselenheter aldri falt (aggregatet var blindt)',
+      etterTall === førTall, JSON.stringify({ før: førTall, etter: etterTall }));
     log('7c: … den lokale bryteren går av',
       (await p.evaluate(() => window.__huskis.notifChannelWanted())) === false &&
       (await p.evaluate(() => window.__huskis.notifChState)) === 'off');
@@ -560,6 +590,61 @@ const omTiDager = (p) => p.evaluate(() => {
       (await p.evaluate(() => window.__kanal.alarmer.length)) === 0);
 
     log('5–9: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
+    await ctx.close();
+  }
+
+  /* ============ Del 10: et svar som lander etter et kontobytte ============ */
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 780 },
+      userAgent: AND_UA });
+    const p = await ctx.newPage();
+    const feil = [];
+    p.on('pageerror', (e) => feil.push(String(e)));
+    await ctx.addInitScript(fakePlattform);
+    const URL_A = BASE + '/?mock=1&ch=native';
+    await p.goto(URL_A);
+    const due = await omTiDager(p);
+    await seed(p, URL_A, buildDB(due, { web: true, appØkt: true }), SESS_APP,
+      { 'mine-lister-device': 'd-app' });
+    await p.evaluate(() => window.__huskis.setNotifChannel(true));
+    await p.waitForFunction(() => window.__kanal.alarmer.length > 0, null, { timeout: 10000, polling: 100 });
+
+    // En annen enhet slår av. Neste statusrunde vil altså svare `revoked`.
+    await p.evaluate(async () => {
+      const c = window.HK_MOCK.createClient();
+      const liste = (await c.rpc('list_my_devices', { p_endpoint: null,
+        p_device_id: 'd-annen', p_origin: 'localhost' })).data;
+      const rad = (liste.push || []).find((x) => x.kind === 'native');
+      await c.rpc('native_notif_revoke', { p_id: rad.id });
+    });
+
+    /* Svaret holdes tilbake til ETTER at kontoen er logget ut. Da bærer det den
+       FORRIGE brukerens valg, og en nedrigging på grunnlag av det ville slått
+       av bryteren på enheten — og med den neste kontoens alarmer — for noe
+       ingen har bedt om her. */
+    await p.evaluate(() => { window.__kanal.hold = 'native_notif_touch'; });
+    /* En helt vanlig synk-runde, ikke et konstruert kall: doc-et sier at
+       klienten er slått av, dempingen nullstilles, og statusrunden går. Det er
+       nøyaktig den runden som ville rigget ned kanalen — og svaret holdes
+       tilbake til kontoen er en annen. */
+    await p.evaluate(() => { window.__huskis.cloudCycle(); });
+    await p.waitForFunction(() => typeof window.__kanal.slippSvar === 'function',
+      null, { timeout: 10000, polling: 50 });
+    await p.evaluate(() => { window.__huskis.logout(); });
+    await p.waitForFunction(() => !window.__huskis.authUser,
+      null, { timeout: 10000, polling: 100 });
+    log('10a: bryteren på enheten overlever utloggingen (kanalen er enhetens, ikke kontoens)',
+      (await p.evaluate(() => window.__huskis.notifChannelWanted())) === true);
+
+    await p.evaluate(async () => { await window.__kanal.slippSvar(); });
+    await p.waitForTimeout(300);
+    log('10b: et «slått av»-svar fra forrige konto forkastes i stedet for å rigge ned kanalen',
+      (await p.evaluate(() => window.__huskis.notifChannelWanted())) === true &&
+      (await p.evaluate(() => window.__huskis.pushRevokedHere)) === false,
+      JSON.stringify(await p.evaluate(() => ({
+        vil: window.__huskis.notifChannelWanted(), revoked: window.__huskis.pushRevokedHere }))));
+
+    log('10: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
     await ctx.close();
   }
 

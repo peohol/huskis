@@ -625,7 +625,10 @@ begin
   end;
 
   foreach k in array array['user', 'universes', 'groups', 'cards', 'items',
-                           'invites_in', 'invites_out'] loop
+                           'invites_in', 'invites_out',
+                           -- Signalet en Android-app leser hver synk-runde for å
+                           -- oppdage at en annen enhet slo varslene av her.
+                           'notif_revoked'] loop
     if not (doc ? k) then feil := array_append(feil, 'get_my_doc(): mangler nøkkelen «' || k || '»'); end if;
   end loop;
 

@@ -972,6 +972,23 @@
       push_devices: db.push_subscriptions.filter(function (x) {
         return x.user_id === uid && !x.disabled_at && !x.revoked_at;
       }).length + nativeNotifActive(db, uid).length,
+      /* Er DENNE klientens native varselkanal slått av fra en annen enhet? Et
+         presist signal per klient, ikke et aggregat: telleren over står stille
+         hvis én enhet slås av mens en annen slås på i det samme vinduet, og en
+         åpen app hadde ventet ut kvarteret sitt med alarmer brukeren nettopp
+         slo av. Kun den native kanalen — en nettleser kjenner igjen sitt eget
+         abonnement på endepunktet, som doc-et ikke har. */
+      notif_revoked: (function () {
+        var u = getSess();
+        var sid = u && u.session_id;
+        var d = sid && db.device_sessions.find(function (x) {
+          return x.session_id === sid && x.user_id === uid;
+        });
+        if (!d) return false;
+        return db.native_notif_devices.some(function (n) {
+          return n.user_id === uid && n.revoked_at && nativeCtx(n, d.device_id, d.origin);
+        });
+      })(),
       /* Lever økten vår ennå? Som serveren legger vi svaret i det pollede
          doc-et: det er slik en fjern-utlogget fane oppdager tilstanden uten å
          vente på at tokenet utløper (docs/accounts.md). */

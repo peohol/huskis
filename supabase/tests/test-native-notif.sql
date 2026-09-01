@@ -165,6 +165,18 @@ select public.t_check('… og den er borte fra listen med det samme',
 select public.t_check('to avslåinger på rad er ikke en feil',
   public.native_notif_revoke(:'nid'::uuid) = true);
 
+/* DOC-SIGNALET. Telleren er et aggregat og kan stå stille når én enhet slås av
+   mens en annen slås på; `notif_revoked` sier presist om NETTOPP denne
+   klientens native kanal er slått av. Uten det ville en åpen app ventet ut
+   kvarteret sitt med alarmer brukeren nettopp slo av. */
+reset role; select set_config('request.jwt.claim.session_id', :'SA1', false); set role authenticated;
+select (public.get_my_doc() ->> 'notif_revoked') as nr1 \gset
+select public.t_check('appen ser i doc-et at den er slått av herfra', :'nr1' = 'true');
+reset role; select set_config('request.jwt.claim.session_id', :'SW', false); set role authenticated;
+select (public.get_my_doc() ->> 'notif_revoked') as nr2 \gset
+select public.t_check('… mens nettleseren, som ikke er slått av, ser `false`', :'nr2' = 'false');
+reset role; select set_config('request.jwt.claim.session_id', :'SA1', false); set role authenticated;
+
 -- ---------- 5. den automatiske runden kan ikke oppheve valget ----------
 reset role; select set_config('request.jwt.claim.session_id', :'SA1', false); set role authenticated;
 select public.native_notif_touch(true, 'Huskis', 'Android', 'localhost', 'd-telefon') as n2 \gset
@@ -182,6 +194,8 @@ select public.t_check('et eksplisitt «slå på varsler» opphever avslåingen',
   (:'n3'::jsonb ->> 'revoked') = 'false' and (:'n3'::jsonb ->> 'enabled') = 'true');
 select public.t_check('… og sporet er borte',
   ((public.t_native(:'A'::uuid, 'd-telefon', 'localhost')) -> 'revoked_at') = 'null'::jsonb);
+select (public.get_my_doc() ->> 'notif_revoked') as nr3 \gset
+select public.t_check('… så doc-signalet slutter å be appen rigge ned', :'nr3' = 'false');
 reset role; select set_config('request.jwt.claim.session_id', :'SW', false); set role authenticated;
 select public.t_check('… så telefonen står i listen igjen',
   jsonb_array_length((public.list_my_devices(:'EW', 'd-laptop', 'www.huskis.no')) -> 'push') = 2);
