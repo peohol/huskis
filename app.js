@@ -11854,8 +11854,23 @@
      innlogging og skal skje med det samme, mens serverraden trenger en økt.
      Endepunktet tas vare på mellom dem — etter `unregister()` finnes det ikke
      å hente lenger. */
+  /* KAN VI I DET HELE TATT RYDDE? Et annet spørsmål enn `capable()`, og det er
+     poenget med at det står for seg: å OPPRETTE et abonnement krever en
+     avsendernøkkel og Notification-API-et, å RYDDE et krever bare service
+     worker-registeret. En build uten VAPID-nøkkel — nøkkelen er tom, eller
+     konfigurasjonen har endret seg — skal fortsatt kunne fjerne et abonnement
+     en tidligere build la igjen. Ellers ville nettopp den builden gjort det
+     umulig å bli kvitt det. */
+  function pushCleanupPossible() {
+    return !nativeShell && 'serviceWorker' in navigator && !!navigator.serviceWorker &&
+      typeof navigator.serviceWorker.getRegistration === 'function';
+  }
+
   let blockedPushSweep = null;     // den lokale nedriggingen, som løfte
   let blockedPushEndpoint = null;  // … og serverraden som ennå ikke er ryddet
+  let blockedPushBusy = false;     // ett serverforsøk om gangen
+  let blockedPushNextTry = 0;      // tidligst neste forsøk etter en feil
+  const BLOCKED_PUSH_RETRY_MS = 60 * 1000;
   async function tearDownBlockedPush() {
     /* Bryteren er per ORIGIN (`localStorage`), så dette valget gjelder bare
        forhåndsvisningen — produksjonens egen bryter står urørt. */
@@ -11882,24 +11897,36 @@
     try { await sweepBlockedPushInner(); } catch (e) { /* best effort */ }
   }
   async function sweepBlockedPushInner() {
-    if (pushDeployAllowed() || !webChannel.capable()) return;
-    /* Nedriggingen holdes som et LØFTE, ikke et flagg. Den kalles fra to
-       steder — oppstart og `cloudStart()` — og et flagg satt før første `await`
-       ville fått den andre til å hoppe over ventingen og lese `endpoint` mens
-       den fortsatt var `null`. Da hadde serverraden blitt stående i akkurat
-       den økten som endelig kunne ryddet den. */
+    if (pushDeployAllowed() || !pushCleanupPossible()) return;
+    /* Nedriggingen holdes som et LØFTE, ikke et flagg. Den kalles fra flere
+       steder — oppstart, `cloudStart()` og hver synk-runde — og et flagg satt
+       før første `await` ville fått den neste til å hoppe over ventingen og
+       lese `endpoint` mens den fortsatt var `null`. Da hadde serverraden blitt
+       stående i akkurat den økten som endelig kunne ryddet den. */
     if (!blockedPushSweep) blockedPushSweep = tearDownBlockedPush();
     await blockedPushSweep;
     if (!blockedPushEndpoint) return;
     const client = acli();
     if (!client || !authUser) return;   // serverraden venter til økten er der
-    const endpoint = blockedPushEndpoint;
-    blockedPushEndpoint = null;
-    try { await client.rpc('push_unsubscribe', { p_endpoint: endpoint }); }
-    catch (e) {
-      // Best effort — men la endepunktet stå, så neste runde kan prøve igjen.
-      // Et avmeldt endepunkt dør uansett av 410 ved første sending.
-      blockedPushEndpoint = endpoint;
+    if (blockedPushBusy || Date.now() < blockedPushNextTry) return;
+    blockedPushBusy = true;
+    try {
+      const { error } = await client.rpc('push_unsubscribe',
+        { p_endpoint: blockedPushEndpoint });
+      /* PostgREST melder en avvist RPC i `error`, ikke som et unntak. Leste vi
+         bare `catch`, ville en helt vanlig serverfeil sett ut som en suksess —
+         og hadde vi nullstilt endepunktet på forhånd, var det borte for godt
+         og raden ble stående som en aktiv enhet i listen. Endepunktet slippes
+         derfor FØRST når serveren har bekreftet. */
+      if (error) throw error;
+      blockedPushEndpoint = null;
+    } catch (e) {
+      /* Best effort, men ikke oppgitt: et nytt forsøk kommer med neste
+         synk-runde, tidligst om `BLOCKED_PUSH_RETRY_MS`. Uten pausen ville
+         hver runde (5 s) hamret på en server som nettopp sa nei. */
+      blockedPushNextTry = Date.now() + BLOCKED_PUSH_RETRY_MS;
+    } finally {
+      blockedPushBusy = false;
     }
   }
 
@@ -13367,7 +13394,7 @@
   // Endepunktet til DENNE nettleseren, om den har et. Kun til «denne enheten»-
   // merkingen; det forlater aldri klienten på noen annen måte.
   async function myPushEndpoint() {
-    if (!webChannel.capable()) return null;
+    if (!pushCleanupPossible()) return null;
     try {
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = reg && reg.pushManager && await reg.pushManager.getSubscription();
@@ -15418,6 +15445,10 @@
          aldri kunne kaste noen ut (docs/accounts.md). */
       if (my && my.session_ok === false) { remoteSignOut(); return; }
       touchSession();
+      /* Rydder en deploy som ikke får ha web push. På alle andre deployer er
+         dette et umiddelbart no-op; her er det runden som gir et mislykket
+         serverkall et nytt forsøk (med pause — se `BLOCKED_PUSH_RETRY_MS`). */
+      sweepBlockedPush();
       refreshOpenDevices();
       // Varslene rir på den samme runden: doc-et bærer historikken og
       // preferansene, og generatoren logger tersklene som er passert siden

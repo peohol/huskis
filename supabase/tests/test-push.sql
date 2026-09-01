@@ -12,9 +12,10 @@
 --   * at en avlyst plan (slettet rad) tar leveringen med seg;
 --   * at senderens funksjoner er stengt for alle andre enn service_role.
 --
--- To brukere:
+-- Tre brukere:
 --   A = eier av et område med en liste
---   B = en annen bruker med sitt eget abonnement
+--   B = en annen bruker med sitt eget abonnement (kontoen slettes i seksjon 10)
+--   C = en tredje bruker, som logger inn i den samme nettleseren i 12f
 -- Autoritativt for modellen: docs/varsler.md.
 -- ============================================================
 
@@ -60,6 +61,7 @@ grant execute on function public.t_sub_deliveries(uuid, text) to public;
 
 \set A  'aaaa000b-0000-0000-0000-0000000000ab'
 \set B  'bbbb000b-0000-0000-0000-0000000000bb'
+\set C  'cccc000b-0000-0000-0000-0000000000cc'
 \set AU '1b000000-9999-0000-0000-000000000001'
 \set AG '2b000000-9999-0000-0000-000000000001'
 \set AC '3b000000-9999-0000-0000-000000000001'
@@ -87,7 +89,8 @@ select ((extract(epoch from now()) * 1000)::bigint - 3600000)::text as bak \gset
 
 -- ---------- 0. brukere + innhold ----------
 insert into auth.users (id, email) values
-  (:'A', 'push-a@example.com'), (:'B', 'push-b@example.com')
+  (:'A', 'push-a@example.com'), (:'B', 'push-b@example.com'),
+  (:'C', 'push-c@example.com')
 on conflict (id) do nothing;
 
 reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
@@ -734,6 +737,83 @@ select public.push_subscribe('https://push.example.com/sovende', :'k_a2', :'s_a2
   '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo') as etter_tak \gset
 select public.t_check('… så en automatisk fornyelse blir avvist også etter tjuefem påmeldinger',
   (:'etter_tak'::jsonb ->> 'revoked') = 'true');
+
+-- ---------- 12f. ENDEPUNKTET ROTERER ETTER EN FJERN-AVSLÅING ----------
+/* Et push-endepunkt er ikke evig. Nettleseren eller push-tjenesten kan rullere
+   det, og en klient som lå ubrukt mens den ble slått av oppdager aldri
+   avslåingen lokalt. Åpnes den da med et NYTT endepunkt, ville et spor som
+   bare kjente det gamle vært blindt — og den helt vanlige, automatiske
+   fornyelsen hadde slått varslene på igjen uten at brukeren rørte noe.
+
+   Sporet kjenner derfor også KLIENTKONTEKSTEN: `user_id` + `device_id` +
+   `origin`. `device_id` er Huskis' egen tilfeldige id i `localStorage`, ikke
+   en måling av maskinen. */
+reset role;
+select set_config('request.jwt.claims', '', false);
+select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+delete from public.push_subscriptions where user_id = :'A';
+delete from public.notifications where user_id = :'A';
+
+-- E1: klienten melder seg på som vanlig.
+select (public.push_subscribe('https://push.example.com/e1', :'k_a1', :'s_a1',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Android', 'www.huskis.no', 'd-roterer') ->> 'id') as sub_e1 \gset
+
+-- En annen enhet slår den av.
+select public.push_revoke(:'sub_e1'::uuid);
+
+/* Nettleseren har rullert endepunktet mens klienten lå ubrukt, og melder seg
+   på igjen med E2 — automatisk, som hver synk-runde gjør. Samme konto, samme
+   enhets-id, samme vert: samme klient. */
+select public.push_subscribe('https://push.example.com/e2', :'k_a2', :'s_a2',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Android', 'www.huskis.no', 'd-roterer') as rotert \gset
+select public.t_check('et NYTT endepunkt fra en avslått klient blir også avvist',
+  (:'rotert'::jsonb ->> 'revoked') = 'true');
+select public.t_check('… og ingen aktiv rad ble opprettet for det',
+  (select count(*) from public.push_subscriptions
+    where user_id = :'A' and disabled_at is null and revoked_at is null) = 0);
+
+/* EN ANNEN KLIENT i samme nettleser skal ikke rammes: en annen `device_id`
+   eller en annen vert er en annen kontekst, og har aldri blitt slått av. */
+select public.push_subscribe('https://push.example.com/e3', :'k_b', :'s_b',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Windows', 'www.huskis.no', 'd-en-annen') as annen_kli \gset
+select public.t_check('en ANNEN klientkontekst er upåvirket av avslåingen',
+  (:'annen_kli'::jsonb ->> 'revoked') = 'false');
+select public.push_unsubscribe('https://push.example.com/e3');
+
+-- Et eksplisitt «slå på varsler» på DENNE klienten tar det tilbake, og E2 blir
+-- aktiv. Sporene fra konteksten har gjort jobben sin og ryddes.
+select public.push_subscribe('https://push.example.com/e2', :'k_a2', :'s_a2',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Android', 'www.huskis.no', 'd-roterer', true) as pa_igjen \gset
+select public.t_check('et eksplisitt «slå på» aktiverer det NYE endepunktet',
+  (:'pa_igjen'::jsonb ->> 'revoked') = 'false'
+  and (select count(*) from public.push_subscriptions
+        where user_id = :'A' and endpoint = 'https://push.example.com/e2'
+          and disabled_at is null and revoked_at is null) = 1);
+select public.t_check('… og det gamle sporet i samme kontekst er ryddet med',
+  (select count(*) from public.push_subscriptions
+    where user_id = :'A' and endpoint = 'https://push.example.com/e1') = 0);
+select public.push_subscribe('https://push.example.com/e2', :'k_a2', :'s_a2',
+  '{"dueOver": "Frist utløpt"}'::jsonb, 'Europe/Oslo',
+  'Chrome', 'Android', 'www.huskis.no', 'd-roterer') as etterpa \gset
+select public.t_check('… så den neste automatiske fornyelsen går som normalt',
+  (:'etterpa'::jsonb ->> 'revoked') = 'false');
+
+/* EN ANNEN BRUKER arver ikke sporet. Konteksten bærer `user_id` nettopp fordi
+   den skal avgrense: logger noen andre inn i den samme nettleseren, er det
+   deres eget valg som gjelder — ikke forrige brukers. */
+select public.push_revoke((select id from public.push_subscriptions
+                            where endpoint = 'https://push.example.com/e2'));
+reset role; select set_config('request.jwt.claim.sub', :'C', false); set role authenticated;
+select public.push_subscribe('https://push.example.com/e4', :'k_bb', :'s_bb',
+  '{"dueOver": "Deadline passed"}'::jsonb, 'America/New_York',
+  'Chrome', 'Android', 'www.huskis.no', 'd-roterer') as annen_bruker \gset
+select public.t_check('en ANNEN bruker i samme nettleser arver ikke avslåingen',
+  (:'annen_bruker'::jsonb ->> 'revoked') = 'false');
+select public.push_unsubscribe('https://push.example.com/e4');
 
 reset role;
 \echo '✅ test-push.sql: alle sjekker grønne'

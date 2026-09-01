@@ -39,6 +39,12 @@
         åpnes: meldt av, service workeren avregistrert, bryteren av og
         serverraden borte — og ingen ny påmelding skjer etterpå. Andre enheters
         abonnementer røres ikke.
+    13. Feiler SERVERKALLET i den opprydningen, beholdes endepunktet: klienten
+        hamrer ikke, men en senere runde rydder raden når serveren er i orden.
+    14. Opprydningen virker også i en build UTEN avsendernøkkel — å rydde et
+        abonnement krever mindre enn å lage et.
+    15. Mock-backenden avviser et RULLERT endepunkt fra en avslått klient på
+        samme måte som databasen gjør (test-push.sql, seksjon 12f).
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
@@ -120,11 +126,22 @@ function buildDB(now) {
 }
 
 /* Plattformen, og bare den — samme grep som notif-channels.test.js.
-   `?nokkel=1` setter en fast avsendernøkkel, så kanalen finnes uansett hva
-   som står i produksjons-config.js. */
+   Avsendernøkkelen settes fast, så kanalen finnes uansett hva som står i
+   produksjons-config.js; `?nokkel=0` fjerner den igjen. */
 function fakePlattform() {
   const q = new URLSearchParams(location.search);
   window.__kanal = { perm: q.get('perm') || 'granted', spurt: 0 };
+
+  /* `?feilrpc=<navn>` lar SERVEREN svare med feil på nettopp den RPC-en —
+     `{ data: null, error }`, slik PostgREST melder en avvist forespørsel.
+     Testen skrur den av igjen ved å nullstille `__kanal.feilrpc`. */
+  window.__kanal.feilrpc = q.get('feilrpc') || null;
+  /* Klienten venter et minutt før den prøver et feilet serverkall på nytt.
+     Testen kan ikke vente så lenge, og skal heller ikke måtte det: her flyttes
+     KLOKKA i stedet, så pausen måles på ekte kode. */
+  window.__kanal.hopp = 0;
+  const ekteNå = Date.now.bind(Date);
+  Date.now = () => ekteNå() + (window.__kanal.hopp || 0);
 
   /* RPC-laget instrumenteres: `__kanal.kall` teller kall per navn, og
      `__kanal.hold` holder ETT svar tilbake til testen slipper det.
@@ -140,6 +157,10 @@ function fakePlattform() {
         const ekte = c.rpc.bind(c);
         c.rpc = function (navn, params) {
           window.__kanal.kall[navn] = (window.__kanal.kall[navn] || 0) + 1;
+          if (window.__kanal.feilrpc === navn) {
+            return Promise.resolve({ data: null,
+              error: { message: 'nettverket falt ut', code: 'PGRST000' } });
+          }
           const svar = ekte(navn, params);
           if (window.__kanal.hold === navn) {
             window.__kanal.hold = null;
@@ -195,10 +216,13 @@ function fakePlattform() {
     },
   });
 
+  /* `?nokkel=0` etterligner en build UTEN avsendernøkkel. Da kan siden ikke
+     OPPRETTE et abonnement — men den skal fortsatt kunne rydde et gammelt. */
   Object.defineProperty(window, 'HUSKIS_CONFIG', {
     configurable: true,
     set(v) {
-      v.pushPublicKey = 'BKf-0z47jqWLUVd_3r4-JbyhdGwgWERsrt1l0Cfur7vPXM7644P_EyKSDC1aGhvm7kr5plt9zOpvdaz_WTuJoII';
+      v.pushPublicKey = q.get('nokkel') === '0' ? ''
+        : 'BKf-0z47jqWLUVd_3r4-JbyhdGwgWERsrt1l0Cfur7vPXM7644P_EyKSDC1aGhvm7kr5plt9zOpvdaz_WTuJoII';
       Object.defineProperty(window, 'HUSKIS_CONFIG', { value: v, writable: true, configurable: true });
     },
     get() { return undefined; },
@@ -647,6 +671,171 @@ async function bekreft(p) {
     log('12f panelet melder fortsatt «preview», ikke «på»',
       st12.tilstand === 'preview' && st12.kanal === false, st12);
     log('12: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
+    await ctx.close();
+  }
+
+  /* ---------- Del 13: serveren svarer FEIL på opprydningen ---------- */
+  /* PostgREST melder en avvist RPC i `error`, ikke som et unntak. Leser
+     klienten bare `catch`, ser en helt vanlig serverfeil ut som en suksess:
+     endepunktet slippes, serverraden blir stående som en aktiv enhet i
+     produksjonskontoens liste, og ingen prøver igjen — for etter
+     `unregister()` finnes endepunktet ikke å hente. */
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+    const p = await ctx.newPage();
+    const feil = [];
+    p.on('pageerror', (e) => feil.push(String(e)));
+    await p.addInitScript(fakePlattform);
+    await stemplePreview(ctx);
+
+    await seed(p, BASE + '/index.html?mock=1&forhaand=1&feilrpc=push_unsubscribe',
+      buildDB(Date.now()), { 'hk-notif-channel': 'on' });
+
+    // Den LOKALE nedriggingen står for seg og skjer uansett hva serveren svarer.
+    await p.waitForFunction(() => {
+      const k = window.__kanal || {};
+      return k.avmeldt === true && k.avregistrert === true;
+    }, null, { timeout: 15000, polling: 100 });
+    await p.waitForFunction(() => (window.__kanal.kall.push_unsubscribe || 0) >= 1,
+      null, { timeout: 15000, polling: 100 });
+    log('13a nettleseren er ryddet selv om serverkallet feilet',
+      await p.evaluate(() => !!(window.__kanal.avmeldt && window.__kanal.avregistrert)));
+
+    const db13 = await dbOf(p);
+    log('13b … og serverraden står der fortsatt, siden serveren sa nei',
+      db13.push_subscriptions.some((x) => x.endpoint === ENDE_HER));
+
+    /* Ingen hamring: synk-runden går hvert femte sekund, og et nytt forsøk
+       skal vente på pausen — ikke banke på en server som nettopp sa nei. */
+    const førAv = await p.evaluate(() => window.__kanal.kall.push_unsubscribe || 0);
+    await p.evaluate(async () => {
+      for (let i = 0; i < 3; i++) {
+        await window.__huskis.cloudCycle();
+        await window.__huskis.sweepBlockedPush();
+      }
+    });
+    const etterAv = await p.evaluate(() => window.__kanal.kall.push_unsubscribe || 0);
+    log('13c … og klienten hamrer ikke: ingen nye forsøk før pausen er ute',
+      etterAv === førAv, { før: førAv, etter: etterAv });
+
+    /* Endepunktet ble tatt vare på. Går serveren i orden — og pausen ut —
+       rydder en helt vanlig synk-runde raden. */
+    await p.evaluate(() => { window.__kanal.feilrpc = null; window.__kanal.hopp = 61000; });
+    await p.evaluate(() => window.__huskis.cloudCycle());
+    let ryddet = true;
+    try {
+      await p.waitForFunction((e) => !window.HK_MOCK._loadDB().push_subscriptions
+        .some((x) => x.endpoint === e), ENDE_HER, { timeout: 15000, polling: 150 });
+    } catch (e) { ryddet = false; }
+    const db13b = await dbOf(p);
+    log('13d … men endepunktet er tatt vare på, så en senere runde rydder raden',
+      ryddet && !db13b.push_subscriptions.some((x) => x.endpoint === ENDE_HER),
+      db13b.push_subscriptions.map((x) => x.origin));
+    log('13e … mens de andre enhetenes abonnementer står urørt',
+      db13b.push_subscriptions.some((x) => x.endpoint === ENDE_DER &&
+        !x.revoked_at && !x.disabled_at));
+    log('13f … og ingen ny påmelding skjedde underveis',
+      (await p.evaluate(() => window.__kanal.kall.push_subscribe || 0)) === 0);
+    log('13: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
+    await ctx.close();
+  }
+
+  /* ---------- Del 14: opprydning UTEN avsendernøkkel ---------- */
+  /* Å opprette et abonnement krever en VAPID-nøkkel og Notification-API-et; å
+     rydde et krever bare service worker-registeret. Blandes de to, gjør en
+     build uten nøkkel det umulig å bli kvitt abonnementet en tidligere build
+     la igjen — nettopp den situasjonen der opprydningen trengs. */
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+    const p = await ctx.newPage();
+    const feil = [];
+    p.on('pageerror', (e) => feil.push(String(e)));
+    await p.addInitScript(fakePlattform);
+    await stemplePreview(ctx);
+
+    await seed(p, BASE + '/index.html?mock=1&forhaand=1&nokkel=0',
+      buildDB(Date.now()), { 'hk-notif-channel': 'on' });
+
+    log('14a denne builden har ingen avsendernøkkel, så den kan ikke lage push',
+      await p.evaluate(() => !((window.HUSKIS_CONFIG || {}).pushPublicKey) &&
+        window.__huskis.pushPreviewBlocked() === false &&
+        window.__huskis.notifChannel() === null));
+
+    /* Ventingene fanges: uten skillet mellom «kan lage» og «kan rydde» skjer
+       ingenting her i det hele tatt, og testen skal da si FAIL — ikke stoppe
+       resten av fila med en tidsavbrudds-feil. */
+    try {
+      await p.waitForFunction(() => {
+        const k = window.__kanal || {};
+        return k.avmeldt === true && k.avregistrert === true;
+      }, null, { timeout: 15000, polling: 100 });
+    } catch (e) { /* logges under */ }
+    log('14b … men det gamle abonnementet ryddes likevel, og service workeren med',
+      await p.evaluate(() => !!(window.__kanal.avmeldt && window.__kanal.avregistrert)));
+
+    try {
+      await p.waitForFunction((e) => !window.HK_MOCK._loadDB().push_subscriptions
+        .some((x) => x.endpoint === e), ENDE_HER, { timeout: 15000, polling: 150 });
+    } catch (e) { /* logges under */ }
+    const db14 = await dbOf(p);
+    log('14c … og serverraden er borte',
+      !db14.push_subscriptions.some((x) => x.endpoint === ENDE_HER),
+      db14.push_subscriptions.map((x) => x.origin));
+    log('14d … mens de andre enhetenes abonnementer står urørt',
+      db14.push_subscriptions.some((x) => x.endpoint === ENDE_DER &&
+        !x.revoked_at && !x.disabled_at));
+    log('14: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
+    await ctx.close();
+  }
+
+  /* ---------- Del 15: mock-backenden holder den samme kontrakten ---------- */
+  /* Nettlesertestene kjører mot mock-backenden, ikke mot Postgres. Da må den
+     ha DEN SAMME regelen for et rullert endepunkt som `push_subscribe()` i
+     `supabase/users-and-sharing.sql` (seksjon 12f i test-push.sql) — ellers
+     ville alt her vært grønt mot en server som ikke finnes. */
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+    const p = await ctx.newPage();
+    const feil = [];
+    p.on('pageerror', (e) => feil.push(String(e)));
+    await p.addInitScript(fakePlattform);
+    await seed(p, BASE + '/index.html?mock=1', buildDB(Date.now()));
+
+    const kontrakt = await p.evaluate(async () => {
+      const c = window.HK_MOCK.createClient();
+      const K = 'BP' + 'k'.repeat(83) + 'r1';
+      const A = 's'.repeat(22);
+      const kall = (ende, mer) => c.rpc('push_subscribe', Object.assign({
+        p_endpoint: ende, p_p256dh: K, p_auth: A, p_labels: {}, p_tz: 'Europe/Oslo',
+        p_browser: 'Chrome', p_platform: 'Android', p_origin: 'www.huskis.no',
+        p_device_id: 'd-roterer' }, mer || {}));
+      const først = await kall('https://push.test/e1');
+      await c.rpc('push_revoke', { p_id: først.data.id });
+      // Nettleseren har rullert endepunktet mens klienten lå ubrukt.
+      const rotert = await kall('https://push.test/e2');
+      // En annen enhets-id er en annen klient, og er upåvirket.
+      const annen = await kall('https://push.test/e3', { p_device_id: 'd-en-annen' });
+      // Brukeren står ved nettopp denne klienten og slår varslene på.
+      const påSlått = await kall('https://push.test/e2', { p_explicit: true });
+      const etterpå = await kall('https://push.test/e2');
+      const db = window.HK_MOCK._loadDB();
+      return {
+        rotert: rotert.data, annen: annen.data,
+        påSlått: påSlått.data, etterpå: etterpå.data,
+        e1Igjen: db.push_subscriptions.some((x) => x.endpoint === 'https://push.test/e1'),
+        e2Aktiv: db.push_subscriptions.some((x) => x.endpoint === 'https://push.test/e2' &&
+          !x.revoked_at && !x.disabled_at),
+      };
+    });
+    log('15a et rullert endepunkt fra en avslått klient blir også avvist',
+      kontrakt.rotert && kontrakt.rotert.revoked === true, kontrakt.rotert);
+    log('15b … mens en annen klientkontekst er upåvirket',
+      kontrakt.annen && kontrakt.annen.revoked === false, kontrakt.annen);
+    log('15c et eksplisitt «slå på» aktiverer det nye endepunktet og rydder det gamle sporet',
+      kontrakt.påSlått.revoked === false && kontrakt.e2Aktiv && !kontrakt.e1Igjen, kontrakt);
+    log('15d … og den neste automatiske fornyelsen går som normalt',
+      kontrakt.etterpå.revoked === false, kontrakt.etterpå);
+    log('15: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
     await ctx.close();
   }
 

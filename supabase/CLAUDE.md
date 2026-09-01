@@ -59,6 +59,12 @@ dekker området (roller/deling, mappeflytting, gravsteiner, kontosletting,
 e-postvarsel, varsler, web push, innloggede økter, migrering av gamle
 listedelinger).
 
+Én ting kan ikke bevises fra én databaseøkt: at to samtidige operasjoner på den
+samme raden ikke kan passere hverandre. `tests/test-push-race.sh` kjører derfor
+en automatisk push-fornyelse og et «slå av» mot hverandre med TO ekte
+tilkoblinger, i begge rekkefølger. Legger du en lås (`select … for update`) et
+nytt sted, hører beviset hjemme der — ikke i en `.sql`-fil.
+
 **Funksjoner som rører `auth`-skjemaet** (i praksis `revoke_my_session()` og
 `list_my_devices()`) er SECURITY DEFINER og kjører som EIEREN — altså rollen som
 kjørte migreringen. At den rollen faktisk kan lese og slette i `auth.sessions`

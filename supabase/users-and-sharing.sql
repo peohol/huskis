@@ -653,6 +653,15 @@ create index if not exists push_subscriptions_active_idx
   on public.push_subscriptions (user_id)
   where disabled_at is null and revoked_at is null;
 
+/* … og en til for SPORENE. `push_subscribe()` spør hver gang om denne
+   klientkonteksten er slått av (`user_id` + `device_id` + `origin`), og det
+   kallet kommer fra hver enhet minst hvert kvarter. Uten en indeks ville det
+   spørsmålet lest hele tabellen — alle brukeres rader — for å finne et fåtall
+   spor. Predikatet holder indeksen liten: bare de tilbakekalte er med. */
+create index if not exists push_subscriptions_revoked_idx
+  on public.push_subscriptions (user_id, device_id, origin)
+  where revoked_at is not null;
+
 alter table public.push_subscriptions enable row level security;
 
 create table if not exists public.push_deliveries (
@@ -2887,6 +2896,8 @@ declare
   sub_id  uuid;
   forrige uuid;
   tilbake bigint;
+  mitt    boolean;
+  avslatt boolean := false;
   vert    text;
 begin
   if uid is null then raise exception 'ikke innlogget'; end if;
@@ -2922,25 +2933,80 @@ begin
     raise exception 'ugyldige nøkler';
   end if;
 
-  -- Hvem eide endepunktet FØR dette kallet, og hadde brukeren slått det av?
-  -- Det første avgjør om køen som ligger der fortsatt er ment for den som nå
-  -- bruker nettleseren; det andre om raden i det hele tatt får våkne.
-  select user_id, revoked_at into forrige, tilbake
-    from public.push_subscriptions where endpoint = p_endpoint;
+  /* Hvem eide endepunktet FØR dette kallet, og hadde brukeren slått det av?
+     Det første avgjør om køen som ligger der fortsatt er ment for den som nå
+     bruker nettleseren; det andre om raden i det hele tatt får våkne.
 
-  /* TILBAKEKALT AV BRUKEREN. Fornyelsen som kjører hver synk-runde skal ikke
-     kunne oppheve et valg brukeren tok på en annen enhet — da hadde
-     «slå av» vart til neste gang klienten så seg om, altså i praksis ikke i
-     det hele tatt. Raden står urørt, og svaret sier hva som skjedde, slik at
-     klienten kan rigge ned sin egen ende og slutte å melde seg på.
+     `for update` LÅSER raden, og det er ikke pynt. Uten låsen kan en helt
+     vanlig bakgrunnsfornyelse spise et «Slå av» brukeren nettopp gjorde:
 
-     Et EIERSKIFTE er unntaket: tilbakekallingen var forrige brukers valg om
-     forrige brukers varsler, og den skal ikke følge nettleseren over til
-     neste konto. Da behandles raden som ny (under). */
-  if tilbake is not null and not coalesce(p_explicit, false)
-     and (forrige is null or forrige = uid) then
-    select id into sub_id from public.push_subscriptions where endpoint = p_endpoint;
+       A (fornyelsen)  leser `revoked_at = null`
+       B (avslåingen)  setter `revoked_at` og committer
+       A               skriver videre, og UPSERT-en setter `revoked_at = null`
+
+     Da er valget borte, og ingen gjorde noe galt. Med låsen kan de to ikke
+     passere hverandre: kommer fornyelsen først, venter avslåingen på den og
+     vinner til slutt; kommer avslåingen først, venter fornyelsen og LESER DEN
+     NYE verdien når låsen slippes (`for update` leser raden på nytt). Begge
+     rekkefølgene ender med AV, som er det brukeren ba om. */
+  select id, user_id, revoked_at into sub_id, forrige, tilbake
+    from public.push_subscriptions where endpoint = p_endpoint
+    for update;
+
+  /* Er raden min i det hele tatt? Et EIERSKIFTE er unntaket fra alt under:
+     tilbakekallingen var forrige brukers valg om forrige brukers varsler, og
+     den skal ikke følge nettleseren over til neste konto. */
+  mitt := (forrige is null or forrige = uid);
+
+  /* ER DENNE PÅMELDINGEN AVSLÅTT? To spørsmål, ikke ett.
+
+     1. ENDEPUNKTET. Det vanlige tilfellet: den samme nettleseren melder seg på
+        igjen med det samme endepunktet, og raden sier at brukeren slo den av.
+
+     2. KLIENTKONTEKSTEN. Et push-endepunkt er ikke evig — nettleseren eller
+        push-tjenesten kan rullere det (`pushsubscriptionchange`), og en klient
+        som lå ubrukt mens den ble slått av oppdager det aldri lokalt. Åpnes den
+        da med et NYTT endepunkt, ville et spor som bare kjente det gamle vært
+        blindt, og den automatiske fornyelsen hadde slått varslene på igjen uten
+        at brukeren rørte noe.
+
+        Konteksten er `user_id` + `device_id` + `origin`: kontoen, Huskis' egen
+        tilfeldige id for denne nettleserkonteksten, og verten. Ingen måling av
+        maskinen — `device_id` er et tall vi selv skrev i `localStorage`, og en
+        bruker som tømmer nettleserdataene sine får med rette en ny kontekst.
+        `user_id` er med nettopp fordi den SKAL avgrense: logger noen andre inn
+        i den samme nettleseren, arver de ikke forrige brukers valg.
+
+        En klient som ikke sender kontekst (en eldre versjon) får bare spørsmål
+        1. Sporet er en robusthet mot rullerte endepunkter, ikke en
+        sikkerhetsgrense — grensen er `user_id`, og den håndheves i begge. */
+  if mitt then
+    avslatt := tilbake is not null;
+    if not avslatt and p_device_id is not null and p_origin is not null then
+      avslatt := exists (select 1 from public.push_subscriptions s
+                          where s.user_id = uid and s.revoked_at is not null
+                            and s.device_id = p_device_id and s.origin = p_origin);
+      /* Konteksten er avslått, altså skal ingen rad i den være aktiv — heller
+         ikke et rullert endepunkt som rakk å bli registrert før sporet ble
+         lest. Det følger med her, så invarianten reparerer seg selv. */
+      if avslatt and sub_id is not null then perform public.push_revoke(sub_id); end if;
+    end if;
+  end if;
+
+  if avslatt and not coalesce(p_explicit, false) then
     return jsonb_build_object('id', sub_id, 'revoked', true);
+  end if;
+
+  /* ET EKSPLISITT «SLÅ PÅ VARSLER» GJELDER KLIENTEN, ikke bare endepunktet.
+     Brukeren står ved nettopp denne nettleseren og har sagt fra; da skal ikke
+     et gammelt spor fra et rullert endepunkt i den samme konteksten avvise den
+     neste fornyelsen. Sporene slettes — de har gjort jobben sin. Raden for
+     endepunktet selv tas av UPSERT-en under, som skriver ferske nøkler. */
+  if coalesce(p_explicit, false) and p_device_id is not null and p_origin is not null then
+    delete from public.push_subscriptions
+     where user_id = uid and revoked_at is not null
+       and device_id = p_device_id and origin = p_origin
+       and endpoint <> p_endpoint;
   end if;
 
   insert into public.push_subscriptions (user_id, endpoint, p256dh, auth, labels, tz,
@@ -3073,7 +3139,12 @@ begin
   if p_id is null then return false; end if;
   /* IDEMPOTENT: `coalesce` holder det opprinnelige tidspunktet, og en rad som
      alt er tilbakekalt svarer `true`. To faner som slår av den samme enheten
-     samtidig har begge fått viljen sin — det er ingen feil å melde. */
+     samtidig har begge fått viljen sin — det er ingen feil å melde.
+
+     MOTTAKERNØKLENE tømmes: raden skal ikke bli liggende med det som gjør det
+     mulig å kryptere til nettleseren. `endpoint`, `device_id` og `origin` blir
+     derimot stående — det er dem `push_subscribe()` kjenner sporet igjen på,
+     og tømte vi dem, ville avslåingen sluttet å gjelde et rullert endepunkt. */
   update public.push_subscriptions
      set revoked_at = coalesce(revoked_at, now_ms),
          p256dh = '', auth = '', labels = '{}'::jsonb, tz = null

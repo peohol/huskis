@@ -1016,6 +1016,21 @@ opprydningen feilet, så hvert ledd står for seg. Og bare VÅRT ryddes —
 `getRegistration()` uten argument gir registreringen som dekker dette
 dokumentet, altså Huskis' egen på Huskis' eget origin.
 
+**Best effort er ikke det samme som å gi opp.** PostgREST melder en avvist RPC i
+`error`, ikke som et unntak, så svaret leses eksplisitt: går serverkallet galt,
+BEHOLDES endepunktet, og et nytt forsøk kommer med en senere synk-runde —
+tidligst etter et minutt, og med ett forsøk om gangen. Uten pausen ville hver
+runde (5 s) hamret på en server som nettopp sa nei; uten at endepunktet ble
+beholdt, var raden fanget for godt, siden `unregister()` allerede har fjernet
+den lokale kilden.
+
+**Å rydde krever mindre enn å lage.** Et nytt abonnement trenger en
+VAPID-nøkkel og Notification-API-et; å fjerne et gammelt trenger bare service
+worker-registeret. De to spørsmålene står derfor hver for seg
+(`webChannel.capable()` mot `pushCleanupPossible()`) — ellers ville en build
+uten avsendernøkkel gjort det umulig å bli kvitt abonnementet en tidligere
+build la igjen, altså nettopp den situasjonen opprydningen finnes for.
+
 ### Enhetene med varsler
 
 Panelet sier hvor mange nettlesere som har varsler på, og «Vis enheter» åpner
@@ -1081,16 +1096,52 @@ Derfor rører **verken opprydningen eller taket** en rad med `revoked_at` satt:
 **Nøklene tømmes når raden tilbakekalles.** `p256dh`/`auth` er mottakernøklene
 som gjør det mulig å KRYPTERE til nettleseren, og et abonnement brukeren har
 slått av skal ikke bli liggende med dem i det uendelige. Raden trenger bare
-endepunktet — det er identiteten fornyelsen kjennes igjen på — og
-`push_subscribe()` skriver ferske nøkler den dagen brukeren slår varslene på
-igjen der.
+endepunktet og klientkonteksten — det er dem fornyelsen kjennes igjen på (se
+under) — og `push_subscribe()` skriver ferske nøkler den dagen brukeren slår
+varslene på igjen der.
 
-Grensen er verdt å kjenne: sporet er nøklet på ENDEPUNKTET, fordi det er
-endepunktet som ER abonnementet. Ruller nettleseren endepunktet sitt
-(`pushsubscriptionchange`), er det en ny mottaker, og den melder seg på som en
-ny. Å knytte tilbakekallingen til noe annet — en enhets-id klienten selv sender
-— ville vært å bygge en identitet appen ikke har, og som brukeren når som helst
-kan nullstille.
+**Sporet kjenner både endepunktet og klienten.** Et push-endepunkt er ikke
+evig: nettleseren eller push-tjenesten kan rullere det
+(`pushsubscriptionchange`), og en klient som lå ubrukt mens den ble slått av
+oppdager aldri avslåingen lokalt. Åpnes den da med et NYTT endepunkt, ville et
+spor som bare kjente det gamle vært blindt — og den helt vanlige, automatiske
+fornyelsen hadde slått varslene på igjen uten at brukeren rørte noe.
+
+`push_subscribe()` stiller derfor to spørsmål, ikke ett:
+
+1. **er ENDEPUNKTET slått av?** Det vanlige tilfellet: den samme nettleseren
+   melder seg på igjen med den samme adressen, og raden sier at brukeren slo
+   den av.
+2. **er hele KLIENTKONTEKSTEN slått av?** Konteksten er `user_id` +
+   `device_id` + `origin`: kontoen, Huskis' egen tilfeldige id for denne
+   nettleserkonteksten, og verten. Finnes det et tilbakekalt spor i den samme
+   konteksten, avvises også et rullert endepunkt — og et endepunkt som rakk å
+   bli registrert før sporet ble lest, tilbakekalles på stedet, så invarianten
+   reparerer seg selv.
+
+Dette er **ikke fingerprinting**. `device_id` er et tilfeldig tall Huskis selv
+skrev i `localStorage` på dette originet; ingenting måles på maskinen. En
+bruker som tømmer nettleserdataene sine får med rette en ny kontekst, og det er
+greit — sporet er en robusthet mot rullerte endepunkter, ikke en
+sikkerhetsgrense. Grensen er `user_id`, og den håndheves i begge spørsmålene:
+logger noen andre inn i den samme nettleseren, arver de ikke forrige brukers
+valg. En klient som ikke sender kontekst (en eldre versjon) får bare spørsmål 1.
+
+Et eksplisitt «slå på varsler» gjelder tilsvarende KLIENTEN, ikke bare
+endepunktet: brukeren står ved nettopp denne nettleseren og har sagt fra, og da
+slettes sporene i konteksten — de har gjort jobben sin.
+
+**De to operasjonene kan ikke passere hverandre.** En automatisk fornyelse og
+et «slå av» fra en annen enhet kan treffe den samme raden samtidig, og uten en
+lås ville dette vært mulig: fornyelsen leser `revoked_at = null`, avslåingen
+setter feltet og committer, fornyelsen skriver videre og UPSERT-en nullstiller
+det igjen. Valget hadde vært borte, og ingen gjorde noe galt. `push_subscribe()`
+låser derfor raden (`select … for update`) FØR den leser tilstanden: kommer
+avslåingen først, venter fornyelsen og leser den nye verdien; kommer fornyelsen
+først, venter avslåingen og vinner til slutt. Begge rekkefølgene ender med AV,
+som er det brukeren ba om. Garantien ligger i databasen, ikke i klientens
+timing — `supabase/tests/test-push-race.sh` kjører begge rekkefølgene med to
+ekte, samtidige databaseøkter.
 
 #### Opprydning
 
@@ -1411,12 +1462,19 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   flyktig preview-host og et `preview`-stempel gjør det ikke), at et abonnement
   som ALLEREDE lå på en forhåndsvisning ryddes når siden åpnes — meldt av,
   service workeren avregistrert, bryteren av, serverraden borte, og ingen ny
-  påmelding etterpå, mens andre enheters abonnementer står urørt — panelets
-  preview-tekst, «denne enheten» øverst i begge listene, fjern-utlogging av én
+  påmelding etterpå, mens andre enheters abonnementer står urørt — at
+  opprydningen tåler at SERVEREN sier nei (endepunktet beholdes, klienten
+  hamrer ikke, og en senere runde rydder raden) og at den virker i en build
+  UTEN avsendernøkkel, at mock-backenden avviser et rullert endepunkt akkurat
+  som databasen gjør — panelets preview-tekst, «denne enheten» øverst i begge listene, fjern-utlogging av én
   økt og av alle andre, at vanlig «Logg ut» er LOKAL, at en fjern-utlogget klient
   som står åpen går til innloggingssiden uten å miste bufferen, og at et
   fjern-avslått abonnement verken teller som aktivt eller melder seg på igjen —
   før et eksplisitt «slå på varsler» på nettopp den klienten.
+- `supabase/tests/test-push-race.sh` — samtidigheten, med TO ekte
+  databaseøkter: en automatisk fornyelse og et «slå av» kjøres mot hverandre i
+  begge rekkefølger, og begge må ende med AV. Uten låsen i `push_subscribe()`
+  slår fornyelsen varslene på igjen, og testen sier fra.
 - `supabase/tests/test-sessions.sql` — øktlaget serverside: hvem som ser hvilke
   økter, at en annen brukers økt ikke kan termineres, at fjern-utlogging faktisk
   sletter øktraden OG refresh-tokenet, at `session_ok` melder tilstanden, og at
@@ -1428,7 +1486,9 @@ De to henger sammen på nøyaktig ett punkt, og ellers ikke:
   på antall enheter), fjern-avslåingen (riktig rad, nøklene tømt, køen avsluttet,
   ingen automatisk gjenpåmelding, og at et eksplisitt «slå på» tar den tilbake),
   at sporet OVERLEVER både opprydningshorisonten og taket — en sovende enhet som
-  våkner etter 200 dager og fornyer seg blir fortsatt avvist — at en PLANLAGT rad
+  våkner etter 200 dager og fornyer seg blir fortsatt avvist — at et RULLERT
+  endepunkt fra den samme klientkonteksten avvises på samme måte mens en annen
+  kontekst og en annen bruker er upåvirket, at en PLANLAGT rad
   får et ferskt navn mens historikken ikke skrives om, at et dødt endepunkt tar hele køen sin med seg, at senderens
   funksjoner er stengt for klienten, hent/send/meld-runden med alle tre
   utfallene, tidssone-hevdelsen, og `push_headers()` — kjørt, ikke lest: en ny

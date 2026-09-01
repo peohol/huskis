@@ -614,12 +614,43 @@
       throw new Error('ugyldige nøkler');
     }
     var row = db.push_subscriptions.find(function (x) { return x.endpoint === p.p_endpoint; });
+    var mitt = !row || !row.user_id || row.user_id === uid;
     /* TILBAKEKALT AV BRUKEREN (som serveren): den automatiske fornyelsen skal
        ikke kunne oppheve et valg tatt på en annen enhet. Bare et EKSPLISITT
        «slå på varsler» på nettopp denne klienten tar det tilbake — og et
-       eierskifte, siden tilbakekallingen var forrige brukers valg. */
-    if (row && row.revoked_at && !p.p_explicit && (!row.user_id || row.user_id === uid)) {
-      return { id: row.id, revoked: true };
+       eierskifte, siden tilbakekallingen var forrige brukers valg.
+
+       To spørsmål, ikke ett: er ENDEPUNKTET slått av, eller er hele
+       KLIENTKONTEKSTEN (`user_id` + `device_id` + `origin`) det? Det andre
+       fanger et endepunkt nettleseren har rullert mens klienten lå ubrukt. */
+    var avslatt = false;
+    if (mitt) {
+      avslatt = !!(row && row.revoked_at);
+      if (!avslatt && p.p_device_id != null && p.p_origin != null) {
+        avslatt = db.push_subscriptions.some(function (x) {
+          return x.user_id === uid && x.revoked_at &&
+                 x.device_id === p.p_device_id && x.origin === p.p_origin;
+        });
+        // Konteksten er avslått → ingen rad i den skal være aktiv.
+        if (avslatt && row) pushRevoke(db, uid, row.id);
+      }
+    }
+    if (avslatt && !p.p_explicit) {
+      return { id: row ? row.id : null, revoked: true };
+    }
+    /* Et eksplisitt «slå på» gjelder KLIENTEN: gamle spor fra rullerte
+       endepunkter i den samme konteksten har gjort jobben sin og slettes. */
+    if (p.p_explicit && p.p_device_id != null && p.p_origin != null) {
+      var vekk2 = {};
+      db.push_subscriptions = db.push_subscriptions.filter(function (x) {
+        if (x.user_id === uid && x.revoked_at && x.device_id === p.p_device_id &&
+            x.origin === p.p_origin && x.endpoint !== p.p_endpoint) {
+          vekk2[x.id] = 1; return false;
+        }
+        return true;
+      });
+      db.push_deliveries = db.push_deliveries.filter(function (d) { return !vekk2[d.subscription_id]; });
+      row = db.push_subscriptions.find(function (x) { return x.endpoint === p.p_endpoint; });
     }
     if (!row) {
       row = { id: newUuid(), endpoint: p.p_endpoint, created_at: Date.now() };
@@ -693,9 +724,10 @@
     // Idempotent, som serveren: en rad som alt er tilbakekalt beholder
     // tidspunktet sitt og svarer `true`.
     row.revoked_at = row.revoked_at || Date.now();
-    /* Nøklene tømmes, som serveren: raden trenger bare endepunktet (identiteten
-       fornyelsen kjennes igjen på), og et abonnement brukeren har slått av skal
-       ikke bli liggende med mottakernøklene sine i det uendelige. */
+    /* Nøklene tømmes, som serveren: et abonnement brukeren har slått av skal
+       ikke bli liggende med mottakernøklene sine i det uendelige. `endpoint`,
+       `device_id` og `origin` blir stående — det er dem sporet kjennes igjen
+       på, også når nettleseren har rullert endepunktet. */
     row.p256dh = ''; row.auth = ''; row.labels = {}; row.tz = null;
     pushEndQueue(db, row.id);
     return true;
