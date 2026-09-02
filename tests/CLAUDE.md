@@ -232,15 +232,29 @@ CI. To regler følger av det:
 - **En rad som skal ligge i DAGENS bunke må klemmes innenfor døgnet.** «Nå
   minus en time» er i går hver gang testen kjører den første timen etter
   midnatt. Seed «for et øyeblikk siden, men tidligst rett etter midnatt».
+- **Løpet må ikke kunne KRYSSE et døgnskifte.** De to reglene over daterer
+  fiksturen riktig i det øyeblikket den lages; skifter kalenderen mens løpet
+  står på, er radene datert i går mens appen med rette tegner i dag. Pinn
+  derfor klokka midt på dagen når konteksten lages — `clock.install` på et
+  lokalt kl. 12, og `clock.resume()` rett etter, så timerne (synk,
+  nedtellinger, toaster) fortsatt måles på ekte tid. Midnatt er da tolv timer
+  unna uansett når suiten startes.
 
-Sonen står ett sted per fil, og kontekstene lages gjennom den samme fabrikken,
-slik at et nytt løp ikke kan komme inn med sin egen. `HUSKIS_TZ` overstyrer
-den, og er måten en fil kjøres i andre døgnkonstellasjoner uten å vente på
-klokka:
+Sonen OG pinningen står ett sted per fil, og kontekstene lages gjennom den
+samme fabrikken (`nySide` i `notif-modal.test.js`), slik at et nytt løp verken
+kan komme inn med sin egen sone eller uten pinnet klokke. `HUSKIS_TZ`
+overstyrer sonen:
 
 ```bash
 HUSKIS_TZ=Etc/GMT+8 NODE_PATH=$(npm root -g) node tests/notif-modal.test.js
 ```
+
+Et løp som SKAL over midnatt pinner et annet klokkeslett og spoler forbi
+(`clock.fastForward`). Vil du vise at pinningen virker fra en rigg som står
+rett før midnatt, må riggklokka simuleres — ikke ventes på: `nySide` tar en
+`rigg`-parameter nettopp for det, og `notif-modal.test.js` (18) er mønsteret.
+Bevis som bare hviler på å kjøre i mange tidssoner er ikke nok; de er avhengige
+av hva klokka tilfeldigvis er.
 
 ## Konvensjoner i testfilene
 
