@@ -38,8 +38,13 @@
         fra forrige konto skal ikke rigge ned den nye kontoens kanal.
     11. … og det samme når VILJEN endrer seg i stedet for identiteten: et
         «slått av» som ble utstedt før brukeren trykket «slå på», skal ikke
-        rive ned det hun nettopp slo på — i BEGGE rekkefølger, både når det
-        gamle svaret lander før og etter brukerens eget.
+        rive ned det hun nettopp slo på.
+    12. En gammel SKRIVING kan ikke nå databasen etter en nyere: statuskallene
+        går i kø, ett om gangen, så serverens siste ord er alltid brukerens
+        siste valg — også når det gamle kallet henger til etter at hun har
+        slått av.
+    13. … og motsatt vei: et «av» fra oppstartsrunden overkjører ikke et
+        «slå på» brukeren rakk å trykke mens det hang.
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
@@ -158,7 +163,11 @@ function fakePlattform() {
   const ch = q.get('ch');
   window.__kanal = { schedule: [], cancel: [], pending: [], alarmer: [],
     perm: q.get('perm') || 'granted', spurt: 0, kall: {}, broKall: 0,
-    hold: null, holdAlle: null, holdt: [] };
+    hold: null, holdAlle: null, holdKall: null, holdt: [],
+    /* Fra oppstart, ikke etterpå: oppstartens egen statusrunde er den mest
+       naturlige «gamle» skrivingen, og den er over før en test rekker å be om
+       å få holde den. */
+    holdKallAlle: q.get('holdkall') || null };
 
   Object.defineProperty(navigator, 'userAgentData', { value: undefined, configurable: true });
 
@@ -168,7 +177,14 @@ function fakePlattform() {
      «statusrunden SKRIVER hver runde» — og den forskjellen er hele dempingen;
      uten holdingen kan ingen test lage et svar som lander etter at kontoen
      byttet. Innpakningen må sitte på `createClient` FØR mock-backenden tas i
-     bruk. */
+     bruk.
+
+     TO SLAGS HOLDING, og forskjellen er hele del 12:
+       · `hold`/`holdAlle` lar kallet UTFØRES med det samme og holder bare
+         SVARET tilbake. Databasen er alt endret når testen slipper det.
+       · `holdKall`/`holdKallAlle` holder selve UTFØRELSEN. Databasen røres
+         ikke før testen slipper kallet — den eneste måten å la en gammel
+         skriving lande ETTER en nyere. */
   Object.defineProperty(window, 'HK_MOCK', {
     configurable: true,
     set(v) {
@@ -176,29 +192,36 @@ function fakePlattform() {
       v.createClient = function () {
         const c = lagKlient.apply(this, arguments);
         const ekte = c.rpc.bind(c);
+        /* Køen, ikke ett svar: rekkefølgen mellom to kall som er i lufta
+           SAMTIDIG er nettopp det del 11 og 12 måler, og da må testen kunne
+           holde flere og slippe dem i den rekkefølgen den vil. `slippSvar`
+           slipper det eldste — som før, for del 10. */
+        const kø = (kjør) => new Promise((ok, nei) => {
+          window.__kanal.holdt.push(() => kjør().then(ok, nei));
+          window.__kanal.slippSvar = () => {
+            const f = window.__kanal.holdt.shift();
+            return f ? f() : Promise.resolve();
+          };
+          // Slipp alt som står i kø, i rekkefølge.
+          window.__kanal.slippAlle = async () => {
+            while (window.__kanal.holdt.length) await window.__kanal.slippSvar();
+          };
+        });
         c.rpc = function (navn, params) {
           window.__kanal.kall[navn] = (window.__kanal.kall[navn] || 0) + 1;
+          /* `holdKall*` holder UTFØRELSEN: mock-databasen røres ikke før testen
+             slipper kallet. */
+          if (window.__kanal.holdKall === navn || window.__kanal.holdKallAlle === navn) {
+            if (window.__kanal.holdKall === navn) window.__kanal.holdKall = null;
+            return kø(() => ekte(navn, params));
+          }
           const svar = ekte(navn, params);
-          /* `holdAlle` holder HVERT kall med dette navnet, ikke bare det neste.
+          /* `holdAlle` holder HVERT svar med dette navnet, ikke bare det neste.
              Uten det kan en poll-runde snike seg inn og fullføre midt i et
              kappløp testen setter opp — og da måler den noe annet enn den tror. */
           if (window.__kanal.hold === navn || window.__kanal.holdAlle === navn) {
             if (window.__kanal.hold === navn) window.__kanal.hold = null;
-            return new Promise((slipp) => {
-              /* Køen, ikke ett svar: rekkefølgen mellom to kall som er i lufta
-                 SAMTIDIG er nettopp det del 11 måler, og da må testen kunne
-                 holde begge og slippe dem i den rekkefølgen den vil.
-                 `slippSvar` slipper det eldste — som før, for del 10. */
-              window.__kanal.holdt.push(() => svar.then(slipp));
-              window.__kanal.slippSvar = () => {
-                const f = window.__kanal.holdt.shift();
-                return f ? f() : Promise.resolve();
-              };
-              // Slipp alt som står i kø, i rekkefølge.
-              window.__kanal.slippAlle = async () => {
-                while (window.__kanal.holdt.length) await window.__kanal.slippSvar();
-              };
-            });
+            return kø(() => svar);
           }
           return svar;
         };
@@ -698,27 +721,27 @@ const omTiDager = (p) => p.evaluate(() => {
       await c.rpc('native_notif_revoke', { p_id: rad.id });
     });
 
-    /* BEGGE REKKEFØLGENE, som i `test-push-race.sh`. Den ordinære runden og det
-       eksplisitte trykket er i lufta SAMTIDIG, og hvem som svarer først skal
-       ikke avgjøre utfallet — brukerens valg skal vinne uansett.
-
-       Rekkefølge 1: det GAMLE svaret lander FØRST, mens det eksplisitte kallet
-       fortsatt henger. Da finnes det ingen nyere runde å sammenligne med, og
-       det er bare epoken — bumpet i det brukeren trykket — som kan skille dem. */
-    /* HVERT statuskall holdes nå, ikke bare det neste. Da kan ingen poll-runde
+    /* Den ordinære runden er utstedt FØR trykket og svarer ETTER det. Da finnes
+       det ingen nyere runde å sammenligne med — køen har ikke sluppet trykkets
+       eget kall av gårde ennå — og det er bare epoken, bumpet i det brukeren
+       trykket, som kan skille dem. */
+    /* HVERT statussvar holdes nå, ikke bare det neste. Da kan ingen poll-runde
        fullføre i bakgrunnen og gjøre kappløpet til noe annet enn det testen
-       setter opp — og når det gamle svaret slippes, finnes det GARANTERT ingen
-       nyere runde som har svart. Da er epoken det eneste som kan skille dem. */
+       setter opp.
+
+       Og legg merke til hva som IKKE skjer: brukerens trykk sender ikke sitt
+       eget kall av gårde ved siden av det gamle. Statuskallene går i kø, ett om
+       gangen (`nativeNotifTouch`), så trykket står bakerst til det gamle har
+       landet — og en gammel skriving kan aldri nå databasen etter en nyere. */
     await p.evaluate(async () => {
       window.__kanal.holdAlle = 'native_notif_touch';
       window.__huskis.cloudCycle();                  // runde 1: den ordinære
       await new Promise((r) => setTimeout(r, 150));  // … fram til RPC-en
       window.__huskis.setNotifChannel(true);         // runde 2: brukerens trykk
     });
-    await p.waitForFunction(() => window.__kanal.holdt.length >= 2,
-      null, { timeout: 10000, polling: 50 });
-    log('11a: begge kallene er i lufta samtidig — det gamle og brukerens eget',
-      (await p.evaluate(() => window.__kanal.holdt.length)) >= 2 &&
+    await p.waitForTimeout(600);
+    log('11a: bare ETT statuskall er i lufta — brukerens eget venter på det gamle',
+      (await p.evaluate(() => window.__kanal.holdt.length)) === 1 &&
       (await p.evaluate(() => window.__huskis.notifChannelWanted())) === true,
       await p.evaluate(() => window.__kanal.holdt.length));
 
@@ -748,80 +771,146 @@ const omTiDager = (p) => p.evaluate(() => {
       !!natRad(d11, 'd-app') && natRad(d11, 'd-app').enabled === true &&
       natRad(d11, 'd-app').revoked_at == null, JSON.stringify(natRad(d11, 'd-app')));
 
-    /* Rekkefølge 2: det NYE svaret lander først, det gamle etterpå. Her er det
-       rundenummeret som skiller dem — epoken er den samme for begge, siden
-       trykket kom før begge kallene. */
-    await p.evaluate(async () => {
-      const c = window.HK_MOCK.createClient();
-      const liste = (await c.rpc('list_my_devices', { p_endpoint: null,
-        p_device_id: 'd-annen', p_origin: 'localhost' })).data;
-      const rad = (liste.push || []).find((x) => x.kind === 'native');
-      await c.rpc('native_notif_revoke', { p_id: rad.id });
-    });
-    await p.evaluate(() => { window.__kanal.hold = 'native_notif_touch'; });
-    await p.evaluate(() => { window.__huskis.cloudCycle(); });
-    await p.waitForFunction(() => window.__kanal.holdt.length === 1,
-      null, { timeout: 10000, polling: 50 });
-    // Den NYERE runden går helt fram mens den gamle henger.
-    await p.evaluate(() => window.__huskis.setNotifChannel(true));
-    await p.waitForFunction(() => {
-      const r = (window.HK_MOCK._loadDB().native_notif_devices || [])[0];
-      return r && !r.revoked_at && r.enabled === true;
-    }, null, { timeout: 10000, polling: 100 });
-    await p.evaluate(async () => { await window.__kanal.slippSvar(); });
-    await p.waitForTimeout(400);
-    const d11b = await dbOf(p);
-    log('11e: motsatt rekkefølge — det gamle svaret som lander SIST blir også forkastet',
-      (await p.evaluate(() => window.__huskis.notifChannelWanted())) === true &&
-      (await p.evaluate(() => window.__huskis.pushRevokedHere)) === false &&
-      (await p.evaluate(() => window.__kanal.alarmer.length)) > 0,
-      JSON.stringify(await p.evaluate(() => ({
-        vil: window.__huskis.notifChannelWanted(),
-        revoked: window.__huskis.pushRevokedHere,
-        alarmer: window.__kanal.alarmer.length }))));
-    log('11f: … og serverstatusen er fortsatt PÅ, ikke avslått',
-      !!natRad(d11b, 'd-app') && natRad(d11b, 'd-app').enabled === true &&
-      natRad(d11b, 'd-app').revoked_at == null, JSON.stringify(natRad(d11b, 'd-app')));
-
-    /* … og den siste halvdelen: to runder i SAMME epoke, altså uten at
-       brukeren har rørt bryteren. Da kan ikke epoken skille dem, og det er
-       rundenummeret som må sørge for at den eldste ikke skriver markøren sist.
-       Markøren er det dempingen leser: sto den igjen på et overkjørt svar,
-       ville neste runde blitt vurdert på feil grunnlag.
-
-       `setNotifChannelWanted` flyttes direkte, uten bryteren — nettopp for å
-       få to runder med ULIK status innenfor én epoke. */
-    await p.evaluate(async () => {
-      window.__kanal.holdAlle = 'native_notif_touch';
-      /* `explicit` bare for å komme forbi dempingen — to runder rett etter
-         hverandre med samme status ville ellers blitt til én. Poenget her er
-         rekkefølgen, ikke hva som utløste rundene. */
-      window.__huskis.setNotifChannelWanted(true);
-      window.__huskis.syncNativeNotifDevice({ explicit: true });   // eldste: «on»
-      await new Promise((r) => setTimeout(r, 150));
-      window.__huskis.setNotifChannelWanted(false);
-      window.__huskis.syncNativeNotifDevice({ explicit: true });   // nyeste: «off»
-    });
-    await p.waitForFunction(() => window.__kanal.holdt.length === 2,
-      null, { timeout: 10000, polling: 50 });
-    // Den NYESTE slippes først, den eldste etterpå.
-    await p.evaluate(async () => {
-      const nyest = window.__kanal.holdt.splice(1, 1)[0];
-      await nyest();
-    });
-    await p.waitForTimeout(200);
-    const merkeFør = await p.evaluate(() => window.__huskis.notifNativeMark);
-    await p.evaluate(async () => {
-      window.__kanal.holdAlle = null;
-      await window.__kanal.slippAlle();
-    });
-    await p.waitForTimeout(200);
-    const merkeEtter = await p.evaluate(() => window.__huskis.notifNativeMark);
-    log('11g: den nyeste runden satte markøren', merkeFør === 'off', merkeFør);
-    log('11h: … og det eldre svaret som landet etterpå overskrev den IKKE',
-      merkeEtter === 'off', JSON.stringify({ før: merkeFør, etter: merkeEtter }));
+    /* Markøren står igjen på den NYESTE runden. Den er det dempingen leser, og
+       sto den på et overkjørt svar, ville neste runde blitt vurdert på feil
+       grunnlag. Motsatt rekkefølge — et gammelt svar som lander ETTER et nyere
+       — finnes ikke lenger å teste: køen slipper bare ett statuskall av gårde
+       om gangen, så det gamle svaret ER alltid det som lander først. Del 12
+       måler nettopp den egenskapen, på skrivingene. */
+    log('11e: … og markøren følger den nyeste runden',
+      (await p.evaluate(() => window.__huskis.notifNativeMark)) === 'on',
+      await p.evaluate(() => window.__huskis.notifNativeMark));
 
     log('11: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
+    await ctx.close();
+  }
+
+  /* ====== Del 12: en gammel SKRIVING som når databasen etter en nyere ====== */
+  /* Del 10 og 11 verner om SVARET: et gammelt svar får ikke røre en nyere
+     klienttilstand. Det er ikke det samme som å verne om SKRIVINGEN. To
+     statuskall som er i lufta samtidig når databasen i den rekkefølgen nettet
+     gir dem, og et gammelt «på» som landet etter et nytt «av» ville latt
+     SERVEREN stå igjen med «på»: telefonen ble stående i «Enheter med varsler»
+     med varsler brukeren nettopp slo av, helt til noe annet meldte fra.
+
+     Derfor holdes UTFØRELSEN her, ikke svaret (`holdkall`): mock-databasen har
+     ikke sett det gamle kallet i det hele tatt når brukeren gjør sitt valg, og
+     testen kan slippe det etterpå — i verste rekkefølge. */
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 780 },
+      userAgent: AND_UA });
+    const p = await ctx.newPage();
+    const feil = [];
+    p.on('pageerror', (e) => feil.push(String(e)));
+    await ctx.addInitScript(fakePlattform);
+    // `holdkall` fra oppstart: appens EGEN første statusrunde er den gamle
+    // skrivingen, og den er i gang før en test rekker å be om å holde den.
+    const URL_H = BASE + '/?mock=1&ch=native&holdkall=native_notif_touch';
+    await p.goto(URL_H);
+    const due = await omTiDager(p);
+    /* Appen starter med varslene PÅ fra før. Da går oppstartens ordinære
+       statusrunde med «på» — og den holdes før den når databasen. */
+    await seed(p, URL_H, buildDB(due, { web: true, appØkt: true }), SESS_APP,
+      { 'mine-lister-device': 'd-app', 'hk-notif-channel': 'on' });
+    await p.waitForFunction(() => window.__kanal.holdt.length >= 1,
+      null, { timeout: 20000, polling: 50 });
+    await p.waitForFunction(() => window.__kanal.alarmer.length > 0,
+      null, { timeout: 20000, polling: 100 });
+    log('12a: oppstartens statusrunde («på») er utstedt, men har ikke nådd databasen',
+      (await dbOf(p)).native_notif_devices.length === 0,
+      JSON.stringify((await dbOf(p)).native_notif_devices));
+
+    // Brukeren slår AV mens den gamle skrivingen fortsatt henger.
+    await p.evaluate(() => { window.__huskis.setNotifChannel(false); });
+    await p.waitForFunction(() => window.__kanal.alarmer.length === 0,
+      null, { timeout: 10000, polling: 100 });
+    log('12b: det lokale valget virker med det samme — alarmene er tatt ned uten å vente på serveren',
+      (await p.evaluate(() => window.__kanal.alarmer.length)) === 0 &&
+      (await p.evaluate(() => window.__huskis.notifChannelWanted())) === false);
+    log('12c: … og brukerens skriving står i kø bak den gamle, ikke ved siden av den',
+      (await p.evaluate(() => window.__kanal.holdt.length)) === 1,
+      await p.evaluate(() => window.__kanal.holdt.length));
+
+    /* VERSTE REKKEFØLGE: den ELDSTE skrivingen slippes HELT TIL SLUTT, etter
+       alle de nyere. Det er nøyaktig det et tregt nett kan gjøre av seg selv,
+       og det er der en kø ved kilden er forskjellen på riktig og feil
+       sluttstatus. */
+    await p.evaluate(async () => {
+      const eldste = window.__kanal.holdt.shift();
+      window.__kanal.holdKallAlle = null;
+      while (window.__kanal.holdt.length) await window.__kanal.slippSvar();
+      if (eldste) await eldste();
+    });
+    await p.waitForFunction(() => {
+      const r = (window.HK_MOCK._loadDB().native_notif_devices || [])[0];
+      return r && r.enabled === false;
+    }, null, { timeout: 10000, polling: 100 }).catch(() => {});
+    let d12 = await dbOf(p);
+    log('12d: sluttstatus på serveren er AV — den gamle skrivingen kan ikke overkjøre det nyere valget',
+      !!natRad(d12, 'd-app') && natRad(d12, 'd-app').enabled === false,
+      JSON.stringify(natRad(d12, 'd-app')));
+    log('12e: … og appen er ikke en varselenhet i listen',
+      (await p.evaluate(async () => {
+        await window.__huskis.loadDevices();
+        return (window.__huskis.devices.push || []).filter((x) => x.kind === 'native').length;
+      })) === 0);
+
+    log('12: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
+    await ctx.close();
+  }
+
+  /* ====== Del 13: motsatt retning — gammelt «av» mot et nyere «slå på» ====== */
+  /* Tillatelsen ble trukket i systeminnstillingene mens appen var lukket. Ved
+     oppstart oppdager den ordinære runden det og melder «av» — og mens det
+     kallet er i lufta, trykker brukeren «Slå på varsler» og gir tillatelsen på
+     nytt. Landet det gamle «av»-et etter trykket, ville serveren stått med en
+     telefon uten varsler mens telefonen varslet. */
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 780 },
+      userAgent: AND_UA });
+    const p = await ctx.newPage();
+    const feil = [];
+    p.on('pageerror', (e) => feil.push(String(e)));
+    await ctx.addInitScript(fakePlattform);
+    const URL_D = BASE + '/?mock=1&ch=native&perm=denied&holdkall=native_notif_touch';
+    await p.goto(URL_D);
+    const due = await omTiDager(p);
+    await seed(p, URL_D, buildDB(due, { web: true, appØkt: true }), SESS_APP,
+      { 'mine-lister-device': 'd-app', 'hk-notif-channel': 'on' });
+    await p.waitForFunction(() => window.__kanal.holdt.length >= 1,
+      null, { timeout: 20000, polling: 50 });
+    log('13a: oppstartsrunden melder «av» (tillatelsen er trukket), og henger',
+      (await dbOf(p)).native_notif_devices.length === 0);
+
+    // Brukeren trykker «Slå på varsler» og gir tillatelsen på nytt.
+    await p.evaluate(() => { window.__huskis.setNotifChannel(true); });
+    await p.waitForFunction(() => window.__kanal.alarmer.length > 0,
+      null, { timeout: 10000, polling: 100 });
+    log('13b: valget virker lokalt med det samme — alarmene ligger på telefonen',
+      (await p.evaluate(() => window.__kanal.alarmer.length)) > 0);
+
+    // Den eldste helt til slutt, som i del 12.
+    await p.evaluate(async () => {
+      const eldste = window.__kanal.holdt.shift();
+      window.__kanal.holdKallAlle = null;
+      while (window.__kanal.holdt.length) await window.__kanal.slippSvar();
+      if (eldste) await eldste();
+    });
+    await p.waitForFunction(() => {
+      const r = (window.HK_MOCK._loadDB().native_notif_devices || [])[0];
+      return r && r.enabled === true;
+    }, null, { timeout: 10000, polling: 100 }).catch(() => {});
+    const d13 = await dbOf(p);
+    log('13c: sluttstatus på serveren er PÅ — det gamle «av»-et overkjører ikke trykket',
+      !!natRad(d13, 'd-app') && natRad(d13, 'd-app').enabled === true &&
+      natRad(d13, 'd-app').revoked_at == null, JSON.stringify(natRad(d13, 'd-app')));
+    log('13d: … og appen står i «Enheter med varsler»',
+      (await p.evaluate(async () => {
+        await window.__huskis.loadDevices();
+        return (window.__huskis.devices.push || []).filter((x) => x.kind === 'native').length;
+      })) === 1);
+
+    log('13: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
     await ctx.close();
   }
 

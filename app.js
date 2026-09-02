@@ -10082,14 +10082,14 @@
      runde skal rive ned det nye valget. Samme grep som `devicesEpoch` bruker
      for enhetslistene. */
   let notifEpoch = 0;
-  /* … og INNENFOR én epoke: rekkefølgen mellom to runder som er i lufta
-     samtidig. En tvungen runde (doc-signalet) og pulsen kan overlappe, og da
-     skal den ELDSTE ikke få skrive markøren sist — den ville sagt at kanalen
-     er meldt med en status som er overkjørt, og dempet den neste runden på
-     et foreldet grunnlag. `notifNativeSeq` teller runder som er startet,
-     `notifNativeDone` den ferskeste som har fått lov å skrive. */
+  /* … og INNENFOR én epoke: rekkefølgen mellom runder som overlapper. En
+     tvungen runde (doc-signalet) og pulsen kan bli utstedt tett på hverandre,
+     og da skal den ELDSTE hverken skrive til serveren sist eller sette
+     markøren sist. Rekkefølgen holdes ved KILDEN — køen i `nativeNotifTouch()`
+     nedenfor slipper bare ett statuskall av gårde om gangen. `notifNativeSeq`
+     nummererer rundene, `notifNativeWant` er den nyeste som er stilt i kø. */
   let notifNativeSeq = 0;
-  let notifNativeDone = 0;
+  let notifNativeWant = 0;
 
   /* Enhetens tidssone, slik plattformen selv navngir den. Terskeltidene er
      absolutte millisekunder regnet ut av `timeMs()` fra lokal veggtid, så de
@@ -11912,6 +11912,36 @@
   let notifNativeMark = null;    // kanalstatusen sist vi meldte fra om
   let notifNativeMarkAt = 0;     // … og da vi meldte den
   let notifNativeRetryAt = 0;    // etter et mislykket kall: ikke mas
+  /* ÉN STATUSSKRIVING OM GANGEN, I DEN REKKEFØLGEN KLIENTEN BESTEMTE SEG.
+
+     Epoken over verner om SVARET: et gammelt svar får ikke røre en nyere
+     tilstand. Den verner ikke om SKRIVINGEN. To kall som er i lufta samtidig
+     når databasen i den rekkefølgen nettet gir dem, og et gammelt «på» som
+     landet etter et nytt «av» ville latt serveren stå igjen med «på» —
+     telefonen ville blitt stående i «Enheter med varsler» med varsler brukeren
+     nettopp slo av. `push_lock()` løser det ikke: den serialiserer
+     transaksjonene, men vet ikke hvilken av dem som bærer det nyeste valget.
+
+     Køen løser det ved kilden. Et statuskall stiller seg bakerst og starter
+     først når det forrige har landet, så serverens SISTE skriving er alltid
+     klientens SISTE valg. Og en runde som har stått i kø mens valget byttet,
+     skriver ikke i det hele tatt (`sjekk`) — den ville skrevet en vilje som
+     ikke finnes lenger, og krevd en runde til for å rette den opp.
+
+     ALLE statusskrivinger går her, også utloggingens. */
+  let notifNativeChain = Promise.resolve();
+  function nativeNotifTouch(client, params, sjekk) {
+    const kjør = notifNativeChain.then(async () => {
+      if (sjekk && !sjekk()) return null;   // valget byttet mens vi stod i kø
+      const { data, error } = await client.rpc('native_notif_touch', params);
+      if (error) throw error;
+      return { data };
+    });
+    // Selve kjeden avviser aldri: en runde som feilet skal ikke ta den neste med
+    // seg i fallet — feilen håndteres av den som stilte seg i kø.
+    notifNativeChain = kjør.then(() => {}, () => {});
+    return kjør;
+  }
   async function syncNativeNotifDevice(opts) {
     if (!androidChannel.supported()) return;
     const client = acli();
@@ -11941,25 +11971,32 @@
        (`notifEpoch`), og rundens egen plass i køen (`runde`). */
     const epoke = notifEpoch;
     const runde = ++notifNativeSeq;
-    // Er svaret fortsatt verdt noe når det lander? Nei hvis kontoen eller
-    // brukerens valg har endret seg siden vi spurte, og nei hvis en NYERE
-    // runde alt har svart — da er dette svaret det utdaterte av de to.
-    const gjelder = () => epoke === notifEpoch && runde > notifNativeDone;
+    notifNativeWant = runde;
+    // Er runden fortsatt brukerens nyeste valg? Nei hvis kontoen eller valget
+    // har endret seg siden vi stilte oss i kø — da gjelder både skrivingen og
+    // svaret en tilstand som ikke finnes lenger.
+    const gjelder = () => epoke === notifEpoch;
+    /* … og skal nettopp DENNE runden skrive? En automatisk runde som har fått
+       en nyere bak seg i køen har ingenting å melde som ikke den nyere melder
+       like godt — den droppes, så en treg server ikke gir et ras av skrivinger
+       i det den svarer. Et EKSPLISITT valg skrives alltid: det er det ene som
+       opphever en fjern-avslåing. */
+    const minTur = () => gjelder() && (eksplisitt || runde >= notifNativeWant);
     try {
-      const { data, error } = await client.rpc('native_notif_touch', {
+      const svar = await nativeNotifTouch(client, {
         p_enabled: på, p_browser: d.browser, p_platform: d.platform,
         p_origin: d.origin, p_device_id: d.deviceId, p_explicit: eksplisitt,
-      });
-      if (error) throw error;
-      if (!gjelder()) return;
-      notifNativeDone = runde;
+      }, minTur);
+      // Ingen skriving (køen droppet runden), eller et svar som ikke gjelder
+      // lenger: da er det heller ingenting å anvende.
+      if (!svar || !gjelder()) return;
       notifNativeMark = merke;
       notifNativeMarkAt = Date.now();
       notifNativeRetryAt = 0;
       /* Fjern-avslått fra en annen enhet. Da rigges kanalen ned her — de
          planlagte alarmene avlyses og bryteren går av — og ingen automatisk
          runde kan slå dem på igjen. */
-      if (data && data.revoked && (notifChannelWanted() || !notifPushRevoked)) {
+      if (svar.data && svar.data.revoked && (notifChannelWanted() || !notifPushRevoked)) {
         await notifChannelRevokedHere();
       }
     } catch (e) {
@@ -12103,6 +12140,10 @@
          stående (`keepRow`): det er `revoked_at` som holder et gjenbrukt
          endepunkt fra å våkne som aktivt. */
   async function notifChannelRevokedHere() {
+    /* Kanalen er slått av HER nå. Alt som er i lufta eller står i kø ble
+       utstedt om en tilstand som ikke finnes lenger, og en runde som meldte
+       «på» etterpå ville satt serveren tilbake til noe brukeren ikke har. */
+    notifEpoch++;
     notifPushRevoked = true;
     setNotifChannelWanted(false);
     notifPushMark = null; notifPushMarkAt = 0;
@@ -13489,11 +13530,13 @@
     const client = acli();
     if (!client || !authUser) return;
     const d = clientDescriptor();
-    const { error } = await client.rpc('native_notif_touch', {
+    /* Gjennom den samme køen som resten: står en statusrunde med «på» i lufta,
+       skal den lande FØR utloggingens «av» — ikke etter, med en telefon som
+       blir stående igjen som en enhet med varsler ingen er logget inn på. */
+    await nativeNotifTouch(client, {
       p_enabled: false, p_browser: d.browser, p_platform: d.platform,
       p_origin: d.origin, p_device_id: d.deviceId, p_explicit: false,
     });
-    if (error) throw error;
   }
   /* «Logg ut» er LOKAL, og det er et bevisst valg.
 

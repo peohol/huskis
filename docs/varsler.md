@@ -1116,14 +1116,28 @@ Begge bumper den samme epoken (`notifEpoch`), som leses FØR kallet og
 sammenlignes når svaret lander. Den andre halvdelen er ikke en detalj: uten den
 holder det med et raskt AV/PÅ for at en gammel runde skal overstyre valget.
 Epoken bumpes derfor i det bryteren trykkes — før tillatelsesdialogen, som kan
-stå oppe en stund — og web push-fornyelsen leser den samme epoken.
+stå oppe en stund — og web push-fornyelsen leser den samme epoken. En nedrigging
+etter en fjern-avslåing (`notifChannelRevokedHere()`) bumper den også: kanalen er
+av her fra da av, og en runde som var på vei med «på» skal ikke sette serveren
+tilbake til noe brukeren ikke har.
 
-**Og innenfor én epoke: rekkefølgen.** To runder kan være i lufta samtidig (en
-tvungen runde fra doc-signalet og pulsen), og den eldste skal ikke få skrive
-markøren sist — den ville sagt at kanalen er meldt med en status som er
-overkjørt, og dempet den neste runden på et foreldet grunnlag. Hver runde får
-derfor et nummer, og bare et svar som er nyere enn det sist anvendte får skrive.
-Rekkefølgen svarene kommer i er dermed uten betydning: den ferskeste vinner.
+**Og rekkefølgen: én skriving om gangen.** Epoken verner om SVARET. Den verner
+ikke om SKRIVINGEN: to statuskall som er i lufta samtidig når databasen i den
+rekkefølgen nettet gir dem, og et gammelt «på» som landet etter et nytt «av»
+ville latt SERVEREN stå igjen med «på» — telefonen ble stående i «Enheter med
+varsler» med varsler brukeren nettopp slo av, til noe annet meldte fra.
+`push_lock()` løser det ikke: den serialiserer transaksjonene, men vet ikke
+hvilken av dem som bærer det nyeste valget.
+
+Alle statusskrivinger går derfor gjennom én kø i klienten (`nativeNotifTouch()`),
+utloggingens melding inkludert: et kall stiller seg bakerst og starter først når
+det forrige har landet. Serverens siste skriving er dermed alltid klientens
+siste valg, og et svar kan ikke lenger lande etter et nyere. En runde som har
+stått i kø mens valget byttet, skriver ikke i det hele tatt — den ville skrevet
+en vilje som ikke finnes lenger — og en automatisk runde som har fått en nyere
+bak seg i køen droppes, så en treg server ikke gir et ras av skrivinger i det
+den svarer. Det LOKALE valget venter ikke på køen: alarmene legges og avlyses på
+telefonen med det samme.
 
 **En app som ikke har varsler på, får ingen rad.** Runden går fra hver
 innlogging på hver Android-enhet, også de som aldri slår varslene på; uten den
