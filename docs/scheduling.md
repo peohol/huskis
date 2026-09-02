@@ -191,25 +191,34 @@ Chip-innhold: datoen (`fmtDay`: «14. jul», + årstall når ≠ i år) — MEN 
 datoen er I DAG og et klokkeslett er definert, vises i stedet klokkeslettet
 med klokkeikon.
 
-### Fargen er de samme seks bøttene som «Kommende hendelser»
+### Fargen er de samme bøttene som «Kommende hendelser»
 
 `dueBucket`/`startBucket` er den ENE inndelingen av tid i appen, og både
 chipene (`dueStatus`/`startStatus`) og gruppene i hendelsesmodalen leser dem.
-En frist som står «innen 7 dager» der kan derfor ikke være rød i lista.
+En frist som står «innen en uke» der kan derfor ikke være rød i lista.
 
 | Felt | Bøtte | Grense | Chip |
 |---|---|---|---|
-| **frist** | utløpt | `due < now` | rød (`--grad-red`) |
-| | innen 7 dager | `now <= due < now + 7 døgn` | gul (`--grad-yellow`) |
-| | om 7 dager eller mer | `due >= now + 7 døgn` | grønn (`--grad-green`) |
-| **start** | har begynt | `start <= now` | blågrønn (`--grad-accent`) |
-| | innen 7 dager | `now < start < now + 7 døgn` | lilla (`--grad-purple`) |
-| | om 7 dager eller mer | `start >= now + 7 døgn` | blå (`--grad-blue`) |
+| **frist** | `over` — utløpt | `due < now` | rød (`--grad-red`) |
+| | `soon` — innen en uke | `now <= due < now + 7 døgn` | gul (`--grad-yellow`) |
+| | `month` — innen en måned | `now + 7 døgn <= due < now + 30 døgn` | grønn (`--grad-green`) |
+| | `far` — om mer enn en måned | `due >= now + 30 døgn` | grønn (`--grad-green`) |
+| **start** | `started` — har begynt | `start <= now` | blågrønn (`--grad-accent`) |
+| | `soon` — innen en uke | `now < start < now + 7 døgn` | lilla (`--grad-purple`) |
+| | `month` — innen en måned | `now + 7 døgn <= start < now + 30 døgn` | blå (`--grad-blue`) |
+| | `far` — om mer enn en måned | `start >= now + 30 døgn` | blå (`--grad-blue`) |
 
-Grensene er uttømmende og møtes uten hull, og ett døgn er 24 timer
-(`WEEK_MS`) — ikke syv kalenderdager. **Startene låner ikke varselfargene:** at
-noe begynner er ingen advarsel, så de har sine egne flater, som i modalen
+Grensene er uttømmende og møtes uten hull, og ett døgn er 24 timer — uka er
+`WEEK_MS` (7 døgn) og måneden `MONTH_MS` (30 døgn), ikke kalenderuker eller
+kalendermåneder. **Startene låner ikke varselfargene:** at noe begynner er
+ingen advarsel, så de har sine egne flater, som i modalen
 ([`kommende-hendelser.md`](kommende-hendelser.md)).
+
+**Chipen er en GROVERE lesning av de samme bøttene.** Modalen har åtte grupper,
+chipen seks toner: `month` og `far` deler tone (`CHIP_TONE`). En chip under et
+navn i board-et skal si at noe ikke haster — ikke hvor langt fram det ikke
+haster; det tallet står allerede i chipens egen tekst. Inndelingen er fortsatt
+ÉN: chipen leser den samme funksjonen, den bare slår sammen de to ytterste.
 
 De fire LYSE flatene (gul, grønn, lilla, blå) pinner en mørk ikonstrek og et
 lyst «papir» for seg selv; de to mørke (rød, blågrønn) beholder streken som

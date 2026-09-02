@@ -277,14 +277,25 @@
     'events.title':        ['Kommende hendelser', 'Upcoming events'],
     'events.empty':        ['Ingen kommende frister eller starttider.',
                             'No upcoming deadlines or start times.'],
+    // Tomt fordi tidshorisonten tok alt — noe brukeren selv kan gjøre om på.
+    'events.emptyHorizon': ['Ingen hendelser innenfor denne tidshorisonten.',
+                            'No events within this time horizon.'],
     'events.dueTitle':     ['Tidsfrister', 'Deadlines'],
     'events.dueOver':      ['Frist utløpt', 'Overdue'],
-    'events.dueSoon':      ['Frist innen 7 dager', 'Due within 7 days'],
-    'events.dueLater':     ['Frist om 7 dager eller mer', 'Due in 7 days or more'],
+    'events.dueSoon':      ['Frist innen en uke', 'Due within a week'],
+    'events.dueMonth':     ['Frist innen en måned', 'Due within a month'],
+    'events.dueFar':       ['Frist om mer enn en måned', 'Due in more than a month'],
     'events.startTitle':   ['Starttider', 'Start times'],
     'events.startStarted': ['Har begynt', 'Has started'],
-    'events.startSoon':    ['Begynner innen 7 dager', 'Starts within 7 days'],
-    'events.startLater':   ['Begynner om 7 dager eller mer', 'Starts in 7 days or more'],
+    'events.startSoon':    ['Begynner innen en uke', 'Starts within a week'],
+    'events.startMonth':   ['Begynner innen en måned', 'Starts within a month'],
+    'events.startFar':     ['Begynner om mer enn en måned', 'Starts in more than a month'],
+    /* Tidshorisonten: bryteren over listen. «Alle» er standard, og de to andre
+       er de samme grensene gruppene deler tiden på. */
+    'events.horizonTitle': ['Tidshorisont', 'Time horizon'],
+    'events.horizonWeek':  ['1 uke', '1 week'],
+    'events.horizonMonth': ['1 måned', '1 month'],
+    'events.horizonAll':   ['Alle', 'All'],
     // Radens opplesning: navnet først, så type, tid og sti.
     'events.rowLabel':     ['{name}, {kind}. {when}. {path}', '{name}, {kind}. {when}. {path}'],
     /* Avstanden i tid, vist over datoen på radens høyre side — kun innenfor sju

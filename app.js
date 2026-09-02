@@ -2894,6 +2894,10 @@
   const HOUR_MS = 60 * 60 * 1000;
   const DAY_MS = 24 * HOUR_MS;
   const WEEK_MS = 7 * DAY_MS;
+  /* «En måned» er 30 døgn à 24 timer, akkurat som uka er 7 — ikke en
+     kalendermåned. Da er grensene de samme uansett hvilken måned man står i,
+     og de kan regnes ut uten en kalender. */
+  const MONTH_MS = 30 * DAY_MS;
   /* Tidsverdi → millisekunder i lokal veggtid, eller null når verdien er tom.
      `field` er 'start' eller 'due' og avgjør hvilken ende av døgnet en dato
      uten klokkeslett betyr (se blokken over). */
@@ -2964,19 +2968,26 @@
   }
   /* BØTTENE — den ENE inndelingen av tid i appen. Både indikator-chipene under
      navnet og gruppene i «Kommende hendelser» (docs/kommende-hendelser.md)
-     bruker disse, så en frist som står «innen 7 dager» der ikke kan være rød i
+     bruker disse, så en frist som står «innen en uke» der ikke kan være rød i
      lista. Grensene er UTTØMMENDE og møtes uten hull: nøyaktig 7 døgn havner i
-     «om 7 døgn eller mer», nøyaktig nå i «innen 7 dager».
+     «innen en måned», nøyaktig 30 i «om mer enn en måned», nøyaktig nå i «innen
+     en uke».
 
      Starten speiler IKKE fristen ved `now`: et tidspunkt som er nøyaktig nå HAR
-     begynt, mens en frist som er nøyaktig nå ennå ikke er oversittet. */
-  function dueBucket(at, now) {   // 'over' | 'soon' | 'later'
+     begynt, mens en frist som er nøyaktig nå ennå ikke er oversittet.
+
+     Chipene er en GROVERE lesning av de samme bøttene, ikke en annen inndeling:
+     de slår `month` og `far` sammen til én tone (`CHIP_TONE`). Board-et skal si
+     «dette haster ikke», ikke skille to grader av det. */
+  function dueBucket(at, now) {   // 'over' | 'soon' | 'month' | 'far'
     if (at < now) return 'over';
-    return at < now + WEEK_MS ? 'soon' : 'later';
+    if (at < now + WEEK_MS) return 'soon';
+    return at < now + MONTH_MS ? 'month' : 'far';
   }
-  function startBucket(at, now) { // 'started' | 'soon' | 'later'
+  function startBucket(at, now) { // 'started' | 'soon' | 'month' | 'far'
     if (at <= now) return 'started';
-    return at < now + WEEK_MS ? 'soon' : 'later';
+    if (at < now + WEEK_MS) return 'soon';
+    return at < now + MONTH_MS ? 'month' : 'far';
   }
   /* Chip-statusene er nøyaktig de samme bøttene, regnet med `timeMs` mot samme
      `now`. Null når feltet er tomt. */
@@ -3163,14 +3174,19 @@
     b.dataset.dndIgnore = '';
     return b;
   }
-  /* Chipens seks toner er de samme seks gruppene «Kommende hendelser» deler
-     tiden i, med de samme flatene (docs/kommende-hendelser.md): fristen går
-     rød → gul → grønn, starten blågrønn → lilla → blå. At noe BEGYNNER er
-     ingen advarsel, så startene låner ikke varselfargene. */
+  /* Chipens seks toner er gruppene «Kommende hendelser» deler tiden i, med de
+     samme flatene (docs/kommende-hendelser.md): fristen går rød → gul → grønn,
+     starten blågrønn → lilla → blå. At noe BEGYNNER er ingen advarsel, så
+     startene låner ikke varselfargene.
+
+     Modalen har åtte grupper, chipen seks toner: de to bøttene lenger ut enn en
+     uke (`month`, `far`) deler tone. Chipen står under et navn i board-et og
+     skal si at noe ikke haster — ikke hvor langt fram det ikke haster. Det
+     tallet står i chipens egen tekst (datoen). */
   const CHIP_TONES = ['is-over', 'is-soon', 'is-later', 'is-started', 'is-startsoon', 'is-startlater'];
   const CHIP_TONE = {
-    due: { over: 'is-over', soon: 'is-soon', later: 'is-later' },
-    start: { started: 'is-started', soon: 'is-startsoon', later: 'is-startlater' },
+    due: { over: 'is-over', soon: 'is-soon', month: 'is-later', far: 'is-later' },
+    start: { started: 'is-started', soon: 'is-startsoon', month: 'is-startlater', far: 'is-startlater' },
   };
 
   /* Maler chipen fra `data-time`/`data-field`. ALT som avhenger av klokka står
@@ -9421,8 +9437,8 @@
 
      Returnerer
        { now, total,
-         due:   { over: [], soon: [], later: [] },
-         start: { started: [], soon: [], later: [] } }
+         due:   { over: [], soon: [], month: [], far: [] },
+         start: { started: [], soon: [], month: [], far: [] } }
 
      der hver hendelse er
        { kind, bucket, type, id, name, value, at, own, path, cardId } */
@@ -9513,11 +9529,25 @@
     const pick = (rows, bucket, dir) => rows.filter((e) => e.bucket === bucket).sort(byTime(dir));
     const out = {
       now: N,
-      due: { over: pick(due, 'over', 1), soon: pick(due, 'soon', 1), later: pick(due, 'later', 1) },
-      start: { started: pick(start, 'started', -1), soon: pick(start, 'soon', 1), later: pick(start, 'later', 1) },
+      due: {
+        over: pick(due, 'over', 1), soon: pick(due, 'soon', 1),
+        month: pick(due, 'month', 1), far: pick(due, 'far', 1),
+      },
+      start: {
+        started: pick(start, 'started', -1), soon: pick(start, 'soon', 1),
+        month: pick(start, 'month', 1), far: pick(start, 'far', 1),
+      },
     };
     out.total = due.length + start.length;
     return out;
+  }
+
+  /* Alle hendelsene i ett, uansett bøtte. Kallerne som ikke bryr seg om
+     grupperingen — varselgeneratoren og grenseutregningen — skal ikke måtte
+     ramse opp bøttene, og dermed heller ikke kunne glemme en ny. */
+  function allEvents(data) {
+    return [].concat(...Object.keys(data.due).map((k) => data.due[k]),
+      ...Object.keys(data.start).map((k) => data.start[k]));
   }
 
   /* ---------------- Modalen «Kommende hendelser» ----------------
@@ -9531,6 +9561,7 @@
   const eventsCloseBtn = document.getElementById('events-close');
   const eventsBodyEl = document.getElementById('events-body');
   const eventsCountEl = document.getElementById('events-count');
+  const eventsHorizonEl = document.getElementById('events-horizon');
   // Seksjonene og gruppene, i visningsrekkefølge. Nøklene er hele strenger av
   // samme grunn som ellers (tests/i18n.test.js leser kildekoden).
   const EVENT_SECTIONS = [
@@ -9540,14 +9571,62 @@
     { field: 'due', title: 'events.dueTitle', icon: 'calendarDue', groups: [
       { key: 'over', label: 'events.dueOver', icon: 'alert', tone: 'is-over' },
       { key: 'soon', label: 'events.dueSoon', icon: 'alert', tone: 'is-soon' },
-      { key: 'later', label: 'events.dueLater', icon: 'calendarDue', tone: 'is-later' },
+      { key: 'month', label: 'events.dueMonth', icon: 'calendarDue', tone: 'is-later' },
+      /* Lenger ute enn en måned er ingen grad av hast lenger, og da er tonen
+         heller ikke en varselfarge: den nøytrale flaten sier «parkert». Den
+         deles med startenes ytterste gruppe — de to sier det samme, og står i
+         hver sin seksjon med hvert sitt ikon og hver sin overskrift. */
+      { key: 'far', label: 'events.dueFar', icon: 'calendarDue', tone: 'is-far' },
     ] },
     { field: 'start', title: 'events.startTitle', icon: 'calendar', groups: [
       { key: 'started', label: 'events.startStarted', icon: 'play', tone: 'is-started' },
       { key: 'soon', label: 'events.startSoon', icon: 'clock', tone: 'is-startsoon' },
-      { key: 'later', label: 'events.startLater', icon: 'calendar', tone: 'is-startlater' },
+      { key: 'month', label: 'events.startMonth', icon: 'calendar', tone: 'is-startlater' },
+      { key: 'far', label: 'events.startFar', icon: 'calendar', tone: 'is-far' },
     ] },
   ];
+  /* TIDSHORISONTEN — hvor langt fram OG tilbake modalen ser. `ms` er
+     halvbredden på vinduet rundt `now`; `null` er «Alle», som er standarden.
+
+     Vinduet er symmetrisk og bruker de samme grensene som bøttene: en hendelse
+     er innenfor når den er MINDRE enn horisonten unna, så «1 uke» viser det som
+     begynte for under sju døgn siden og det som skjer om under sju døgn — og
+     skjuler dermed nøyaktig de gruppene som ligger utenfor.
+
+     Valget er BRUKERENS, ikke enhetens: det ligger i kontoens metadata
+     (`saveAccountPref`, samme sted som demoen og gest-tipsene) og følger med
+     til neste enhet. */
+  const EVENT_HORIZONS = [
+    { key: 'week', label: 'events.horizonWeek', ms: WEEK_MS },
+    { key: 'month', label: 'events.horizonMonth', ms: MONTH_MS },
+    { key: 'all', label: 'events.horizonAll', ms: null },
+  ];
+  const EVENT_HORIZON_DEFAULT = 'all';
+  function eventsHorizon() {
+    const want = accountPref('events').horizon;
+    return EVENT_HORIZONS.some((h) => h.key === want) ? want : EVENT_HORIZON_DEFAULT;
+  }
+  function eventsHorizonMs() {
+    const valgt = EVENT_HORIZONS.find((h) => h.key === eventsHorizon());
+    return valgt ? valgt.ms : null;
+  }
+  /* Hendelsene klippet ned til horisonten. Filteret bor HER, i modalen, og
+     aldri i motoren: varslene leser de samme hendelsene, og en
+     visningsinnstilling skal ikke kunne slå av et varsel. `hidden` sier hvor
+     mange horisonten tok, så en tom flate kan si HVORFOR den er tom. */
+  function eventsInHorizon(data) {
+    const ms = eventsHorizonMs();
+    if (ms == null) return Object.assign({ hidden: 0 }, data);
+    const innenfor = (e) => Math.abs(e.at - data.now) < ms;
+    const klipp = (grupper) => Object.keys(grupper).reduce((ut, k) => {
+      ut[k] = grupper[k].filter(innenfor);
+      return ut;
+    }, {});
+    const out = { now: data.now, due: klipp(data.due), start: klipp(data.start) };
+    out.total = allEvents(out).length;
+    out.hidden = data.total - out.total;
+    return out;
+  }
   let eventsSig = null;   // signaturen som står tegnet nå
 
   function eventIconEl(icon, cls) {
@@ -9631,14 +9710,67 @@
     return li;
   }
 
+  /* Bryteren med tre posisjoner. Knappene bygges ÉN gang fra EVENT_HORIZONS —
+     en fjerde posisjon skal ikke kreve ny markup — og males om ved hvert bytte.
+
+     `role="radiogroup"` med rullende tabindex: bare den valgte posisjonen er i
+     tabbrekkefølgen, og piltastene flytter valget innad. Det er
+     radiogruppe-mønsteret, og det er også den korteste veien til at bryteren
+     kan brukes uten mus (docs/tilgjengelighet.md). */
+  function paintEventsHorizon() {
+    if (!eventsHorizonEl) return;
+    const valgt = eventsHorizon();
+    if (!eventsHorizonEl.children.length) {
+      EVENT_HORIZONS.forEach((h) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'events-horizon-btn';
+        b.setAttribute('role', 'radio');
+        b.dataset.horizon = h.key;
+        b.dataset.i18n = h.label;
+        b.textContent = tr(h.label);
+        b.addEventListener('click', () => setEventsHorizon(h.key));
+        eventsHorizonEl.appendChild(b);
+      });
+      eventsHorizonEl.addEventListener('keydown', onEventsHorizonKey);
+    }
+    [].slice.call(eventsHorizonEl.children).forEach((b) => {
+      const på = b.dataset.horizon === valgt;
+      b.setAttribute('aria-checked', på ? 'true' : 'false');
+      b.classList.toggle('is-on', på);
+      b.tabIndex = på ? 0 : -1;
+    });
+  }
+  function onEventsHorizonKey(ev) {
+    const steg = ev.key === 'ArrowRight' || ev.key === 'ArrowDown' ? 1
+      : ev.key === 'ArrowLeft' || ev.key === 'ArrowUp' ? -1 : 0;
+    if (!steg) return;
+    ev.preventDefault();
+    const i = EVENT_HORIZONS.findIndex((h) => h.key === eventsHorizon());
+    const neste = EVENT_HORIZONS[(i + steg + EVENT_HORIZONS.length) % EVENT_HORIZONS.length];
+    setEventsHorizon(neste.key);
+    const knapp = eventsHorizonEl.querySelector('[data-horizon="' + neste.key + '"]');
+    if (knapp) knapp.focus();
+  }
+  /* Bytt horisont. Valget skrives på KONTOEN (og speiles i minnet med én gang,
+     så modalen kan males om før serveren har svart). */
+  function setEventsHorizon(key) {
+    if (!EVENT_HORIZONS.some((h) => h.key === key) || key === eventsHorizon()) return;
+    saveAccountPref({ events: Object.assign({}, accountPref('events'), { horizon: key }) }, 1);
+    paintEventsHorizon();
+    refreshEventsModal(true);
+  }
+
   function paintEvents(data) {
     eventsBodyEl.innerHTML = '';
     if (!data.total) {
       const empty = document.createElement('p');
       empty.className = 'events-empty';
-      empty.textContent = tr('events.empty');
+      // Tomt fordi det ikke finnes noe, eller tomt fordi horisonten tok alt?
+      // De to er ikke det samme, og bare den ene er noe brukeren kan endre.
+      empty.textContent = tr(data.hidden ? 'events.emptyHorizon' : 'events.empty');
       eventsBodyEl.appendChild(empty);
-      eventsCountEl.textContent = tr('events.empty');
+      eventsCountEl.textContent = empty.textContent;
       return;
     }
     EVENT_SECTIONS.forEach((sec) => {
@@ -9691,18 +9823,19 @@
   function nextEventBoundary(data, now) {
     let best = Infinity;
     const consider = (t) => { if (t > now && t < best) best = t; };
-    [data.due.over, data.due.soon, data.due.later,
-      data.start.started, data.start.soon, data.start.later].forEach((rows) => {
-      rows.forEach((e) => {
-        consider(e.at);
-        // De to 7-døgnsgrensene: gruppen bytter på den ene, og den relative
-        // teksten dukker opp/forsvinner på hver sin.
-        consider(e.at - WEEK_MS);
-        consider(e.at + WEEK_MS);
-        // … og teksten selv bytter på hver hele enhet (se `relParts`).
-        const p = relParts(e.at, now);
-        if (p) consider(p.diff >= 0 ? e.at - p.n * p.unit : e.at + (p.n + 1) * p.unit);
+    allEvents(data).forEach((e) => {
+      consider(e.at);
+      /* Grensene hver vei: uke- og månedsgrensen bytter gruppe på vei fram, og
+         de er dessuten horisontens ytterkanter i begge retninger — en hendelse
+         kan altså falle UT av visningen på dem også. Uke-grensen bakover er i
+         tillegg der den relative teksten forsvinner. */
+      [WEEK_MS, MONTH_MS].forEach((ms) => {
+        consider(e.at - ms);
+        consider(e.at + ms);
       });
+      // … og teksten selv bytter på hver hele enhet (se `relParts`).
+      const p = relParts(e.at, now);
+      if (p) consider(p.diff >= 0 ? e.at - p.n * p.unit : e.at + (p.n + 1) * p.unit);
     });
     return best;
   }
@@ -9719,7 +9852,7 @@
   function eventsSignature(data) {
     const one = (e) => e.kind + '|' + e.bucket + '|' + e.type + '|' + e.id + '|' + e.at + '|' +
       e.name + '|' + e.path.join('/') + '|' + fmtRelative(e.at, data.now);
-    return EVENT_SECTIONS.map((sec) => sec.groups
+    return eventsHorizon() + '@@' + EVENT_SECTIONS.map((sec) => sec.groups
       .map((g) => data[sec.field][g.key].map(one).join(';')).join('#')).join('##');
   }
   function refreshEventsModal(force) {
@@ -9730,15 +9863,19 @@
     const modal = document.getElementById('events-modal');
     if (!modal || modal.hidden) return;
     const data = collectUpcomingEvents();
+    /* Grensene regnes av ALLE hendelsene, ikke bare de synlige: en hendelse som
+       er utenfor horisonten nå, er nettopp en som skal komme INN i den. */
     scheduleEventsBoundary(data);
-    const sig = eventsSignature(data);
+    const vist = eventsInHorizon(data);
+    const sig = eventsSignature(vist);
     if (!force && sig === eventsSig) return;
     eventsSig = sig;
-    paintEvents(data);
+    paintEvents(vist);
   }
   function openEventsModal() {
     eventsSig = null;
     eventsModal.hidden = false;
+    paintEventsHorizon();
     refreshEventsModal(true);
     updateModalOpenClass();
   }
@@ -10035,6 +10172,28 @@
      har, og det er de NÆRMESTE tersklene som beholdes. */
   const NOTIF_PLAN_HORIZON_MS = 30 * DAY_MS;
   const NOTIF_PLAN_MAX = 40;
+  /* LEVETIDEN. Et varsel som ble historikk for lenger siden enn dette finnes
+     ikke lenger — serveren sletter det ved hver logging og leverer det ikke i
+     doc-et (`notify_max_age_ms()` i supabase/users-and-sharing.sql).
+
+     Målt fra det SENESTE av `createdAt` og `at`. Ingen av de to duger alene:
+     bare `at` ville slettet en rad i den samme runden den ble logget (en app
+     som har vært lukket lenge logger gamle terskler, og de skal SES), og bare
+     `createdAt` ville tatt en PLANLAGT rad i det den ringte — planen legges
+     opp til en måned fram (`NOTIF_PLAN_HORIZON_MS`), så en rad ved ytterkanten
+     er allerede en måned gammel da. En rad som ennå ikke har ringt har `at`
+     foran nå, og røres derfor aldri.
+
+     Vakten her er ikke en dublett av serverens: en rad kan runde 30 døgn mens
+     appen står åpen, og en eldre server-versjon i en mellomrunde skal heller
+     ikke kunne vise en rad appen sier ikke finnes. */
+  const NOTIF_MAX_AGE_MS = 30 * DAY_MS;
+  function notifExpired(row, now) {
+    // Mangler begge tidene, vet vi ingenting, og da beholdes raden: vakten skal
+    // feile mot Å VISE, ikke mot å skjule noe brukeren aldri fikk se.
+    const ble = Math.max(Number(row.at) || 0, Number(row.createdAt) || 0);
+    return ble > 0 && ble < now - NOTIF_MAX_AGE_MS;
+  }
   const NOTIF_BADGE_MAX = 99;      // over dette: «99+», så badgen ikke sprenger knappen
   const NOTIF_UNDO_S = 10;         // angre-vinduet for «Tøm varsler», i sekunder
   // «Utsett»: be om det samme varselet igjen om …
@@ -10225,8 +10384,7 @@
     const P = prefs || NOTIF_DEFAULT_PREFS;
     const data = collectUpcomingEvents(st, now);
     const rows = [];
-    [].concat(data.due.over, data.due.soon, data.due.later,
-      data.start.started, data.start.soon, data.start.later).forEach((ev) => {
+    allEvents(data).forEach((ev) => {
       const thresholds = ev.kind === 'due'
         ? [['dueOver', ev.at], ['dueSoon', ev.at - WEEK_MS]]
         : [['startNow', ev.at], ['startSoon', ev.at - WEEK_MS]];
@@ -10294,7 +10452,11 @@
      kjører generatoren og logger. Begge kalles fra `cloudCycle`. */
   function applyNotifications(my) {
     const rows = (my && my.notifications) || [];
-    notifRows = rows.slice();
+    // Levetiden er ikke valgfri (docs/varsler.md): en rad som ble historikk for
+    // lenger siden enn den finnes ikke for brukeren, uansett hva doc-et bar
+    // med seg.
+    const nåMs = Date.now();
+    notifRows = rows.filter((r) => !notifExpired(r, nåMs));
     // Radene vi har bedt serveren slette, men ennå ikke sett forsvinne. Er de
     // borte i doc-et, er slettingen bekreftet og settet kan tømmes for dem.
     if (notifPurged.size) {
@@ -19019,6 +19181,9 @@
        `now`, så grensetilfellene kan testes uten systemklokken — og
        `setObjectTime` er den ene setteren fristinvarianten håndheves i. */
     openEventsModal, closeEventsModal, collectUpcomingEvents, setObjectTime,
+    /* Tidshorisonten i modalen: valget ligger på KONTOEN, så en test kan lese og
+       sette det uten å gå veien om metadata-skrivingen. */
+    eventsHorizon, setEventsHorizon,
     /* Bøttene indikator-chipene og hendelsesgruppene DELER (docs/scheduling.md).
        Eksplisitt `now`, så grensene kan måles uten systemklokken. */
     dueStatus, startStatus,

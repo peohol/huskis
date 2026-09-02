@@ -191,11 +191,13 @@ Radens objekttype er BARE et ikon visuelt, og må derfor stå i klartekst i
 `aria-label` — det gjør den, sammen med navn, tidspunkt og sti.
 
 Ikonene i modalen står på fargede plater som er de samme i begge drakter, og
-modalen pinner derfor ikonstreken og «papiret» for hele subtreet. Kravet til de
-seks gruppeflatene er at MINST ÉN av de to (den mørke streken eller det lyse
+modalen pinner derfor ikonstreken og «papiret» for hele subtreet. Kravet til
+gruppeflatene er at MINST ÉN av de to (den mørke streken eller det lyse
 papiret) når 3:1 mot flaten — på de lyse flatene er det streken, på de mørke
-papiret. Vokter: `tests/a11y-contrast.test.js`. Autoritativt for resten:
-`kommende-hendelser.md`.
+papiret. De åtte gruppene deler syv flater: de to som ligger lenger ute enn en
+måned har samme nøytrale tone, og skilles av overskrift, ikon og seksjon.
+Vokter: `tests/a11y-contrast.test.js`, som også krever at hver tone HAR en
+kontraktsflate. Autoritativt for resten: `kommende-hendelser.md`.
 
 **Varselmodalen arver hele dette avsnittet.** Radene der er også vanlige
 knapper, statusflatene er de samme `.event-icon`-tonene, og de samme to kravene

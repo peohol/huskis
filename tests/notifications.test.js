@@ -34,6 +34,10 @@
         gir ÉN rad — den unike nøkkelen (bruker + nøkkel) er andre lag.
     11. Sletting av historikken gjenskaper den ikke: markøren står foran
         tersklene, så «Tøm varsler» er permanent.
+    13. Levetiden: en rad som ble historikk for mer enn 30 døgn siden slettes
+        automatisk og vises ikke. Den måles fra det SENESTE av `createdAt` og
+        `at`, så verken en plan framover, en fersk rad om en gammel hendelse
+        eller en planlagt rad som nettopp ringte rammes.
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
@@ -400,6 +404,70 @@ async function run() {
   const etterFortid = await a.evaluate(() => window.__huskis.notifRows.map((r) => r.type + ':' + r.name));
   log('12b: en frist satt til et tidspunkt som ALT var passert varsler ikke',
     etterFortid.length === 0, JSON.stringify(etterFortid));
+
+  /* ---------- 13) Levetiden: 30 døgn, og ikke valgfritt ----------
+     Radene skrives rett i mock-databasen, som serveren gjør: poenget er en rad
+     som har fått LIGGE og bli gammel. Levetiden måles fra det SENESTE av
+     `created_at` og `at` — fra da raden ble historikk — og de tre siste radene
+     her er hver sin grunn til at ingen av de to tidene duger alene.
+
+     Radene peker på EKTE lister med de tidene de faktisk har, ellers ville
+     opprydningen av «varsler som ikke gjelder lenger» tatt dem før levetiden
+     rakk å si noe (docs/varsler.md). */
+  const MND = 30 * 24 * 3600 * 1000;
+  await a.evaluate(({ ids, mnd }) => {
+    const db = window.HK_MOCK._loadDB();
+    const nå = Date.now();
+    const uid = db.profiles[0].id;
+    const rad = (key, name, type, objId, value, at, created, snoozed) => ({
+      id: key, user_id: uid, key: key, type: type, obj_type: 'card',
+      obj_id: objId, name: name, path: 'x', value: value,
+      at: at, snoozed: !!snoozed, created_at: created, read_at: null,
+    });
+    db.notifications = [
+      // Ringte for lenge siden OG ble skrevet for lenge siden → skal bort.
+      rad('gammel', 'Gammel', 'dueOver', ids.LUTLØPT, '2026-06-14T18:00',
+        nå - mnd - 2000, nå - mnd - 2000),
+      // Så vidt innenfor levetiden → blir stående.
+      rad('nesten', 'Nesten', 'dueSoon', ids.LUTLØPT, '2026-06-14T18:00',
+        nå - mnd + 3600000, nå - mnd + 3600000),
+      // Gammel rad som ennå ikke har ringt (et utsatt varsel) → ikke historikk.
+      rad('planlagt', 'Planlagt', 'dueOver', ids.LNÅ, '2026-06-15T12:00',
+        nå + 3600000, nå - mnd - 2000, true),
+      /* Fersk rad om en 90 døgn gammel hendelse → skal vises, den er ny for meg.
+         Bare `at` ville slettet den i den samme runden den ble logget. */
+      rad('etterslep', 'Etterslep', 'dueSoon', ids.LNÅ, '2026-06-15T12:00',
+        nå - 90 * 24 * 3600 * 1000, nå - 1000),
+      /* Planen legges opp en måned fram, så en rad ved horisontens ytterkant er
+         allerede en måned gammel i det den ringer. Bare `created_at` ville
+         ryddet den bort i nøyaktig det øyeblikket den ble relevant. */
+      rad('nyringt', 'Nyringt', 'dueOver', ids.LUTLØPT, '2026-06-14T18:00',
+        nå - 2000, nå - mnd - 2000),
+    ];
+    window.HK_MOCK._saveDB(db);
+  }, { ids: { LUTLØPT: f2.id.LUTLØPT, LNÅ: f2.id.LNÅ }, mnd: MND });
+  // Markøren gammel nok til at runden faktisk SKRIVER — opprydningen skjer i
+  // den samme operasjonen som loggingen.
+  await setCursor(a, Date.now() - 10 * 60 * 1000);
+  await cycle(a);
+  await cycle(a);
+  const levetid = await a.evaluate(() => ({
+    vist: window.__huskis.notifRows.map((r) => r.name).sort(),
+    iBasen: window.HK_MOCK._loadDB().notifications.map((n) => n.name).sort(),
+  }));
+  log('13a: en rad som ble historikk for mer enn 30 døgn siden vises ikke',
+    !levetid.vist.includes('Gammel'), JSON.stringify(levetid.vist));
+  log('13b: … og den er faktisk SLETTET på serveren, ikke bare skjult',
+    !levetid.iBasen.includes('Gammel'), JSON.stringify(levetid.iBasen));
+  log('13c: en rad så vidt innenfor levetiden blir stående',
+    levetid.vist.includes('Nesten'), JSON.stringify(levetid.vist));
+  log('13d: en rad som ennå ikke har ringt er ikke historikk og røres ikke, uansett alder',
+    levetid.iBasen.includes('Planlagt'), JSON.stringify(levetid.iBasen));
+  log('13e: en fersk rad om en GAMMEL hendelse blir stående — den er ikke sett ennå',
+    levetid.vist.includes('Etterslep'), JSON.stringify(levetid.vist));
+  log('13f: en PLANLAGT rad som nettopp ringte overlever at den ble LAGT for en måned siden',
+    levetid.vist.includes('Nyringt') && levetid.iBasen.includes('Nyringt'),
+    JSON.stringify(levetid.iBasen));
 
   log('ingen JS-feil', errs.length === 0, errs.join(' | '));
   await ctx2.close();

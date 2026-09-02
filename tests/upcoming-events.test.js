@@ -18,9 +18,9 @@
         aktiv igjen.
      2. Papirkurven er ute — slettet liste, slettet listepunkt.
      3. Fristgrensene, uttømmende og uten hull: utløpt, nøyaktig nå, under
-        7 døgn, NØYAKTIG 7 døgn, over 7 døgn.
+        7 døgn, NØYAKTIG 7 døgn, under 30 døgn, NØYAKTIG 30 døgn, over 30 døgn.
      4. Startgrensene: har begynt (også nøyaktig nå), under 7 døgn, nøyaktig
-        7 døgn, senere.
+        7 døgn, under 30 døgn, nøyaktig 30 døgn, senere.
      5. Sorteringen: lengst overskredet først, nærmest frist først, og sist
         påbegynt først blant de påbegynte.
      6. Tidsarv: listens lås har forrang for ALLE listepunkter, en kategoris
@@ -57,11 +57,12 @@ const KEYS = ['UA', 'GA',
   'CLÅS', 'CHIER', 'CIDENT', 'CDOM', 'CTOM',
   'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'I09', 'I10',
   'I11', 'I12', 'I13', 'I14', 'I15', 'I16', 'I17', 'I18', 'I19', 'I20',
-  'I21', 'I22', 'I23', 'I24', 'I25', 'I26', 'I27'];
+  'I21', 'I22', 'I23', 'I24', 'I25', 'I26', 'I27', 'I28', 'I29', 'I30', 'I31'];
 
 /* Fikstur. NÅ = 2026-06-15 kl. 12:00.
      15.06 kl. 12:00 er NØYAKTIG nå
-     22.06 kl. 12:00 er NØYAKTIG 7 døgn fram */
+     22.06 kl. 12:00 er NØYAKTIG 7 døgn fram
+     15.07 kl. 12:00 er NØYAKTIG 30 døgn fram */
 function buildDB() {
   const uid = 'uH';
   const id = {};
@@ -118,13 +119,17 @@ function buildDB() {
       item(id.I07, id.LGRENSE, 'Under sju', { pos: 2, due_at: '2026-06-22T11:59' }),
       item(id.I08, id.LGRENSE, 'Nøyaktig sju', { pos: 3, due_at: '2026-06-22T12:00' }),
       item(id.I09, id.LGRENSE, 'Over sju', { pos: 4, due_at: '2026-06-22T12:01' }),
-      item(id.I10, id.LGRENSE, 'Lengst overskredet', { pos: 5, due_at: '2026-06-01' }),
+      item(id.I28, id.LGRENSE, 'Nøyaktig tretti', { pos: 5, due_at: '2026-07-15T12:00' }),
+      item(id.I29, id.LGRENSE, 'Over tretti', { pos: 6, due_at: '2026-07-16T12:00' }),
+      item(id.I10, id.LGRENSE, 'Lengst overskredet', { pos: 7, due_at: '2026-06-01' }),
       // LSTART: startgrensene.
       item(id.I11, id.LSTART, 'Begynt før', { start_at: '2026-06-14T09:00' }),
       item(id.I12, id.LSTART, 'Begynner nå', { pos: 1, start_at: '2026-06-15T12:00' }),
       item(id.I13, id.LSTART, 'Under sju', { pos: 2, start_at: '2026-06-22T11:59' }),
       item(id.I14, id.LSTART, 'Nøyaktig sju', { pos: 3, start_at: '2026-06-22T12:00' }),
-      item(id.I15, id.LSTART, 'Senere', { pos: 4, start_at: '2026-07-20' }),
+      item(id.I30, id.LSTART, 'Under tretti', { pos: 4, start_at: '2026-07-10' }),
+      item(id.I31, id.LSTART, 'Nøyaktig tretti', { pos: 5, start_at: '2026-07-15T12:00' }),
+      item(id.I15, id.LSTART, 'Senere', { pos: 6, start_at: '2026-07-20' }),
       // LLÅS: listens lås. Kategorien har egne tider (den låses ikke av listen).
       item(id.CLÅS, id.LLÅS, 'Kat i låst liste', { is_cat: true, due_at: '2026-06-17' }),
       item(id.I16, id.LLÅS, 'Låst medlem', { pos: 1, cat_id: id.CLÅS, due_at: '2026-06-16', start_at: '2026-06-13' }),
@@ -206,7 +211,7 @@ const rows = (p, kind, bucket, cardId) => p.evaluate(({ kind, bucket, cardId, no
   /* ---------- 1) Fullføringslogikk ---------- */
   const alleDue = await p.evaluate(() => {
     const d = window.__huskis.collectUpcomingEvents(null, null);
-    return ['over', 'soon', 'later'].reduce((a, b) => a.concat(d.due[b].map((e) => e.type + ':' + e.name)), []);
+    return ['over', 'soon', 'month', 'far'].reduce((a, b) => a.concat(d.due[b].map((e) => e.type + ':' + e.name)), []);
   });
   log('1a: en TOM liste gir ingen hendelse, selv med frist',
     !alleDue.includes('card:Tom'), JSON.stringify(alleDue.filter((x) => x.indexOf('Tom') > -1)));
@@ -221,7 +226,7 @@ const rows = (p, kind, bucket, cardId) => p.evaluate(({ kind, bucket, cardId, no
     const punkt = kort.items.find((it) => it.text === 'Punkt tidligst');
     punkt.done = true;
     const d = H.collectUpcomingEvents(null, null);
-    const navn = ['over', 'soon', 'later'].reduce((a, b) => a.concat(d.due[b].map((e) => e.type + ':' + e.name)), []);
+    const navn = ['over', 'soon', 'month', 'far'].reduce((a, b) => a.concat(d.due[b].map((e) => e.type + ':' + e.name)), []);
     punkt.done = false;
     return navn;
   });
@@ -238,26 +243,35 @@ const rows = (p, kind, bucket, cardId) => p.evaluate(({ kind, bucket, cardId, no
   /* ---------- 3) Fristgrensene ---------- */
   const fOver = await alle('due', 'over', id.LGRENSE);
   const fSoon = await alle('due', 'soon', id.LGRENSE);
-  const fLater = await alle('due', 'later', id.LGRENSE);
+  const fMonth = await alle('due', 'month', id.LGRENSE);
+  const fFar = await alle('due', 'far', id.LGRENSE);
   log('3a: frist FØR nå er utløpt', eq(fOver, ['item:Lengst overskredet', 'item:Utløpt']), JSON.stringify(fOver));
-  log('3b: frist NØYAKTIG nå er ikke utløpt — den er innen 7 dager',
+  log('3b: frist NØYAKTIG nå er ikke utløpt — den er innen en uke',
     fSoon[0] === 'item:Nøyaktig nå', JSON.stringify(fSoon));
-  log('3c: under 7 døgn ligger i «innen 7 dager»',
+  log('3c: under 7 døgn ligger i «innen en uke»',
     eq(fSoon, ['item:Nøyaktig nå', 'item:Under sju']), JSON.stringify(fSoon));
-  log('3d: NØYAKTIG 7 døgn faller i «om 7 dager eller mer» — ingen hull i grensen',
-    fLater[0] === 'item:Nøyaktig sju', JSON.stringify(fLater));
-  log('3e: over 7 døgn ligger samme sted', eq(fLater, ['item:Nøyaktig sju', 'item:Over sju']), JSON.stringify(fLater));
+  log('3d: NØYAKTIG 7 døgn faller i «innen en måned» — ingen hull i grensen',
+    fMonth[0] === 'item:Nøyaktig sju', JSON.stringify(fMonth));
+  log('3e: over 7 døgn ligger samme sted', eq(fMonth, ['item:Nøyaktig sju', 'item:Over sju']), JSON.stringify(fMonth));
+  log('3f: NØYAKTIG 30 døgn faller i «om mer enn en måned» — samme slag grense som ukas',
+    fFar[0] === 'item:Nøyaktig tretti', JSON.stringify(fFar));
+  log('3g: over 30 døgn ligger samme sted',
+    eq(fFar, ['item:Nøyaktig tretti', 'item:Over tretti']), JSON.stringify(fFar));
 
   /* ---------- 4) Startgrensene ---------- */
   const sStart = await alle('start', 'started', id.LSTART);
   const sSoon = await alle('start', 'soon', id.LSTART);
-  const sLater = await alle('start', 'later', id.LSTART);
+  const sMonth = await alle('start', 'month', id.LSTART);
+  const sFar = await alle('start', 'far', id.LSTART);
   log('4a: start NØYAKTIG nå HAR begynt (motsatt av fristen ved samme grense)',
     sStart.includes('item:Begynner nå'), JSON.stringify(sStart));
-  log('4b: under 7 døgn begynner «innen 7 dager»', eq(sSoon, ['item:Under sju']), JSON.stringify(sSoon));
-  log('4c: NØYAKTIG 7 døgn faller i «om 7 dager eller mer»',
-    sLater[0] === 'item:Nøyaktig sju', JSON.stringify(sLater));
-  log('4d: senere ligger samme sted', eq(sLater, ['item:Nøyaktig sju', 'item:Senere']), JSON.stringify(sLater));
+  log('4b: under 7 døgn begynner «innen en uke»', eq(sSoon, ['item:Under sju']), JSON.stringify(sSoon));
+  log('4c: NØYAKTIG 7 døgn faller i «innen en måned»',
+    sMonth[0] === 'item:Nøyaktig sju', JSON.stringify(sMonth));
+  log('4d: under 30 døgn ligger samme sted',
+    eq(sMonth, ['item:Nøyaktig sju', 'item:Under tretti']), JSON.stringify(sMonth));
+  log('4e: NØYAKTIG 30 døgn og senere begynner «om mer enn en måned»',
+    eq(sFar, ['item:Nøyaktig tretti', 'item:Senere']), JSON.stringify(sFar));
 
   /* ---------- 5) Sortering ---------- */
   log('5a: lengst overskredet først', eq(fOver, ['item:Lengst overskredet', 'item:Utløpt']), JSON.stringify(fOver));
@@ -268,7 +282,7 @@ const rows = (p, kind, bucket, cardId) => p.evaluate(({ kind, bucket, cardId, no
   /* ---------- 6) Tidsarv ---------- */
   const låsDue = await p.evaluate((cid) => {
     const d = window.__huskis.collectUpcomingEvents(null, null);
-    return ['over', 'soon', 'later'].reduce((a, b) => a.concat(
+    return ['over', 'soon', 'month', 'far'].reduce((a, b) => a.concat(
       d.due[b].filter((e) => e.cardId === cid).map((e) => e.type + ':' + e.name + (e.own ? '' : '(arv)'))), []);
   }, id.LLÅS);
   log('6a: listens lås styrer ALLE listepunktene — også de i kategori',
@@ -279,7 +293,7 @@ const rows = (p, kind, bucket, cardId) => p.evaluate(({ kind, bucket, cardId, no
     låsDue.includes('category:Kat i låst liste'), JSON.stringify(låsDue));
   const katLåsDue = await p.evaluate((cid) => {
     const d = window.__huskis.collectUpcomingEvents(null, null);
-    return ['over', 'soon', 'later'].reduce((a, b) => a.concat(
+    return ['over', 'soon', 'month', 'far'].reduce((a, b) => a.concat(
       d.due[b].filter((e) => e.cardId === cid).map((e) => e.type + ':' + e.name)), []);
   }, id.LKATLÅS);
   log('6d: kategoriens lås gjelder KUN dens egne medlemmer',
@@ -291,7 +305,7 @@ const rows = (p, kind, bucket, cardId) => p.evaluate(({ kind, bucket, cardId, no
   /* ---------- 7) Hierarkisk deduplisering for frister ---------- */
   const hier = await p.evaluate((cid) => {
     const d = window.__huskis.collectUpcomingEvents(null, null);
-    return ['over', 'soon', 'later'].reduce((a, b) => a.concat(
+    return ['over', 'soon', 'month', 'far'].reduce((a, b) => a.concat(
       d.due[b].filter((e) => e.cardId === cid).map((e) => e.type + ':' + e.name)), []);
   }, id.LHIER);
   log('7a: liste → kategori → listepunkt med hver sin TIDLIGERE frist: alle tre vises',
@@ -310,7 +324,7 @@ const rows = (p, kind, bucket, cardId) => p.evaluate(({ kind, bucket, cardId, no
   /* ---------- 8) Starter dedupliseres ikke som frister ---------- */
   const sBarn = await p.evaluate((cid) => {
     const d = window.__huskis.collectUpcomingEvents(null, null);
-    return ['started', 'soon', 'later'].reduce((a, b) => a.concat(
+    return ['started', 'soon', 'month', 'far'].reduce((a, b) => a.concat(
       d.start[b].filter((e) => e.cardId === cid).map((e) => b + '/' + e.type + ':' + e.name)), []);
   }, id.LSTARTBARN);
   log('8: et barn med EGEN, senere start vises selv om listen har begynt — og det er ikke «begynt»',

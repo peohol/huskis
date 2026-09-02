@@ -558,6 +558,13 @@
         </h2>
         <button class="icon-btn" id="events-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
       </header>
+      <!-- Tidshorisonten hører til hodet, ikke kroppen: valget skal stå fast
+           mens listen ruller under det (docs/kommende-hendelser.md).
+           Posisjonene bygges av app.js fra EVENT_HORIZONS. -->
+      <div class="events-horizon-panel">
+        <h3 class="events-horizon-title" id="events-horizon-title" data-i18n="events.horizonTitle">Tidshorisont</h3>
+        <div class="events-horizon" id="events-horizon" role="radiogroup" aria-labelledby="events-horizon-title"></div>
+      </div>
       <div class="modal-body events-body" id="events-body"></div>
       <!-- Antallet leses opp ved åpning; gruppene har sine egne navn. -->
       <p class="visually-hidden" id="events-count" role="status" aria-live="polite"></p>

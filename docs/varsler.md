@@ -353,8 +353,36 @@ lest/ulest skal være det samme på alle mine enheter.
 - `name` og `path` er et **øyeblikksbilde** fra genereringstidspunktet, så raden
   kan vises også etter at objektet er slettet. Navigasjonen bruker dem aldri —
   den slår alltid opp `obj_id` i gjeldende tilstand.
-- Historikken har et **tak på 200 rader per bruker**; `notify_record()` rydder
-  de eldste utover det, og `get_my_doc()` leverer det samme taket.
+- Historikken har **to grenser**, og begge håndheves av serveren:
+  - et **tak på 200 rader per bruker** — `notify_record()` rydder de eldste
+    utover det;
+  - en **levetid på 30 døgn** (`notify_max_age_ms()`) — en rad som ble
+    historikk for lenger siden enn det, SLETTES. Den er ikke valgfri og gjelder
+    også en kort historikk: et varsel som har ligget en måned ber ikke lenger om
+    oppmerksomhet.
+
+  **Levetiden teller fra det ØYEBLIKKET raden ble historikk** — altså fra det
+  SENESTE av `created_at` og `at`. Ingen av de to duger alene:
+
+  - bare `at` ville slettet en rad i den samme operasjonen som skrev den. En app
+    som har vært lukket lenge logger terskler som passerte for lenge siden (se
+    «Markøren er hele idempotensen»), og de skal VISES når de kommer;
+  - bare `created_at` ville tatt en PLANLAGT rad i det den ringte. Planen legges
+    opp til en måned fram (`NOTIF_PLAN_HORIZON_MS`), så en rad ved horisontens
+    ytterkant er allerede en måned gammel når `at` passerer.
+
+  Med det seneste av de to lever hver rad en måned ETTER at den ble relevant,
+  uansett hvilken vei den kom.
+
+  **Rader fram i tid røres dermed aldri**: for dem er `at` det seneste, og det
+  ligger foran nå. Planen framover og et utsatt varsel er ikke historikk, og
+  skal ikke kunne ryddes bort før de har fått ringt.
+
+  `get_my_doc()` filtrerer på det samme regnestykket, så en rad aldri VISES for
+  gammel selv om det er lenge siden forrige logging ryddet. Klienten gjør det
+  også, i `applyNotifications()`: en rad kan runde 30 døgn mens appen står åpen.
+  Tallet står ett sted i hvert lag — `notify_max_age_ms()` i SQL-en,
+  `NOTIF_MAX_AGE_MS` i `app.js` og i `mock-backend.js`.
 
 Radene og preferansene kommer med `get_my_doc()` (samme runde som resten), og
 generatoren kjøres sist i hver synk-runde. Skjemaendringene er additive: en
