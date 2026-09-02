@@ -353,8 +353,30 @@ lest/ulest skal være det samme på alle mine enheter.
 - `name` og `path` er et **øyeblikksbilde** fra genereringstidspunktet, så raden
   kan vises også etter at objektet er slettet. Navigasjonen bruker dem aldri —
   den slår alltid opp `obj_id` i gjeldende tilstand.
-- Historikken har et **tak på 200 rader per bruker**; `notify_record()` rydder
-  de eldste utover det, og `get_my_doc()` leverer det samme taket.
+- Historikken har **to grenser**, og begge håndheves av serveren:
+  - et **tak på 200 rader per bruker** — `notify_record()` rydder de eldste
+    utover det;
+  - en **levetid på 30 døgn** (`notify_max_age_ms()`) — en rad som har ligget
+    lenger enn det, SLETTES. Den er ikke valgfri og gjelder også en kort
+    historikk: et varsel som har ligget en måned ber ikke lenger om
+    oppmerksomhet.
+
+  **Alderen er radens egen**, `created_at` — hvor lenge varselet har ligget der
+  — og ikke hvor gammel hendelsen den beskriver er. To grunner: det er den
+  alderen brukeren opplever, og en rad kan da aldri slettes i den samme
+  operasjonen som skrev den. En app som har vært lukket lenge logger terskler
+  som passerte for lenge siden (se «Markøren er hele idempotensen»), og de skal
+  VISES når de kommer.
+
+  **Rader fram i tid røres aldri**, uansett alder: planen framover og et utsatt
+  varsel er ikke historikk, og en plan skal ikke kunne ryddes bort før den har
+  fått ringt. Vilkåret er derfor begge deler — raden har passert OG er gammel.
+
+  `get_my_doc()` filtrerer på det samme, så en rad aldri VISES for gammel selv
+  om det er lenge siden forrige logging ryddet. Klienten gjør det også, i
+  `applyNotifications()`: en rad kan runde 30 døgn mens appen står åpen. Tallet
+  står ett sted i hvert lag — `notify_max_age_ms()` i SQL-en, `NOTIF_MAX_AGE_MS`
+  i `app.js` og i `mock-backend.js`.
 
 Radene og preferansene kommer med `get_my_doc()` (samme runde som resten), og
 generatoren kjøres sist i hver synk-runde. Skjemaendringene er additive: en

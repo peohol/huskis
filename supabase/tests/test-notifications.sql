@@ -59,6 +59,12 @@ select public.t_check('B ser den delte listen (samme innhold, egne varsler)',
 
 -- ---------- 1. første runde: prefs-raden lages med standardene ----------
 reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+/* Én fast tidsbase for hele fila. `at` er hendelsens faktiske tidspunkt, og
+   radene har en LEVETID på 30 døgn (notify_max_age_ms()) — en sentinelverdi
+   som 2000 ms ville vært 1970 og blitt ryddet bort med en gang. `\gset` gir et
+   tall som er det samme i hver setning; `now()` ville vært nytt per
+   transaksjon. */
+select (extract(epoch from now()) * 1000)::bigint as t0 \gset
 select public.t_check('A har ingen prefs-rad før første logging',
   (select count(*) from public.notification_prefs where user_id = :'A') = 0);
 select public.notify_record('[]'::jsonb, 1000);
@@ -72,23 +78,23 @@ select public.t_check('markøren står der klienten satte den',
 select public.notify_record(jsonb_build_array(jsonb_build_object(
   'key', 'dueOver|card|' || :'AC' || '|2026-01-10', 'type', 'dueOver',
   'obj_type', 'card', 'obj_id', :'AC', 'name', 'Frist-liste',
-  'path', 'Varselområde › Mappe', 'value', '2026-01-10', 'at', 2000)), 2000);
+  'path', 'Varselområde › Mappe', 'value', '2026-01-10', 'at', :t0 - 8000)), 2000);
 select public.t_check('varselet ble logget', (select count(*) from public.notifications where user_id = :'A') = 1);
 select public.t_check('… og notify_record() svarte med antall rader som FAKTISK ble lagt inn',
   (select public.notify_record(jsonb_build_array(jsonb_build_object(
      'key', 'startNow|card|' || :'AC' || '|2026-01-05', 'type', 'startNow',
      'obj_type', 'card', 'obj_id', :'AC', 'name', 'Frist-liste',
-     'path', 'x', 'value', '2026-01-05', 'at', 2500)))) = 1
+     'path', 'x', 'value', '2026-01-05', 'at', :t0 - 7500)))) = 1
   and (select public.notify_record(jsonb_build_array(jsonb_build_object(
      'key', 'startNow|card|' || :'AC' || '|2026-01-05', 'type', 'startNow',
      'obj_type', 'card', 'obj_id', :'AC', 'name', 'Frist-liste',
-     'path', 'x', 'value', '2026-01-05', 'at', 2500)))) = 0);
+     'path', 'x', 'value', '2026-01-05', 'at', :t0 - 7500)))) = 0);
 delete from public.notifications where key like 'startNow|%';
 -- Den ANDRE enheten regner ut nøyaktig det samme varselet.
 select public.notify_record(jsonb_build_array(jsonb_build_object(
   'key', 'dueOver|card|' || :'AC' || '|2026-01-10', 'type', 'dueOver',
   'obj_type', 'card', 'obj_id', :'AC', 'name', 'Frist-liste',
-  'path', 'Varselområde › Mappe', 'value', '2026-01-10', 'at', 2000)), 2100);
+  'path', 'Varselområde › Mappe', 'value', '2026-01-10', 'at', :t0 - 8000)), 2100);
 select public.t_check('samme nøkkel to ganger gir ÉN rad (to enheter dupliserer ikke)',
   (select count(*) from public.notifications where user_id = :'A') = 1);
 select public.t_check('varselet er ulest fra starten',
@@ -98,7 +104,7 @@ select public.t_check('varselet er ulest fra starten',
 select public.notify_record(jsonb_build_array(jsonb_build_object(
   'key', 'dueOver|card|' || :'AC' || '|2026-02-01', 'type', 'dueOver',
   'obj_type', 'card', 'obj_id', :'AC', 'name', 'Frist-liste',
-  'path', 'Varselområde › Mappe', 'value', '2026-02-01', 'at', 3000)), 3000);
+  'path', 'Varselområde › Mappe', 'value', '2026-02-01', 'at', :t0 - 7000)), 3000);
 select public.t_check('endret tidsverdi gir et NYTT varsel',
   (select count(*) from public.notifications where user_id = :'A') = 2);
 
@@ -114,12 +120,48 @@ select public.t_check('en enhet med klokka langt fram klemmes til serverens nå'
 -- ---------- 4. ugyldige rader slipper ikke inn ----------
 select public.notify_record(jsonb_build_array(jsonb_build_object(
   'key', 'tull|card|x|y', 'type', 'ikkeEnType', 'obj_type', 'card',
-  'obj_id', :'AC', 'at', 4000)));
+  'obj_id', :'AC', 'at', :t0 - 6000)));
 select public.t_check('ukjent varseltype forkastes',
   (select count(*) from public.notifications where user_id = :'A') = 2);
 select public.t_check('markøren står stille når p_cursor er utelatt («Utsett»-veien)',
   (select cursor_at from public.notification_prefs where user_id = :'A')
     <= (extract(epoch from now()) * 1000)::bigint);
+
+-- ---------- 4b. LEVETIDEN: et varsel som har ligget 30 døgn finnes ikke ----------
+-- Radene skrives her direkte som EIER (ingen insert-policy for klienten), fordi
+-- poenget er en rad som har fått LIGGE og bli gammel — ikke en logging.
+-- Alderen er radens egen (`created_at`), og bare en PASSERT rad har en alder.
+reset role;
+insert into public.notifications (user_id, key, type, obj_type, obj_id, name, path, value, at, created_at)
+values
+  -- Passert OG gammel → skal bort.
+  (:'A', 'dueOver|card|gammel',    'dueOver',  'card', :'AC', 'Gammel',    'x', '2020-01-01',
+   :t0 - 2000, :t0 - public.notify_max_age_ms() - 1000),
+  -- Passert, men skrevet så vidt innenfor levetiden → blir stående.
+  (:'A', 'dueOver|card|nesten',    'dueOver',  'card', :'AC', 'Nesten',    'x', '2020-01-02',
+   :t0 - 2000, :t0 - public.notify_max_age_ms() + 3600000),
+  -- Gammel rad, men ennå ikke forfalt: det er PLANEN, ikke historikk.
+  (:'A', 'startNow|card|planlagt', 'startNow', 'card', :'AC', 'Planlagt',  'x', '2030-01-01',
+   :t0 + 3600000, :t0 - public.notify_max_age_ms() - 1000),
+  -- Fersk rad om en GAMMEL hendelse (appen har vært lukket lenge): skal vises.
+  (:'A', 'dueOver|card|etterslep', 'dueOver',  'card', :'AC', 'Etterslep', 'x', '2020-01-03',
+   :t0 - 90::bigint * 24 * 60 * 60 * 1000, :t0 - 1000);
+select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+select public.t_check('get_my_doc() leverer ikke en rad som har ligget lenger enn levetiden',
+  not exists (select 1 from jsonb_array_elements(public.get_my_doc() -> 'notifications') e
+               where e ->> 'name' = 'Gammel'));
+select public.notify_record('[]'::jsonb);
+select public.t_check('… og første logging etterpå SLETTER den',
+  (select count(*) from public.notifications where user_id = :'A' and name = 'Gammel') = 0);
+select public.t_check('en rad som så vidt er innenfor levetiden står urørt',
+  (select count(*) from public.notifications where user_id = :'A' and name = 'Nesten') = 1);
+select public.t_check('en PLANLAGT rad er ikke historikk og røres ikke, uansett alder',
+  (select count(*) from public.notifications where user_id = :'A' and name = 'Planlagt') = 1);
+select public.t_check('en FERSK rad om en gammel hendelse blir stående — den er ikke sett ennå',
+  (select count(*) from public.notifications where user_id = :'A' and name = 'Etterslep') = 1);
+-- Ryddes bort igjen, så resten av fila måler mot de to opprinnelige radene.
+delete from public.notifications where user_id = :'A'
+   and name in ('Nesten', 'Planlagt', 'Etterslep');
 
 -- ---------- 5. RLS: B ser ALDRI A sine varsler ----------
 reset role; select set_config('request.jwt.claim.sub', :'B', false); set role authenticated;
@@ -143,7 +185,7 @@ update public.notifications set read_at = 5000 where read_at is null;
 select public.t_check('A kan merke sine egne som lest',
   (select count(*) from public.notifications where user_id = :'A' and read_at = 5000) = 2);
 select public.t_check('get_my_doc() leverer A sine varsler, nyeste først',
-  (public.get_my_doc() -> 'notifications' -> 0 ->> 'at') = '3000'
+  (public.get_my_doc() -> 'notifications' -> 0 ->> 'at') = (:t0 - 7000)::text
   and jsonb_array_length(public.get_my_doc() -> 'notifications') = 2);
 select public.t_check('get_my_doc() leverer preferansene med markøren',
   (public.get_my_doc() -> 'notify_prefs' ->> 'dueOver') = 'true'
@@ -170,7 +212,7 @@ reset role; select set_config('request.jwt.claim.sub', :'B', false); set role au
 select public.notify_record(jsonb_build_array(jsonb_build_object(
   'key', 'startNow|item|' || :'AI' || '|2026-03-01', 'type', 'startNow',
   'obj_type', 'item', 'obj_id', :'AI', 'name', 'Punkt', 'path', 'x',
-  'value', '2026-03-01', 'at', 6000)), 6000);
+  'value', '2026-03-01', 'at', :t0 - 4000)), 6000);
 select public.t_check('B har sitt eget varsel om det samme objektet',
   (select count(*) from public.notifications where user_id = :'B') = 1);
 select public.delete_account();

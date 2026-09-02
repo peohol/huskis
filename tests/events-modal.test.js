@@ -31,6 +31,10 @@
         lukkes — og en frist som PASSERER mens modalen står åpen flytter seg
         til «Frist utløpt» uten at noe i tilstanden endret seg.
      9. i18n: modalen finnes på både norsk og engelsk.
+    11. Tidshorisonten: panelet står fast under tittelen (utenfor den rullende
+        kroppen), tre posisjoner i en radiogruppe med «Alle» som standard,
+        vinduet er symmetrisk om nå, piltastene virker — og valget lagres på
+        KONTOEN, så det overlever en omlasting.
     10. Farge er aldri eneste bærer. Gruppens statusikon står på en
         kontraktsflate og pinner derfor streken sin, lik i begge drakter;
         radens typeikon står rett på modalflaten og FØLGER drakten, så det
@@ -81,12 +85,15 @@ const dagAv = (x) => x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x
               Kontoret   > Underlag    (frist om 4 dager, start om 2)
                             Forarbeid (kategori, frist om 2 dager)
                               Skisse  (frist om 1 dag)
+              Kontoret   > Planlegging (frist om 15 dager, start om 45)
+   Fiksturen dekker dermed alle ÅTTE gruppene: utløpt/uke/måned/lenger for
+   frister, begynt/uke/måned/lenger for starter.
      Den aktive mappen er Klinikk, så en rad i Kontoret må BYTTE mappe. */
 function buildDB(lang) {
   const uid = 'uM';
   const id = {};
-  ['UA', 'GA', 'GB', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6',
-    'C1', 'I1', 'I2', 'I3', 'I4', 'I5', 'I6'].forEach((k) => { id[k] = U(); });
+  ['UA', 'GA', 'GB', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7',
+    'C1', 'I1', 'I2', 'I3', 'I4', 'I5', 'I6', 'I7'].forEach((k) => { id[k] = U(); });
   const base = (x) => Object.assign({
     trashed: false, locked: false, unlocked: false, invite_policy: 'inherit',
     collapsed: false, is_cat: false, cat_id: null,
@@ -118,6 +125,8 @@ function buildDB(lang) {
       // Liste → kategori → listepunkt med hver sin tidligere frist: alle tre
       // vises, så alle tre radikonene finnes å sammenligne (punkt 4b).
       card(id.L6, id.GB, 'Underlag', { pos: 4, due_at: dag(4), start_at: dag(2) }),
+      // Frist i måneds-gruppen, start i den lenger ute enn en måned.
+      card(id.L7, id.GB, 'Planlegging', { pos: 5, due_at: dag(15), start_at: dag(45) }),
     ],
     items: [
       item(id.I1, id.L1, 'Mandag'),
@@ -127,6 +136,7 @@ function buildDB(lang) {
       item(id.I5, id.L5, 'Ringe'),
       item(id.C1, id.L6, 'Forarbeid', { is_cat: true, due_at: dag(2) }),
       item(id.I6, id.L6, 'Skisse', { pos: 1, cat_id: id.C1, due_at: dag(1) }),
+      item(id.I7, id.L7, 'Planlegge'),
     ],
     memberships: [{ id: U(), user_id: uid, universe_id: id.UA, group_id: null, role: 'owner', pos: 0, created_at: 1 }],
     share_invites: [], tombstones: [],
@@ -225,14 +235,14 @@ async function run(label, viewport, touchMode) {
     eq(tre.map((s) => s.tittel), ['Tidsfrister', 'Starttider']), JSON.stringify(tre.map((s) => s.tittel)));
   log(label + ' 3a: bare gruppene som HAR rader tegnes, med statusikon og uten antall',
     eq(tre[0].grupper.map((g) => g.navn + '/' + g.tone + '/' + g.ikon + '/' + g.antallElementer),
-      ['Frist utløpt/is-over/true/0', 'Frist innen 7 dager/is-soon/true/0',
-        'Frist om 7 dager eller mer/is-later/true/0']),
+      ['Frist utløpt/is-over/true/0', 'Frist innen en uke/is-soon/true/0',
+        'Frist innen en måned/is-later/true/0', 'Frist om mer enn en måned/is-far/true/0']),
     JSON.stringify(tre[0].grupper));
   // Startgruppene bærer IKKE varselfargene: at noe begynner er ingen advarsel.
   log(label + ' 3b: startgruppene har sine EGNE farger, ikke varselfargene',
     eq(tre[1].grupper.map((g) => g.navn + '/' + g.tone),
-      ['Har begynt/is-started', 'Begynner innen 7 dager/is-startsoon',
-        'Begynner om 7 dager eller mer/is-startlater']),
+      ['Har begynt/is-started', 'Begynner innen en uke/is-startsoon',
+        'Begynner innen en måned/is-startlater', 'Begynner om mer enn en måned/is-far']),
     JSON.stringify(tre[1].grupper));
   /* LUFTEN bærer inndelingen: ingen strek mellom gruppene, men en avstand som
      er i en helt annen størrelsesorden enn luften mellom to rader i én gruppe. */
@@ -375,8 +385,8 @@ async function run(label, viewport, touchMode) {
       const h = heads.find((x) => x.children[1].textContent === n);
       return h ? [].slice.call(h.nextElementSibling.querySelectorAll('.event-row-name')).map((e) => e.textContent) : [];
     }, navn);
-    log(label + ' 8c: fristen står i «Frist innen 7 dager» før grensen',
-      (await iGruppe('Frist innen 7 dager')).includes('Rapport'), await iGruppe('Frist innen 7 dager'));
+    log(label + ' 8c: fristen står i «Frist innen en uke» før grensen',
+      (await iGruppe('Frist innen en uke')).includes('Rapport'), await iGruppe('Frist innen en uke'));
     const flyttet = await p.waitForFunction(() => {
       const heads = [].slice.call(document.querySelectorAll('.events-group-head'));
       const h = heads.find((x) => x.children[1].textContent === 'Frist utløpt');
@@ -426,9 +436,14 @@ async function run(label, viewport, touchMode) {
         flate: getComputedStyle(katRad).backgroundColor,
         skygge: getComputedStyle(katRad.querySelector('.event-row-icon .icon')).filter,
       },
-      // Flatene bak gruppeikonene skal være SEKS ulike, ikke gjenbrukte.
+      /* Flatene bak gruppeikonene, og tonene som ba om dem. Én flate PER TONE:
+         de to gruppene lenger ute enn en måned deler tone med vilje (ingen
+         hastegrad = ingen farge), resten har hver sin. Blir to ULIKE toner
+         malt med den samme flaten, er det en glipp. */
       flater: [...new Set([].slice.call(document.querySelectorAll('.event-icon'))
         .map((e) => getComputedStyle(e).backgroundImage))].length,
+      toner: [...new Set([].slice.call(document.querySelectorAll('.events-group-head .event-icon'))
+        .map((e) => (e.className.match(/is-[a-z]+/) || [])[0]))].length,
     };
   });
   const lys = await les();
@@ -463,12 +478,103 @@ async function run(label, viewport, touchMode) {
   log(label + ' 10d: typeikonet kaster en liten skygge, så streken løftes fra raden',
     /drop-shadow/.test(lys.kat.skygge) && /drop-shadow/.test(mørk.kat.skygge), mørk.kat.skygge);
   await p.evaluate(() => window.HUSKIS_THEME.setMode('light'));
-  log(label + ' 10e: hver gruppe har sin EGEN flate — ingen farge er gjenbrukt',
-    lys.flater === (await modalTree(p)).reduce((n, sec) => n + sec.grupper.length, 0),
-    'ulike flater: ' + lys.flater);
+  const grupper = (await modalTree(p)).reduce((n, sec) => n + sec.grupper.length, 0);
+  log(label + ' 10e: hver TONE har sin egen flate — bare de to ytterste gruppene deler',
+    lys.flater === lys.toner && lys.toner === grupper - 1,
+    'flater ' + lys.flater + ', toner ' + lys.toner + ', grupper ' + grupper);
   const tekstbærere = await p.evaluate(() => [].slice.call(document.querySelectorAll('.events-group-head'))
     .every((h) => h.textContent.replace(/\d+/g, '').trim().length > 3));
   log(label + ' 10f: hver gruppe sier i KLARTEKST hva den er, ikke bare med farge', tekstbærere);
+
+  /* ---------- 11) Tidshorisonten ---------- */
+  const panel = await p.evaluate(() => {
+    const el = document.querySelector('.events-horizon-panel');
+    const body = document.getElementById('events-body');
+    return {
+      finnes: !!el,
+      // Panelet står FAST: det ligger utenfor den eneste flaten som ruller …
+      utenforKroppen: !!el && !body.contains(el),
+      // … og rett under tittelen, ikke et sted nede i listen.
+      etterHodet: !!el && !!el.previousElementSibling &&
+        el.previousElementSibling.classList.contains('modal-head'),
+      kroppenRuller: getComputedStyle(body).overflowY === 'auto',
+      tittel: el && el.querySelector('.events-horizon-title').textContent,
+      rolle: el && el.querySelector('.events-horizon').getAttribute('role'),
+      // Radiogruppen må ha et navn — overskriften er det.
+      navngitt: !!el && el.querySelector('.events-horizon').getAttribute('aria-labelledby')
+        === el.querySelector('.events-horizon-title').id,
+      valg: [].slice.call(document.querySelectorAll('.events-horizon-btn'))
+        .map((b) => b.textContent + '=' + b.getAttribute('aria-checked')),
+    };
+  });
+  log(label + ' 11a: tidshorisont-panelet står fast under tittelen, utenfor den rullende kroppen',
+    panel.finnes && panel.utenforKroppen && panel.etterHodet && panel.kroppenRuller &&
+    panel.tittel === 'Tidshorisont', JSON.stringify(panel));
+  log(label + ' 11b: tre posisjoner i en navngitt radiogruppe, med «Alle» som standard',
+    panel.rolle === 'radiogroup' && panel.navngitt &&
+    eq(panel.valg, ['1 uke=false', '1 måned=false', 'Alle=true']), JSON.stringify(panel.valg));
+
+  const synlig = () => p.evaluate(() => ({
+    grupper: [].slice.call(document.querySelectorAll('.events-group-head')).map((h) => h.children[1].textContent),
+    rader: [].slice.call(document.querySelectorAll('.event-row-name')).map((e) => e.textContent),
+  }));
+  const somAlle = await synlig();
+  log(label + ' 11c: «Alle» viser alle åtte gruppene', somAlle.grupper.length === 8,
+    JSON.stringify(somAlle.grupper));
+  await p.locator('.events-horizon-btn[data-horizon="week"]').click();
+  const somUke = await synlig();
+  log(label + ' 11d: «1 uke» skjuler gruppene som ligger lenger fram enn en uke',
+    !somUke.grupper.some((g) => /måned/.test(g)), JSON.stringify(somUke.grupper));
+  // … og vinduet er symmetrisk: det som ligger like langt TILBAKE er også ute.
+  log(label + ' 11e: … og hendelser som ligger mer enn en uke tilbake i tid',
+    somAlle.rader.includes('Vaktdager') && !somUke.rader.includes('Vaktdager') &&
+    somUke.rader.includes('Nettopp'), JSON.stringify(somUke.rader));
+  await p.locator('.events-horizon-btn[data-horizon="month"]').click();
+  const somMåned = await synlig();
+  log(label + ' 11f: «1 måned» beholder måneds-gruppene, men ikke de lenger ute',
+    somMåned.grupper.some((g) => /innen en måned/.test(g)) &&
+    !somMåned.grupper.some((g) => /mer enn en måned/.test(g)) &&
+    somMåned.rader.includes('Vaktdager'), JSON.stringify(somMåned.grupper));
+
+  // Piltastene flytter valget: radiogruppe-mønsteret, uten mus.
+  await p.locator('.events-horizon-btn[data-horizon="month"]').focus();
+  await p.keyboard.press('ArrowRight');
+  const etterPil = await p.evaluate(() => ({
+    valgt: (document.querySelector('.events-horizon-btn[aria-checked="true"]') || {}).dataset,
+    fokus: document.activeElement && document.activeElement.dataset.horizon,
+    // Rullende tabindex: bare den valgte er i tabbrekkefølgen.
+    tab: [].slice.call(document.querySelectorAll('.events-horizon-btn')).map((b) => b.tabIndex),
+  }));
+  log(label + ' 11g: piltastene flytter valget, og bare det valgte er tabbart',
+    etterPil.valgt.horizon === 'all' && etterPil.fokus === 'all' && eq(etterPil.tab, [-1, -1, 0]),
+    JSON.stringify(etterPil));
+
+  // Valget ligger på KONTOEN, ikke bare i denne fanen: det overlever en
+  // omlasting fordi det ble skrevet til brukerens metadata.
+  await p.locator('.events-horizon-btn[data-horizon="week"]').click();
+  const påKontoen = await p.evaluate(() => {
+    const økt = JSON.parse(sessionStorage.getItem('hk-mock-session') || '{}');
+    const db = JSON.parse(localStorage.getItem('hk-mock-db') || '{}');
+    const prof = (db.profiles || []).find((x) => x.id === økt.id) || {};
+    return (prof.user_metadata || {}).events;
+  });
+  log(label + ' 11h: valget skrives til brukerens konto, ikke bare til enheten',
+    !!påKontoen && påKontoen.horizon === 'week', JSON.stringify(påKontoen));
+  await p.goto(BASE + '/?mock=1');
+  await p.waitForFunction(() => {
+    const H = window.__huskis;
+    return H && H.authUser && H.lastMy && H.state.universes.length > 0;
+  }, null, { timeout: 15000, polling: 200 });
+  await p.locator('#events-btn').click();
+  await p.waitForSelector('#events-modal:not([hidden])');
+  const etterLast = await p.evaluate(() => ({
+    valgt: (document.querySelector('.events-horizon-btn[aria-checked="true"]') || {}).dataset.horizon,
+    grupper: [].slice.call(document.querySelectorAll('.events-group-head')).map((h) => h.children[1].textContent),
+  }));
+  log(label + ' 11i: … og står der etter en omlasting',
+    etterLast.valgt === 'week' && !etterLast.grupper.some((g) => /måned/.test(g)),
+    JSON.stringify(etterLast));
+  await p.keyboard.press('Escape');
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
   await browser.close();
@@ -493,7 +599,9 @@ async function english() {
   log('9a: modalen finnes på engelsk', en.tittel === 'Upcoming events', en.tittel);
   log('9b: seksjonene er oversatt', eq(en.seksjoner, ['Deadlines', 'Start times']), JSON.stringify(en.seksjoner));
   log('9c: gruppene er oversatt',
-    en.grupper.includes('Overdue') && en.grupper.includes('Due within 7 days'), JSON.stringify(en.grupper));
+    en.grupper.includes('Overdue') && en.grupper.includes('Due within a week') &&
+    en.grupper.includes('Due within a month') && en.grupper.includes('Starts in more than a month'),
+    JSON.stringify(en.grupper));
   log('9d: radens sti står uten typen, som på norsk', /^Arbeid/.test(en.rad || ''), en.rad);
   // «t» heter «h» på engelsk — enheten er en egen nøkkel, ikke en del av tallet.
   log('9e: nedtellingen er oversatt, med engelsk tidsenhet',

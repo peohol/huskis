@@ -6,22 +6,26 @@
 
   To ting testes her, og de henger sammen:
 
-  1. FARGEN ER DE SAMME SEKS BØTTENE som «Kommende hendelser» deler tiden i.
-     En frist som står «innen 7 dager» i modalen kan ikke være rød i lista, og
-     startene låner ikke varselfargene.
+  1. FARGEN ER DE SAMME BØTTENE som «Kommende hendelser» deler tiden i. En
+     frist som står «innen en uke» i modalen kan ikke være rød i lista, og
+     startene låner ikke varselfargene. Chipen er en GROVERE lesning: modalen
+     har åtte grupper, chipen seks toner — de to bøttene lenger ute enn en uke
+     (`month`, `far`) deler tone, fordi board-et skal si at noe ikke haster,
+     ikke hvor langt fram det ikke haster.
   2. CHIPEN LEVER I TID. En frist som passerer mens brukeren ser på skjermen
      blir rød der og da — uten en rendring, uten en sideoppdatering. Det var
      nettopp det som manglet: indikatoren ble stående gul til noe annet tegnet
      board-et på nytt.
 
   Dekker:
-     1. Fristens tre toner ved de EKSAKTE grensene: utløpt, nøyaktig nå,
-        under 7 døgn, nøyaktig 7 døgn, over 7 døgn.
-     2. Startens tre toner ved de samme grensene — med det ene bevisste
+     1. Fristens bøtter ved de EKSAKTE grensene: utløpt, nøyaktig nå,
+        under 7 døgn, nøyaktig 7 døgn, under 30 døgn, over 30 døgn.
+     2. Startens bøtter ved de samme grensene — med det ene bevisste
         avviket ved `now`: en start som er nøyaktig nå HAR begynt, mens en
         frist som er nøyaktig nå ennå ikke er oversittet.
      3. Dato uten klokkeslett: fristen varer ut døgnet, starten begynner 00:00.
-     4. Ingen av de seks tonene er delt mellom frist og start.
+     4. Ingen av de seks tonene er delt mellom frist og start — og de to
+        bøttene lenger ute enn en uke ender i den SAMME tonen.
      5. Chipen maler seg selv om når tidspunktet passerer, uten en rendring.
      6. Den gjør det også for en frist som ligger på en 7-døgnsgrense.
      7. Fristbruddets varseltrekant overlever en slik ommaling (glyfen bærer
@@ -130,35 +134,43 @@ async function run() {
        22.06 kl. 12:00 = nøyaktig sju døgn fram */
   const NOW = await p.evaluate(() => new Date(2026, 5, 15, 12, 0, 0, 0).getTime());
 
-  /* ---------- 1) Fristens tre toner ---------- */
+  /* ---------- 1) Fristens bøtter ---------- */
   const due = {};
   for (const [navn, v] of [
     ['utløpt', '2026-06-14T12:00'], ['nøyaktig nå', '2026-06-15T12:00'],
     ['under sju', '2026-06-20T12:00'], ['nøyaktig sju', '2026-06-22T12:00'],
-    ['over sju', '2026-06-30T12:00'],
+    ['over sju', '2026-06-30T12:00'], ['nøyaktig tretti', '2026-07-15T12:00'],
+    ['over tretti', '2026-07-20T12:00'],
   ]) due[navn] = await tone(p, 'due', v, NOW);
   log('1a: frist FØR nå er utløpt', due['utløpt'] === 'over', due['utløpt']);
-  log('1b: frist NØYAKTIG nå er ikke utløpt — den er innen 7 dager',
+  log('1b: frist NØYAKTIG nå er ikke utløpt — den er innen en uke',
     due['nøyaktig nå'] === 'soon', due['nøyaktig nå']);
-  log('1c: under 7 døgn er «innen 7 dager»', due['under sju'] === 'soon', due['under sju']);
-  log('1d: NØYAKTIG 7 døgn faller i «om 7 dager eller mer» — ingen hull',
-    due['nøyaktig sju'] === 'later', due['nøyaktig sju']);
-  log('1e: over 7 døgn ligger samme sted', due['over sju'] === 'later', due['over sju']);
+  log('1c: under 7 døgn er «innen en uke»', due['under sju'] === 'soon', due['under sju']);
+  log('1d: NØYAKTIG 7 døgn faller i «innen en måned» — ingen hull',
+    due['nøyaktig sju'] === 'month', due['nøyaktig sju']);
+  log('1e: over 7 døgn ligger samme sted', due['over sju'] === 'month', due['over sju']);
+  log('1f: NØYAKTIG 30 døgn faller i «om mer enn en måned» — samme slag grense',
+    due['nøyaktig tretti'] === 'far', due['nøyaktig tretti']);
+  log('1g: over 30 døgn ligger samme sted', due['over tretti'] === 'far', due['over tretti']);
 
-  /* ---------- 2) Startens tre toner ---------- */
+  /* ---------- 2) Startens bøtter ---------- */
   const start = {};
   for (const [navn, v] of [
     ['begynt', '2026-06-14T12:00'], ['nøyaktig nå', '2026-06-15T12:00'],
     ['under sju', '2026-06-20T12:00'], ['nøyaktig sju', '2026-06-22T12:00'],
-    ['over sju', '2026-06-30T12:00'],
+    ['over sju', '2026-06-30T12:00'], ['nøyaktig tretti', '2026-07-15T12:00'],
+    ['over tretti', '2026-07-20T12:00'],
   ]) start[navn] = await tone(p, 'start', v, NOW);
   log('2a: start FØR nå har begynt', start['begynt'] === 'started', start['begynt']);
   log('2b: start NØYAKTIG nå HAR begynt (motsatt av fristen ved samme grense)',
     start['nøyaktig nå'] === 'started', start['nøyaktig nå']);
-  log('2c: under 7 døgn begynner «innen 7 dager»', start['under sju'] === 'soon', start['under sju']);
-  log('2d: NØYAKTIG 7 døgn faller i «om 7 dager eller mer»',
-    start['nøyaktig sju'] === 'later', start['nøyaktig sju']);
-  log('2e: over 7 døgn ligger samme sted', start['over sju'] === 'later', start['over sju']);
+  log('2c: under 7 døgn begynner «innen en uke»', start['under sju'] === 'soon', start['under sju']);
+  log('2d: NØYAKTIG 7 døgn faller i «innen en måned»',
+    start['nøyaktig sju'] === 'month', start['nøyaktig sju']);
+  log('2e: over 7 døgn ligger samme sted', start['over sju'] === 'month', start['over sju']);
+  log('2f: NØYAKTIG 30 døgn og senere begynner «om mer enn en måned»',
+    start['nøyaktig tretti'] === 'far' && start['over tretti'] === 'far',
+    start['nøyaktig tretti'] + '/' + start['over tretti']);
 
   /* ---------- 3) Dato uten klokkeslett ---------- */
   log('3a: en FRISTDATO uten klokkeslett varer ut døgnet — ikke utløpt kl. 12',
@@ -168,19 +180,20 @@ async function run() {
   log('3c: en STARTDATO uten klokkeslett begynner 00:00 — altså tidligere i dag',
     (await tone(p, 'start', '2026-06-15', NOW)) === 'started');
 
-  /* ---------- 4) De seks tonene i DOM-en, og at ingen er delt ---------- */
+  /* ---------- 4) Bøttene, tonene, og at ingen tone er delt mellom feltene ---------- */
   const klasser = await p.evaluate(() => {
     const H = window.__huskis;
     const now = new Date(2026, 5, 15, 12, 0, 0, 0).getTime();
     const ut = {};
-    [['due', '2026-06-14T12:00', 'over'], ['due', '2026-06-20T12:00', 'soon'],
-      ['due', '2026-06-30T12:00', 'later'], ['start', '2026-06-14T12:00', 'started'],
-      ['start', '2026-06-20T12:00', 'soon'], ['start', '2026-06-30T12:00', 'later'],
+    [['due', '2026-06-14T12:00'], ['due', '2026-06-20T12:00'],
+      ['due', '2026-06-30T12:00'], ['due', '2026-07-20T12:00'],
+      ['start', '2026-06-14T12:00'], ['start', '2026-06-20T12:00'],
+      ['start', '2026-06-30T12:00'], ['start', '2026-07-20T12:00'],
     ].forEach(([f, v]) => { ut[f + ':' + v] = (f === 'due' ? H.dueStatus(v, now) : H.startStatus(v, now)); });
     return ut;
   });
-  log('4a: de seks bøttene er entydige',
-    eq(Object.values(klasser), ['over', 'soon', 'later', 'started', 'soon', 'later']),
+  log('4a: de åtte bøttene er entydige',
+    eq(Object.values(klasser), ['over', 'soon', 'month', 'far', 'started', 'soon', 'month', 'far']),
     JSON.stringify(klasser));
   // Og at CSS-en gir dem seks ULIKE flater — ingen deling mellom frist og start.
   const flater = await p.evaluate(() => {
@@ -197,6 +210,32 @@ async function run() {
   });
   log('4b: hver av de seks tonene har sin EGEN flate',
     new Set(Object.values(flater)).size === 6, JSON.stringify(Object.keys(flater)));
+  /* … og de to bøttene lenger ute enn en uke ender i den SAMME tonen: chipen
+     skiller ikke to grader av «haster ikke». Måles på DOM-en, med datoer
+     regnet fra den EKTE klokken — `paintTimeChip` har ingen `now`-parameter. */
+  const domKlasse = await p.evaluate((cardId) => {
+    const H = window.__huskis;
+    const pad = (n) => String(n).padStart(2, '0');
+    const om = (dager) => {
+      const d = new Date(Date.now() + dager * 86400000);
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    };
+    const kort = H.state.universes[0].groups[0].cards.find((c) => c.id === cardId);
+    const ut = {};
+    [['due', 15], ['due', 45], ['start', 15], ['start', 45]].forEach(([felt, dager]) => {
+      H.setObjectTime({ kind: 'card', obj: kort, card: kort }, felt, om(dager));
+      H.render();
+      const chip = document.querySelector('.card[data-id="' + cardId + '"] .meta-' + felt);
+      ut[felt + '+' + dager] = chip ? [...chip.classList].filter((c) => c.indexOf('is-') === 0).join(' ') : null;
+      H.setObjectTime({ kind: 'card', obj: kort, card: kort }, felt, '');
+      H.render();
+    });
+    return ut;
+  }, id.C1);
+  log('4c: chipen slår «innen en måned» og «om mer enn en måned» sammen til ÉN tone',
+    domKlasse['due+15'] === 'is-later' && domKlasse['due+45'] === 'is-later' &&
+    domKlasse['start+15'] === 'is-startlater' && domKlasse['start+45'] === 'is-startlater',
+    JSON.stringify(domKlasse));
 
   /* ---------- 5) Chipen maler seg om når tidspunktet passerer ---------- */
   // +90 s: verdien avrundes til hele minutter, så minuttet må ligge foran oss.

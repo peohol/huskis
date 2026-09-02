@@ -342,6 +342,9 @@ begin
     'public.purge_universe_access(uuid, uuid)',
     'public.purge_group_access(uuid, uuid)',
     'public.notify_prefs_row(uuid)',
+    -- Levetiden for en varselrad. notify_record() rydder etter den og
+    -- get_my_doc() filtrerer på den; mangler den, feiler begge.
+    'public.notify_max_age_ms()',
     -- Senderens kø-teller: leser ALLE brukeres leveringer.
     'public.push_due_count()',
     -- Headerne tikket sender. Tar imot selve secret key-en som argument.

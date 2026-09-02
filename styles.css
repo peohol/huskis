@@ -137,6 +137,13 @@
      begge drakter — se docs/kommende-hendelser.md). */
   --grad-purple: linear-gradient(180deg, #cda9cd, #ad85ad);
   --grad-blue: linear-gradient(180deg, #a9a9cd, #8585ad);
+  /* Lenger ute enn en måned er ingen grad av hast, og da er flaten heller ingen
+     farge: den nøytrale skifergrå sier «parkert». Den deles av de to ytterste
+     gruppene i «Kommende hendelser» — én for frister, én for starter — som står
+     i hver sin seksjon med hvert sitt ikon. Samme krav som de andre
+     kontraktsflatene: lys nok til at den svarte ikonstreken klarer 3:1 mot
+     begge endene, og lik i begge drakter. */
+  --grad-slate: linear-gradient(180deg, #b9bec6, #949aa4);
 
   /* DEN SIKRE SONEN. Fire tall som sier hvor mye av viewportet som er dekket
      av systemets egne flater — statusfelt/hakk øverst, gestelinje nederst,
@@ -3866,6 +3873,57 @@ body.no-auth .corner-controls { display: none; }
    SNUR med drakten, så streken må snu med den. Et av typeikonene (kategori) er
    bare streker, uten «papir» å bli sett på: pinnet mørk ble det nesten
    usynlig på en mørk rad. */
+/* TIDSHORISONTEN står fast under tittelen: den er en innstilling for listen,
+   ikke en del av den, og skal være der også når man har rullet langt ned.
+   Panelet ligger derfor UTENFOR `.events-body` (som er den eneste flaten som
+   ruller) og bærer den samme skillelinjen som modalhodet. */
+.events-horizon-panel {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.events-horizon-title {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--ink);
+}
+/* Bryteren med tre posisjoner: ett spor, tre like brede segmenter, og den
+   valgte løftet opp på modalflaten. Ingen egen farge — valget er en visning,
+   ikke en status, og fargene i denne modalen betyr noe annet. */
+.events-horizon {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--wash);
+}
+.events-horizon-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-soft);
+  transition: background 0.15s, color 0.15s;
+}
+.events-horizon-btn:hover { color: var(--ink); }
+.events-horizon-btn.is-on {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+.events-horizon-btn:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+
 /* Luften bærer inndelingen. Gapet er det samme i begge ledd (30 px), så
    avstanden mellom to SEKSJONER er den samme som mellom to grupper og mellom
    en seksjonsoverskrift og gruppene under den — mens luften inne i en gruppe
@@ -4005,6 +4063,7 @@ body.no-auth .corner-controls { display: none; }
 .event-icon.is-started { background: var(--grad-accent); }
 .event-icon.is-startsoon { background: var(--grad-purple); }
 .event-icon.is-startlater { background: var(--grad-blue); }
+.event-icon.is-far { background: var(--grad-slate); }
 /* Telefon i portrett (samme grense som board-ets én-kolonne-grense): tiden
    flyttes ned på sin egen linje, på linje med teksten. Da får stien hele
    bredden i stedet for å brekke over fire linjer ved siden av en kolonne som

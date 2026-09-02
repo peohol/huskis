@@ -2728,9 +2728,33 @@ $$;
 --      markøren til NÅ: en terskel som passerte mens typen var AV skal ikke
 --      komme veltende inn i det den slås på igjen.
 --
---    Historikken har et tak på 200 rader per bruker: de eldste utover det
---    ryddes bort ved hver logging, så tabellen ikke vokser uten grense.
+--    Historikken har TO grenser, og begge ryddes ved hver logging:
+--      • et tak på 200 rader per bruker — de eldste utover det ryddes bort;
+--      • en levetid på 30 døgn (notify_max_age_ms()). Den er ikke valgfri, og
+--        den gjelder også en historikk som er langt under taket: et varsel som
+--        har ligget en måned ber ikke lenger om oppmerksomhet.
+--
+--    ALDEREN er radens EGEN — `created_at`, altså hvor lenge varselet har
+--    ligget der — og ikke hvor gammel hendelsen den beskriver er. To grunner:
+--    det er den alderen brukeren opplever («dette kom for en måned siden»), og
+--    en rad kan da aldri slettes i den samme operasjonen som skrev den. En app
+--    som har vært lukket lenge logger terskler som passerte for lenge siden
+--    (docs/varsler.md, «Markøren er hele idempotensen»), og de skal vises når
+--    de kommer — ikke forsvinne før de er sett.
+--
+--    Og radene FRAM i tid røres ikke uansett alder: planen og «Utsett» er
+--    ikke historikk, og en plan skal ikke kunne bli ryddet bort før den har
+--    fått ringt.
 -- ------------------------------------------------------------
+
+/* Levetiden for en varselrad, ett sted. Brukes både av opprydningen i
+   notify_record() og av get_my_doc(), som ikke skal kunne komme i utakt: en
+   rad doc-et leverer, skal være en rad som fortsatt finnes neste logging.
+   Speiles i mock-backend.js (NOTIF_MAX_AGE_MS) og i klientens egen vakt. */
+create or replace function public.notify_max_age_ms()
+returns bigint language sql immutable as $$
+  select (30::bigint * 24 * 60 * 60 * 1000);
+$$;
 
 create or replace function public.notify_prefs_row(p_uid uuid)
 returns void language plpgsql security definer set search_path = public as $$
@@ -2787,6 +2811,18 @@ begin
      set cursor_at  = greatest(cursor_at, least(coalesce(p_cursor, 0), now_ms)),
          updated_at = now()
    where user_id = uid;
+
+  /* ALDEREN først: et varsel som har ligget lenger enn levetiden slettes,
+     uansett hvor kort historikken er. To vilkår, og begge må holde:
+       • raden har PASSERT (`at < nå`) — planen framover og et utsatt varsel er
+         ikke historikk, og skal aldri ryddes bort før de har fått ringt;
+       • raden er GAMMEL (`created_at` eldre enn levetiden) — det er hvor lenge
+         varselet har ligget der som er alderen, ikke hvor gammel hendelsen er.
+     Kaskaden tar leveringene i utboksen med seg. */
+  delete from public.notifications n
+   where n.user_id = uid
+     and n.at < now_ms
+     and n.created_at < now_ms - public.notify_max_age_ms();
 
   delete from public.notifications n
    where n.user_id = uid
@@ -4294,8 +4330,12 @@ begin
         and (s.universe_id is not null or s.group_id is not null)), '[]'::jsonb),
     -- Varsler: brukerens EGNE rader (docs/varsler.md). De hører ikke til
     -- innholds-doc-et og flettes ikke — klienten bare viser dem. Nyeste først,
-    -- med det samme taket som notify_record() rydder etter, så en lang historikk
-    -- ikke gjør hver eneste synk-runde tyngre.
+    -- med de samme to grensene som notify_record() rydder etter — taket på 200
+    -- (så en lang historikk ikke gjør hver eneste synk-runde tyngre) og
+    -- levetiden på 30 døgn. Filteret her er ikke en dublett av opprydningen:
+    -- det er det som gjør at en rad ALDRI vises for gammel, uansett hvor lenge
+    -- det er siden forrige logging ryddet. Vilkårene er de samme: en rad som
+    -- ennå ikke har forfalt er plan, ikke historikk, og har ingen alder.
     'notifications', coalesce((select jsonb_agg(jsonb_build_object(
         'id', n.id, 'key', n.key, 'type', n.type,
         'objType', n.obj_type, 'objId', n.obj_id,
@@ -4305,6 +4345,9 @@ begin
         order by n.at desc, n.created_at desc, n.id desc)
       from (select * from public.notifications
              where user_id = uid
+               and (at >= (extract(epoch from now()) * 1000)::bigint
+                    or created_at >= (extract(epoch from now()) * 1000)::bigint
+                                     - public.notify_max_age_ms())
              order by at desc, created_at desc, id desc
              limit 200) n), '[]'::jsonb),
     -- Preferansene + generator-markøren. `null` betyr «ingen rad ennå», og da
@@ -5018,6 +5061,7 @@ end $$;
 revoke all on function public.purge_universe_access(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.purge_group_access(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.notify_prefs_row(uuid) from public, anon, authenticated;
+revoke all on function public.notify_max_age_ms() from public, anon, authenticated;
 revoke all on function public.push_enqueue(uuid) from public, anon, authenticated;
 revoke all on function public.push_due_count() from public, anon, authenticated;
 revoke all on function public.push_end_queue(uuid, bigint, text) from public, anon, authenticated;

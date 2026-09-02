@@ -31,7 +31,8 @@ står fortsatt som px.
 (rgba(255,255,255,.75)), `--toolbar-pad`, `--text-shadow`,
 `--grad-green/-accent/-red/-yellow` (knappe-gradienter, pluss
 `--grad-purple/-blue` som bare brukes av startgruppene i «Kommende
-hendelser»), `--danger`/`--warn`
+hendelser», og `--grad-slate` som er den nøytrale flaten de to gruppene lenger
+ute enn en måned deler der), `--danger`/`--warn`
 (fare/advarsel som flate- og signalfarge), skygge- og radius-variablene. Nye
 kontroller skal bruke disse — aldri egne ad hoc-verdier. Endres et token, skal
 hele appen følge med.
@@ -560,7 +561,8 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   drop-mål mens et drag pågår (`docs/trash.md`).
   `.meta-row` + `.meta-chip`: indikator-chipene under navnet (delt/ansvarlig/
   start/frist). Seks statustoner via `--grad-*`, de samme bøttene og flatene som
-  «Kommende hendelser» (`docs/scheduling.md`); `paintTimeChip` males på nytt av
+  «Kommende hendelser» — men en grovere lesning: modalens to ytterste grupper
+  deler chipens tone (`docs/scheduling.md`); `paintTimeChip` males på nytt av
   seg selv når en grense passeres, uten en rendring. `.is-conflict` legger på en
   stiplet kant i chipens EGEN tekstfarge når fristen bryter invarianten, mens
   glyfen og teksten bærer meningen. `.resp-avatar` / `.resp-row`:

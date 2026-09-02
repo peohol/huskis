@@ -510,6 +510,15 @@
      (user_id, key), og markøren går bare framover — aldri forbi «serverens»
      klokke. Taket er det samme som get_my_doc() leverer. */
   var NOTIF_KEEP = 200;
+  /* Levetiden for en varselrad — speiler notify_max_age_ms() i SQL-en. En rad
+     som har PASSERT og som ble skrevet for lenger siden enn dette, slettes ved
+     hver logging, og get_my_doc() leverer den ikke uansett. Alderen er radens
+     egen (`created_at`), ikke hendelsens; rader fram i tid (planen, «Utsett»)
+     er ikke historikk og røres aldri. */
+  var NOTIF_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+  function notifUtløpt(n, now) {
+    return n.at < now && n.created_at < now - NOTIF_MAX_AGE_MS;
+  }
   var NOTIF_TYPES = { dueOver: 1, dueSoon: 1, startNow: 1, startSoon: 1 };
   var NOTIF_OBJ_TYPES = { card: 1, category: 1, item: 1 };
   function notifPrefsRow(db, uid) {
@@ -552,6 +561,11 @@
     });
     prefs.cursor_at = Math.max(prefs.cursor_at || 0, Math.min(cursor || 0, now));
     prefs.updated_at = now;
+    // ALDEREN først, som serveren: en passert rad som har ligget lenger enn
+    // levetiden ryddes uansett hvor kort historikken er. Deretter taket.
+    db.notifications = db.notifications.filter(function (n) {
+      return n.user_id !== uid || !notifUtløpt(n, now);
+    });
     var mine = db.notifications.filter(function (n) { return n.user_id === uid; })
       .sort(function (a, b) { return (b.created_at - a.created_at) || (a.id < b.id ? 1 : -1); });
     var doomed = {};
@@ -949,9 +963,12 @@
                  target_id: s.universe_id || s.group_id,
                  email: s.invitee_email, created_at: s.created_at };
       }),
-      // Varsler: KUN mine egne rader, nyeste først og med det samme taket som
-      // serveren (docs/varsler.md). RLS-en i produksjon gjør det samme.
-      notifications: db.notifications.filter(function (n) { return n.user_id === uid; })
+      // Varsler: KUN mine egne rader, nyeste først og med de samme to grensene
+      // som serveren — taket på antall OG levetiden (docs/varsler.md). RLS-en i
+      // produksjon gjør det samme.
+      notifications: db.notifications.filter(function (n) {
+        return n.user_id === uid && !notifUtløpt(n, Date.now());
+      })
         .sort(function (a, b) {
           return (b.at - a.at) || (b.created_at - a.created_at) || (a.id < b.id ? 1 : -1);
         }).slice(0, NOTIF_KEEP).map(function (n) {

@@ -30,8 +30,8 @@ og konto — se `menus.md`.
 ## Modalen (`#events-modal`)
 
 Vanlig `.modal-overlay`-skall (fokusfelle, Escape via `closeTopLayer`,
-`body.modal-open`, fokus tilbake til kalenderknappen ved lukking) med to
-seksjoner, hver med opptil tre grupper.
+`body.modal-open`, fokus tilbake til kalenderknappen ved lukking) med en fast
+horisont-bryter under tittelen og to seksjoner, hver med opptil fire grupper.
 
 **Seksjonsoverskriften bærer feltets eget ikon** til venstre for teksten —
 nøyaktig det ikonet start-/fristchipene bruker på lister, kategorier og
@@ -40,26 +40,37 @@ overalt i appen. Ikonet har ingen plate: seksjonen er ikke en status, den sier
 hvilket FELT dette er, og uten plate følger streken drakten slik radenes
 typeikon gjør.
 
-| Seksjon | Gruppe | Grense | Ikon/flate |
-|---|---|---|---|
-| **Tidsfrister** | Frist utløpt | `due < now` | varseltrekant, rød |
-| | Frist innen 7 dager | `now <= due < now + 7 døgn` | varseltrekant, gul |
-| | Frist om 7 dager eller mer | `due >= now + 7 døgn` | kalender m/utropstegn, grønn |
-| **Starttider** | Har begynt | `start <= now` | start-/play-ikon, blågrønn |
-| | Begynner innen 7 dager | `now < start < now + 7 døgn` | klokke, lilla |
-| | Begynner om 7 dager eller mer | `start >= now + 7 døgn` | kalender, blå |
+| Seksjon | Gruppe | Bøtte | Grense | Ikon/flate |
+|---|---|---|---|---|
+| **Tidsfrister** | Frist utløpt | `over` | `due < now` | varseltrekant, rød |
+| | Frist innen en uke | `soon` | `now <= due < now + 7 døgn` | varseltrekant, gul |
+| | Frist innen en måned | `month` | `now + 7 døgn <= due < now + 30 døgn` | kalender m/utropstegn, grønn |
+| | Frist om mer enn en måned | `far` | `due >= now + 30 døgn` | kalender m/utropstegn, skifergrå |
+| **Starttider** | Har begynt | `started` | `start <= now` | start-/play-ikon, blågrønn |
+| | Begynner innen en uke | `soon` | `now < start < now + 7 døgn` | klokke, lilla |
+| | Begynner innen en måned | `month` | `now + 7 døgn <= start < now + 30 døgn` | kalender, blå |
+| | Begynner om mer enn en måned | `far` | `start >= now + 30 døgn` | kalender, skifergrå |
 
-Grensene er **uttømmende og møtes uten hull**: nøyaktig 7 døgn havner i den
-siste gruppen, ikke mellom to. Ved `now` skiller de to seksjonene lag med
-vilje — en frist som er nøyaktig nå er ennå ikke oversittet, mens en start som
-er nøyaktig nå HAR begynt. Ett døgn er 24 timer (`WEEK_MS`), ikke syv
-kalenderdager.
+Grensene er **uttømmende og møtes uten hull**: nøyaktig 7 døgn havner i
+«innen en måned», nøyaktig 30 i «om mer enn en måned» — aldri mellom to. Ved
+`now` skiller de to seksjonene lag med vilje — en frist som er nøyaktig nå er
+ennå ikke oversittet, mens en start som er nøyaktig nå HAR begynt. Ett døgn er
+24 timer: uka er `WEEK_MS`, måneden `MONTH_MS` (30 døgn), ikke kalenderuker
+eller kalendermåneder.
 
 **Startgruppene bærer ikke varselfargene.** At noe begynner er ingen advarsel,
-så de to siste startgruppene har sine EGNE flater (`--grad-purple`,
-`--grad-blue`) i stedet for å låne gult og grønt. Fristgruppene bruker de samme
-gradientene som statuschipene (`docs/design-system.md`). Alle seks flatene er
+så startgruppene har sine EGNE flater (`--grad-purple`, `--grad-blue`) i stedet
+for å låne gult og grønt. Fristgruppene bruker de samme gradientene som
+statuschipene (`docs/design-system.md`).
+
+**De to ytterste gruppene deler flate** (`--grad-slate`), og det er den ene
+bevisste gjenbruken: lenger ute enn en måned er ingen grad av hast, og da er
+tonen heller ikke en varselfarge. De to står i hver sin seksjon, med hvert sitt
+ikon og hver sin overskrift, så de er ikke til å forveksle. Alle syv flatene er
 med i kontrastkontrakten (`docs/tilgjengelighet.md`).
+
+Chipene i board-et leser de samme bøttene, men grovere: de slår `month` og `far`
+sammen til én tone (`docs/scheduling.md`).
 
 **Pinningen følger platen, ikke modalen.** Gruppeikonet står på en
 kontraktsgradient som er den samme i begge drakter, så `.event-icon` pinner
@@ -79,6 +90,40 @@ gruppene og mellom gruppene), mens luften inne i en gruppe er 8 px mellom
 radene. Avstanden er altså i en helt annen størrelsesorden enn den innvendige,
 og grupperingen leses uten å telle rader — og uten en skillelinje, som ved siden
 av den avstanden bare ble støy.
+
+### Tidshorisonten
+
+Under tittelen står et fast panel med overskriften **«Tidshorisont»** og en
+bryter med tre posisjoner (`role="radiogroup"`, rullende tabindex, piltaster):
+
+| Posisjon | Vindu | Virkning |
+|---|---|---|
+| **1 uke** | avstand til nå `< 7 døgn` | skjuler `month`- og `far`-gruppene, og alt som ligger sju døgn eller mer TILBAKE i tid |
+| **1 måned** | avstand til nå `< 30 døgn` | skjuler `far`-gruppene, og alt som ligger tretti døgn eller mer tilbake |
+| **Alle** (standard) | ingen | alle åtte gruppene |
+
+Vinduet er **symmetrisk om `now`** og bruker de samme grensene som bøttene: en
+hendelse er innenfor når den er MINDRE enn horisonten unna, i begge retninger.
+«1 uke» viser dermed nøyaktig det som begynte for under sju døgn siden og det
+som skjer om under sju døgn.
+
+Panelet ligger UTENFOR `.events-body`, som er den eneste flaten som ruller:
+horisonten er en innstilling FOR listen, ikke en del av den, og skal stå der
+også når man har rullet langt ned.
+
+**Filteret bor i modalen, aldri i motoren.** Varslene
+([`varsler.md`](varsler.md)) leser de samme hendelsene, og en visningsinnstilling
+skal ikke kunne slå av et varsel. Grenseutregningen (`nextEventBoundary`) leser
+derimot ALLE hendelsene: en hendelse som er utenfor horisonten nå, er nettopp en
+som skal komme inn i den.
+
+**Valget ligger på BRUKEREN, ikke på enheten:** det lagres i kontoens metadata
+(`accountPref('events').horizon` / `saveAccountPref`, samme sted som demoen og
+gest-tipsene) og følger dermed med til neste enhet. Standarden er «Alle».
+
+Er alt filtrert bort, sier den tomme flaten det — «Ingen hendelser innenfor
+denne tidshorisonten» er en annen beskjed enn «ingen hendelser», og bare den ene
+er noe brukeren kan gjøre noe med.
 
 ### Raden
 
@@ -114,10 +159,10 @@ bare om når SIGNATUREN endrer seg — da mister ikke en fokusert rad fokus av e
 bakgrunnssynk som ikke rørte noen av hendelsene.
 
 Gruppene avhenger også av `now`, ikke bare av tilstanden. Modalen PULSER likevel
-ikke: hver hendelse har nøyaktig to øyeblikk der den kan bytte gruppe —
-tidspunktet selv og de to 7-døgnsgrensene (`at ± WEEK_MS`) — pluss hver hele
-enhet nedtellingen tikker på, så `refreshEventsModal()` sover til den FØRSTE av
-dem (`nextEventBoundary`). En frist som passerer mens
+ikke: hver hendelse har et endelig antall øyeblikk der den kan bytte gruppe eller
+falle ut av horisonten — tidspunktet selv og de fire grensene `at ± WEEK_MS` /
+`at ± MONTH_MS` — pluss hver hele enhet nedtellingen tikker på, så
+`refreshEventsModal()` sover til den FØRSTE av dem (`nextEventBoundary`). En frist som passerer mens
 modalen står åpen flytter seg dermed til «Frist utløpt» av seg selv. Søvnen har
 et tak på seks timer, og en `visibilitychange` regner ut på nytt med én gang:
 `setTimeout` er ikke til å stole på over en fane i bakgrunnen eller en enhet som
@@ -195,25 +240,36 @@ samme tilstand bytter derfor aldri om på to rader.
   rad har et `aria-label` med navn, type, tidspunkt (med avstanden når den
   finnes) og sti — typen står der i KLARTEKST, siden den visuelt bare er et
   ikon.
-- Antall hendelser leses opp fra et visuelt skjult `role="status"`.
+- Antall hendelser leses opp fra et visuelt skjult `role="status"` — og det er
+  antallet som faktisk VISES, altså etter horisonten.
+- Horisont-bryteren er en `role="radiogroup"` navngitt av sin egen overskrift,
+  med rullende tabindex (bare den valgte posisjonen er i tabbrekkefølgen) og
+  piltaster mellom posisjonene. Den valgte posisjonen bæres av `aria-checked`,
+  ikke bare av flaten under teksten.
 - Farge er aldri eneste bærer: gruppen har overskrift i klartekst, glyfene
   skiller gruppene fra hverandre, og avstanden mellom dem er en form, ikke en
-  farge. Start-ikonet er bevisst IKKE en hake — det ville lest som «utført».
+  farge. Det gjelder også de to gruppene som DELER flate — de skilles av
+  overskrift, ikon og seksjon. Start-ikonet er bevisst IKKE en hake — det ville
+  lest som «utført».
 
 Kravene er de samme som ellers — se [`tilgjengelighet.md`](tilgjengelighet.md).
 
 ## Språk
 
 Alle tekstene ligger i ordboken under `events.*` (pluss `kind.*` for typenavnene
-i opplesningen). Tidsenheten i nedtellingen er en EGEN nøkkel — «t» heter «h» på
-engelsk — så tallet og enheten kan settes sammen av oversettelsen. Se
+i opplesningen) — gruppene, horisontens tre posisjoner og de to tomtilstandene.
+Tidsenheten i nedtellingen er en EGEN nøkkel — «t» heter «h» på engelsk — så tallet og enheten kan settes sammen av oversettelsen. Se
 [`sprak.md`](sprak.md).
 
 ## Voktere
 
-- `tests/upcoming-events.test.js` — motoren: aktiv/ufullført, grensene, arv,
-  deduplisering, sortering, dato-uten-klokke og sommertid.
+- `tests/upcoming-events.test.js` — motoren: aktiv/ufullført, alle fire
+  grensene hver vei, arv, deduplisering, sortering, dato-uten-klokke og
+  sommertid.
+- `tests/time-chips.test.js` — at chipene leser de SAMME bøttene, og at de to
+  ytterste ender i én tone.
 - `tests/events-modal.test.js` — knappen, modalen, tastatur/fokus,
-  navigeringen, oppdatering mens den står åpen, i18n og fargekontrakten.
+  navigeringen, oppdatering mens den står åpen, tidshorisonten (panelet,
+  vinduet, piltastene og at valget ligger på kontoen), i18n og fargekontrakten.
 - `tests/corner-controls.test.js` — at kalenderknappen ikke rørte
   toppkontrollenes geometri.

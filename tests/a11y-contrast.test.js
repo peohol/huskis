@@ -615,7 +615,8 @@ if (darkBlock) {
        to gjør det. På de lyse flatene (gul, grønn, lilla, blå) er det streken,
        på de mørke (rød, blågrønn) er det papiret. Kravet er at hver eneste
        gruppeflate har minst én av delene på 3:1, ellers blir glyfen en klatt. */
-    for (const g of ['grad-red', 'grad-yellow', 'grad-green', 'grad-accent', 'grad-purple', 'grad-blue']) {
+    for (const g of ['grad-red', 'grad-yellow', 'grad-green', 'grad-accent',
+      'grad-purple', 'grad-blue', 'grad-slate']) {
       for (const stop of gradientStops(g)) {
         const vStrek = ratio(strek, stop);
         const vArk = ratio(ark, stop);
@@ -631,6 +632,19 @@ if (darkBlock) {
        arver dermed pinningen og målingene over. Kravet her er bare at modalen
        selv ikke pinner noe — da ville radenes øvrige tekst og glyfer sluttet å
        snu med drakten. */
+    /* Hver gruppetone modalen bruker må HA en kontraktsflate. En ny gruppe uten
+       en `background`-regel ville arvet `.event-icon` sin nøytrale `--chip-bg`
+       og sett ut som en glipp — men ingen av målingene over ville sagt fra,
+       fordi de går på gradientene og ikke på tonene. */
+    const appKilde = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+    const toner = [...appKilde.matchAll(/tone:\s*'(is-[a-z]+)'/g)].map((m) => m[1]);
+    check('fant gruppetonene i app.js', toner.length >= 8, toner.join(', '));
+    for (const tone of [...new Set(toner)]) {
+      const regel = (css.match(new RegExp('\\.event-icon\\.' + tone + '\\s*\\{([^}]*)\\}')) || [])[1] || '';
+      check(`.event-icon.${tone} har sin egen kontraktsflate`,
+        /background:\s*var\(--grad-[a-z]+\)/.test(regel), { regel: regel.trim() });
+    }
+
     const notifRule = (css.match(/\.notif-modal\s*\{([^}]*)\}/) || [])[1] || '';
     check('.notif-modal pinner IKKE ikonfargene — den arver statusflatene fra .event-icon',
       !/--icon-(ink|paper|grey)\s*:/.test(notifRule), { regel: notifRule.trim() });
