@@ -51,6 +51,9 @@
     18. Døgnskiftet kan ikke treffe et LØP: hver kontekst pinnes midt på dagen,
         så fiksturens døgn og appens er det samme fra første til siste sjekk —
         uansett hva riggens klokke sto på da suiten ble startet.
+    19. Sommertid: et lokalt døgn er 23 eller 25 timer gjennom en overgang, og
+        fiksturens tidspunkter regnes fra døgnets egne grenser — ikke i
+        millisekunder fra midnatt. Målt på Oslos to overganger i 2026.
 
   MERK om fiksturen: objektene BÆRER tidene varslene handler om. En rad hvis
   verdi ikke lenger stemmer med objektets tid ryddes bort av appen selv
@@ -119,9 +122,11 @@ const lokaltKl = (p, kl) => p.evaluate((kl) => {
    - `kl`   pinner et annet klokkeslett; løpet som SKAL over midnatt (16)
             bruker det.
    - `rigg` later som om riggens egen klokke sto et annet sted da pinningen
-            regnet. Brukes bare av regresjonstesten (18), som må kunne vise at
-            pinningen virker fra en rigg rett før midnatt uten å vente til
-            klokka faktisk er der. */
+            regnet: `[time, minutt, sekund]` i dagens dato, eller et absolutt
+            øyeblikk (ms eller Date) for et løp som må stå på en BESTEMT dato.
+            Brukes av regresjonstestene — 18, som viser at pinningen virker fra
+            en rigg rett før midnatt, og 19, som må stå på en kjent
+            sommertidsovergang — uten å vente til klokka faktisk er der. */
 async function nySide(browser, opts) {
   const o = Object.assign({ timezoneId: TZ, locale: 'nb-NO' }, opts || {});
   const kl = o.kl || [12, 0, 0];
@@ -130,8 +135,9 @@ async function nySide(browser, opts) {
   const ctx = await browser.newContext(o);
   const p = await ctx.newPage();
   // Riggens klokke først (ekte, eller den `rigg` later som), så pinningen —
-  // ett løp gjennom den samme koden i begge tilfeller.
-  await p.clock.install(rigg ? { time: new Date(await lokaltKl(p, rigg)) } : {});
+  // ett løp gjennom den samme koden i alle tilfeller.
+  const riggTid = Array.isArray(rigg) ? await lokaltKl(p, rigg) : rigg;
+  await p.clock.install(rigg ? { time: new Date(riggTid) } : {});
   await p.clock.resume();
   await p.clock.setSystemTime(new Date(await lokaltKl(p, kl)));
   return p;
@@ -156,13 +162,17 @@ async function sideklokke(p) {
     const midnatt = {};
     for (let o = -spenn; o <= spenn; o++) {
       const d = new Date();
+      // Kl. 12 FØRST: et døgnbytte regnet fra et klokkeslett som ikke finnes
+      // (timen sommertiden hopper over) normaliseres videre og kan skli en dag.
+      // Kl. 12 finnes hver eneste dag.
+      d.setHours(12, 0, 0, 0);
       d.setDate(d.getDate() + o);
       d.setHours(0, 0, 0, 0);
       midnatt[o] = d.getTime();
     }
     return { ms: Date.now(), midnatt: midnatt,
       iDag: n.getFullYear() + '-' + pad2(n.getMonth() + 1) + '-' + pad2(n.getDate()) };
-  }, 7);
+  }, 8);   // ett hakk mer enn `dag`/`døgnstart` brukes med: `midtPåDøgnet` leser off + 1
   /* Døgnet `off` dager fra sidens i dag, som datostreng. UTC-regningen er et
      rent kalendertriks: en datostreng bærer ingen sone, og et UTC-døgn er
      alltid 24 timer, så månedsskifte og skuddår treffer uten at sommertid kan
@@ -172,9 +182,20 @@ async function sideklokke(p) {
     d.setUTCDate(d.getUTCDate() + off);
     return d.toISOString().slice(0, 10);
   };
-  // Lokal midnatt, og kl. 12 lokalt, `off` døgn unna.
+  /* Lokal midnatt `off` døgn unna — og MIDT i det døgnet, regnet som halvveis
+     mellom denne døgnstarten og den neste. Ikke «midnatt + 12 t»: et lokalt
+     døgn er 23 eller 25 timer gjennom en sommertidsovergang, og da er
+     midnatt + 12 t hverken kl. 12 eller midt i noe. Midtpunktet er det
+     fiksturen faktisk vil ha — et tidspunkt som ikke kan skli ut av døgnet
+     sitt. */
   const døgnstart = (off) => t.midnatt[off];
-  const kl12 = (off) => t.midnatt[off] + 12 * 3600000;
+  const midtPåDøgnet = (off) => t.midnatt[off] + (t.midnatt[off + 1] - t.midnatt[off]) / 2;
+  /* Rett etter at døgnet `off` begynte, og rett før det slutter. Begge er
+     uttrykt fra døgnets EGNE grenser — en halvtime inn fra hver ende — så de
+     ligger i det døgnet enten det er 23, 24 eller 25 timer langt. Et
+     klokkeslett regnet i millisekunder fra midnatt ville sklidd ut. */
+  const tidligIDøgnet = (off) => t.midnatt[off] + 30 * 60000;
+  const sentIDøgnet = (off) => t.midnatt[off + 1] - 30 * 60000;
   /* «For et øyeblikk siden» — men aldri før midnatt, og aldri fram i tid. En
      rad må være PASSERT for å være synlig, og samtidig ligge i DAGENS døgn:
      seedes den som «nå minus en time», havner den i går hver gang testen
@@ -187,7 +208,7 @@ async function sideklokke(p) {
      fortiden for å være synlige, og siden klokka er pinnet er testprosessens
      `Date.now()` et helt annet tall — den kan ikke brukes til dette. */
   const sidenNå = (ms) => t.ms - ms;
-  return { dag, døgnstart, kl12, nettopp, sidenNå };
+  return { dag, døgnstart, midtPåDøgnet, tidligIDøgnet, sentIDøgnet, nettopp, sidenNå };
 }
 
 /* Døgnet fiksturen ble datert i skal stå til siste sjekk i løpet. Pinningen i
@@ -919,14 +940,16 @@ async function runDatoer() {
     // sprekker kantene fra hverandre i enhver sone som ikke ER UTC, og det er
     // nettopp den forvekslingen som er lett å gjøre (14h).
     { type: 'startNow', obj_type: 'item', obj_id: id.I1, name: 'Levere',
-      at: k.kl12(-1), value: k.dag(-1) + 'T06:10' },
+      at: k.midtPåDøgnet(-1), value: k.dag(-1) + 'T06:10' },
+    // Kantene: en halvtime inn fra hver ende av gårsdagen. De regnes fra
+    // døgnets egne grenser, ikke i millisekunder fra midnatt (19).
     { type: 'startNow', obj_type: 'item', obj_id: id.I1, name: 'Ved døgnstart',
-      at: k.døgnstart(-1) + 30 * 60000, value: k.dag(-1) + 'T06:10' },
+      at: k.tidligIDøgnet(-1), value: k.dag(-1) + 'T06:10' },
     { type: 'startNow', obj_type: 'item', obj_id: id.I1, name: 'Ved døgnslutt',
-      at: k.døgnstart(-1) + 23 * 3600000 + 30 * 60000, value: k.dag(-1) + 'T06:10' },
+      at: k.sentIDøgnet(-1), value: k.dag(-1) + 'T06:10' },
     // Og en eldre bunke, som skal få ukedag + full dato.
     { type: 'startNow', obj_type: 'item', obj_id: id.I2, name: 'Pumpe dekk',
-      at: k.kl12(-5), value: k.dag(-5) + 'T06:00' },
+      at: k.midtPåDøgnet(-5), value: k.dag(-5) + 'T06:00' },
   ]);
   await cycle(p);
   await p.click('#notif-btn');
@@ -1303,6 +1326,80 @@ async function runDøgnskifte() {
   await browser.close();
 }
 
+/* SOMMERTID — regresjonstesten mot 24-timers-antakelsen.
+
+   Et lokalt døgn er ikke alltid 24 timer. I `Europe/Oslo` er søndag 29. mars
+   2026 tjuetre timer (klokka hopper 02 → 03) og søndag 25. oktober tjuefem
+   (03 → 02). Et tidspunkt som skal ligge i et bestemt døgn må derfor regnes
+   fra DØGNETS EGNE grenser, ikke som et antall millisekunder fra midnatt:
+   «midnatt + 23,5 t» er 00:30 NESTE døgn på den korte dagen, og en rad som
+   skulle ligge sist i går bytter da bunke.
+
+   Løpet står alltid i `Europe/Oslo` — overgangene er den sonens, og det er dem
+   som skal testes — og pinnes på datoen ETTER hver overgang, så det er «i går»
+   som er det skjeve døgnet. Ingen app lastes; det som måles er regningen. */
+async function runSommertid() {
+  const browser = await chromium.launch();
+  console.log('\n== sommertid ==');
+  const T = 3600000;
+  /* Kl. 12 lokalt dagen etter hver overgang. Det grove øyeblikket trenger bare
+     treffe riktig DATO — `nySide` snapper selv til kl. 12 lokalt derfra. */
+  const døgn = [
+    { navn: '30. mars (i går var 23 t)', tid: '2026-03-30T10:00:00Z', timer: 23 },
+    { navn: '26. oktober (i går var 25 t)', tid: '2026-10-26T11:00:00Z', timer: 25 },
+  ];
+  const målt = [];
+  for (const d of døgn) {
+    const p = await nySide(browser, { timezoneId: 'Europe/Oslo', rigg: d.tid });
+    const k = await sideklokke(p);
+    /* Veggklokke og dato for et øyeblikk, lest i siden — det er den som
+       kjenner sonen, og fasiten på hvilket døgn et tidspunkt havner i. */
+    const veggtid = (ms) => p.evaluate((ms) => {
+      const n = new Date(ms);
+      const q = (x) => String(x).padStart(2, '0');
+      return { dato: n.getFullYear() + '-' + q(n.getMonth() + 1) + '-' + q(n.getDate()),
+        klokke: q(n.getHours()) + ':' + q(n.getMinutes()) };
+    }, ms);
+    // NØYAKTIG de hjelperne fiksturen selv bruker (14h) — ikke et uttrykk
+    // skrevet om igjen her, som ville latt en feil i hjelperen slippe unna.
+    const først = await veggtid(k.tidligIDøgnet(-1));
+    const sist = await veggtid(k.sentIDøgnet(-1));
+    // Slik en 24-timers-antakelse ville regnet det samme tidspunktet.
+    const naivt = await veggtid(k.døgnstart(-1) + 23 * 3600000 + 30 * 60000);
+    const midt = await veggtid(k.midtPåDøgnet(-1));
+    målt.push({ navn: d.navn, venterTimer: d.timer,
+      timer: (k.døgnstart(0) - k.døgnstart(-1)) / T,
+      iGår: k.dag(-1), først: først, sist: sist, naivt: naivt, midt: midt });
+    await p.context().close();
+  }
+
+  log('19a: de to overgangsdøgnene er faktisk 23 og 25 timer lange',
+    målt.every((m) => m.timer === m.venterTimer),
+    JSON.stringify(målt.map((m) => m.navn + ': ' + m.timer + ' t')));
+
+  log('19b: begge kantene av i går ligger I går på overgangsdøgnene, 00:30 og 23:30',
+    målt.every((m) => m.først.dato === m.iGår && m.først.klokke === '00:30' &&
+      m.sist.dato === m.iGår && m.sist.klokke === '23:30'),
+    JSON.stringify(målt.map((m) => [m.først, m.sist])));
+
+  /* Tennene: den samme raden regnet som «midnatt + 23,5 t» sklir ut av døgnet
+     sitt på den korte dagen — og lander på feil klokkeslett på den lange. */
+  const kort = målt[0];
+  const lang = målt[1];
+  log('19c: millisekundregningen bommer — den korte dagen mister døgnet helt',
+    kort.naivt.dato !== kort.iGår && lang.naivt.dato === lang.iGår &&
+    lang.naivt.klokke !== '23:30',
+    JSON.stringify({ kort: kort.naivt, lang: lang.naivt,
+      iGår: [kort.iGår, lang.iGår] }));
+
+  log('19d: midtpunktet ligger midt i det faktiske døgnet, ikke på kl. 12',
+    målt.every((m) => m.midt.dato === m.iGår) &&
+    kort.midt.klokke === '12:30' && lang.midt.klokke === '11:30',
+    JSON.stringify(målt.map((m) => m.midt)));
+
+  await browser.close();
+}
+
 (async () => {
   await run('desktop', { width: 1200, height: 900 }, false);
   await run('mobil', { width: 390, height: 780 }, true);
@@ -1310,6 +1407,7 @@ async function runDøgnskifte() {
   await runToasts();
   await runMidnatt();
   await runDøgnskifte();
+  await runSommertid();
   await runEngelsk();
   await runKontobytte();
   const ok = results.filter(Boolean).length;
