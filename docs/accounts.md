@@ -131,17 +131,24 @@ skuff «Enheter og økter», som to seksjoner med samme form:
 | Seksjon | Spørsmålet den svarer på | Sannheten ligger i |
 |---|---|---|
 | **Innloggede enheter** | hvor har Huskis-kontoen min tilgang nå? | `auth.sessions` hos Supabase |
-| **Enheter med varsler** | hvor kommer varslene også når Huskis er lukket? | `push_subscriptions` |
+| **Enheter med varsler** | hvor kommer varslene også når Huskis er lukket? | `push_subscriptions` (nettlesere) + `native_notif_devices` (Android-appen) |
 
 De er ikke slått sammen til én rad per «enhet», og det er et valg. Man kan være
 innlogget uten varsler, og et push-abonnement kan overleve en økt. Den eneste
 måten å binde dem sikkert sammen på ville vært å MÅLE enheten — altså
 fingerprinting. To tydelige seksjoner er det ærlige svaret.
 
-**Én rad er en nettleserkontekst, ikke en maskin.** Både `localStorage` og et
+**Én rad er en klientkontekst, ikke en maskin.** Både `localStorage` og et
 push-abonnement er origin-avgrensede: den samme telefonen kan ha én rad på
 `huskis.no` og én på en gammel adresse, og de er to uavhengige ting. Derfor
-står **verten** på hver rad — det er den som skiller dem.
+står **verten** på hver rad — det er den som skiller dem. Unntaket er
+Android-appen: dens vert er appens interne (`localhost`), altså en
+kontekstnøkkel og ikke en adresse brukeren har vært på, og den vises ikke.
+
+**«Enheter med varsler» dekker BEGGE kanaltypene.** En nettleser med web push og
+Android-appen med sine lokale alarmer svarer på det samme spørsmålet, og står
+derfor i den samme listen — semantikken (og hva en fjern-avslåing av en app kan
+love) ligger i [`varsler.md`](varsler.md), «Enhetene med varsler».
 
 ### Hva som lagres, og hva som ikke gjør det
 
@@ -212,9 +219,16 @@ en tilbakekalling, og skal aldri kunne logge noen ut.
 
 «Enheter med varsler» er den andre halvdelen, og semantikken ligger i
 [`varsler.md`](varsler.md) («Enhetene med varsler»). Herfra er det verdt å vite
-to ting: listen kommer fra den samme RPC-en (`list_my_devices`), og
+tre ting: listen kommer fra den samme RPC-en (`list_my_devices`),
 **endepunktene forlater aldri serveren** — «denne enheten» avgjøres ved at
-klientens eget endepunkt sendes INN og sammenlignes der.
+klientens eget endepunkt og klientkontekst sendes INN og sammenlignes der — og
+raden bærer en `kind` (`web` eller `native`), som er det «Slå av» dispatcher på.
+
+**En utlogging skal ikke etterlate en falsk varselenhet.** Android-appens
+varselstatus meldes av (`enabled = false`) i utloggingen, men listen er ikke
+avhengig av at det kallet kom fram: den krever at klientkonteksten fortsatt har
+en levende økt. Lokal utlogging, fjern-utlogging og kontosletting fjerner derfor
+raden fra listen av seg selv.
 
 Begge listene sorteres likt: denne enheten først, resten etter `seen_at` med
 nyeste øverst. En åpen skuff følger synk-runden (`refreshOpenDevices`), som

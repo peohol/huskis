@@ -440,6 +440,13 @@
                                  'The other devices stop getting notifications outside Huskis. This device keeps its own.'],
     'devices.turnedOff':    ['Varslene er slått av på den enheten.',
                              'Notifications are off on that device.'],
+    /* Android-appen planlegger alarmene sine LOKALT, og en server uten
+       pushkanal kan ikke avlyse dem i en app som ikke kjører. Kvitteringen
+       lover derfor ikke mer enn den kan holde (docs/varsler.md). */
+    'devices.turnedOffApp':  ['Slått av. Huskis-appen tar ned varslene neste gang den er i bruk.',
+                              'Turned off. The Huskis app removes its notifications the next time it is used.'],
+    'devices.turnedOffOthersApp': ['Slått av på de andre enhetene. Huskis-appen tar ned sine neste gang den er i bruk.',
+                              'Turned off on the other devices. The Huskis app removes its own the next time it is used.'],
     'devices.turnedOffOthers': ['Varslene er slått av på de andre enhetene.',
                                 'Notifications are off on the other devices.'],
     'devices.loadFailed':   ['Fikk ikke hentet listen. Den kan være utdatert.',

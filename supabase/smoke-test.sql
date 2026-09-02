@@ -57,6 +57,7 @@ begin
     'memberships', 'share_invites', 'tombstones',
     'notifications', 'notification_prefs',
     'push_subscriptions', 'push_deliveries', 'device_sessions',
+    'native_notif_devices',
     'migration_log', 'app_config', 'email_send_log'
   ] loop
     if to_regclass('public.' || t) is null then
@@ -146,6 +147,14 @@ begin
     'device_sessions:origin', 'device_sessions:device_id',
     'device_sessions:created_at', 'device_sessions:seen_at',
 
+    -- Android-appens varselkanal: statusen som gjør «Enheter med varsler»
+    -- sann også for native (docs/varsler.md).
+    'native_notif_devices:id', 'native_notif_devices:user_id',
+    'native_notif_devices:device_id', 'native_notif_devices:origin',
+    'native_notif_devices:browser', 'native_notif_devices:platform',
+    'native_notif_devices:enabled', 'native_notif_devices:created_at',
+    'native_notif_devices:seen_at', 'native_notif_devices:revoked_at',
+
     'push_deliveries:id', 'push_deliveries:notification_id',
     'push_deliveries:subscription_id', 'push_deliveries:user_id',
     'push_deliveries:due_at', 'push_deliveries:status',
@@ -179,6 +188,7 @@ begin
     'memberships', 'share_invites', 'tombstones',
     'notifications', 'notification_prefs',
     'push_subscriptions', 'push_deliveries', 'device_sessions',
+    'native_notif_devices',
     'migration_log', 'app_config', 'email_send_log'
   ] loop
     select relrowsecurity into paa from pg_class
@@ -268,8 +278,11 @@ begin
     'public.push_unsubscribe(text)',
     'public.push_revoke(uuid)',
     'public.push_revoke_others(text)',
+    'public.native_notif_touch(boolean, text, text, text, text, boolean)',
+    'public.native_notif_revoke(uuid)',
+    'public.notif_revoke_others(text, text, text)',
     'public.session_touch(text, text, text, text)',
-    'public.list_my_devices(text)',
+    'public.list_my_devices(text, text, text)',
     'public.revoke_my_session(uuid)'
   ] loop
     oid_ := to_regprocedure(fn);
@@ -343,7 +356,10 @@ begin
     -- være en inngang klienten kan kalle direkte.
     'public.session_alive(uuid)',
     'public.current_session_id()',
-    'public.prune_device_sessions(uuid)'
+    'public.prune_device_sessions(uuid)',
+    -- Det aktive native settet for én bruker. Kallerne sender sin egen
+    -- auth.uid() inn; funksjonen har ingen egen autorisasjonssjekk.
+    'public.native_notif_active(uuid)'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
@@ -479,6 +495,11 @@ begin
     if has_table_privilege('authenticated', 'public.device_sessions', t) then
       feil := array_append(feil, 'authenticated KAN ' || t || ' på device_sessions (skal kun gå via session_touch())');
     end if;
+    -- Android-appens varselstatus er like låst: en direkte vei ville latt en
+    -- klient slå av varslene på en enhet hen ikke eier.
+    if has_table_privilege('authenticated', 'public.native_notif_devices', t) then
+      feil := array_append(feil, 'authenticated KAN ' || t || ' på native_notif_devices (skal kun gå via native_notif_touch())');
+    end if;
   end loop;
   foreach t in array array['public.push_claim(integer, bigint)', 'public.push_report(jsonb)',
                            'public.push_tick()', 'public.push_enqueue(uuid)'] loop
@@ -499,7 +520,7 @@ begin
     'profiles', 'universes', 'groups', 'cards', 'items',
     'memberships', 'share_invites', 'tombstones',
     'notifications', 'notification_prefs', 'push_subscriptions', 'push_deliveries',
-    'device_sessions'
+    'device_sessions', 'native_notif_devices'
   ] loop
     if has_table_privilege('anon', 'public.' || t, 'SELECT') then
       feil := array_append(feil, 'anon har SELECT på public.' || t);
@@ -604,7 +625,10 @@ begin
   end;
 
   foreach k in array array['user', 'universes', 'groups', 'cards', 'items',
-                           'invites_in', 'invites_out'] loop
+                           'invites_in', 'invites_out',
+                           -- Signalet en Android-app leser hver synk-runde for å
+                           -- oppdage at en annen enhet slo varslene av her.
+                           'notif_revoked'] loop
     if not (doc ? k) then feil := array_append(feil, 'get_my_doc(): mangler nøkkelen «' || k || '»'); end if;
   end loop;
 

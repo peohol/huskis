@@ -736,7 +736,7 @@ utløses. Panelet har fem tilstander, og de sier hver sin sanne ting:
 | ikke støttet | finnes ikke | «Denne enheten kan ikke vise varsler utenfor Huskis. Varslene står fortsatt i listen her.» |
 | forhåndsvisning | finnes ikke | «Eksterne varsler er slått av i forhåndsvisninger. Varslene står fortsatt i listen her.» |
 | av | av | forklaringen — hva du får, og at enheten kommer til å spørre |
-| på | på | «På. Varslene kommer også når Huskis er lukket.» — eller «På her og på N andre enheter.» når web push er på flere, med «Vis enheter» under (se «Enhetene med varsler») |
+| på | på | «På. Varslene kommer også når Huskis er lukket.» — eller «På her og på N andre enheter.» når varslene er på flere (nettlesere OG Android-apper), med «Vis enheter» under (se «Enhetene med varsler») |
 | blokkert | av og **deaktivert** | «Blokkert. Slå på varsler for Huskis i enhetens innstillinger, og prøv igjen.» |
 
 **Forhåndsvisning er ikke «støttes ikke».** Nettleseren kan godt vise varsler;
@@ -1033,23 +1033,167 @@ build la igjen, altså nettopp den situasjonen opprydningen finnes for.
 
 ### Enhetene med varsler
 
-Panelet sier hvor mange nettlesere som har varsler på, og «Vis enheter» åpner
+Panelet sier hvor mange enheter som har varsler på, og «Vis enheter» åpner
 listen — den bor i konto-modalens skuff «Enheter og økter», sammen med de
 innloggede øktene ([`accounts.md`](accounts.md) er autoritativ for den skuffen).
 Brukeren skal ikke trenge å vite hva et endepunkt, en service worker eller et
 origin er; raden sier «Chrome · Android», verten, og når den sist ble sett.
 
-**Metadataen er en klassifikasjon, ikke en måling.** `push_subscriptions` bærer
+**Listen er ETT spørsmål, ikke to.** «Hvor kommer varslene også når Huskis er
+lukket?» har to svar i Huskis — en nettleser med web push, og Android-appen med
+sine lokale alarmer — og for brukeren er det den samme tingen. Listen dekker
+derfor begge, og hver rad bærer en `kind` (`web` eller `native`) som avgjør
+hvilken vei «Slå av» går:
+
+| | `kind: 'web'` | `kind: 'native'` |
+|---|---|---|
+| Sannheten ligger i | `push_subscriptions` | `native_notif_devices` |
+| Raden sier | «Chrome · Windows», og verten | «Huskis · Android», uten vert |
+| Identiteten er | endepunktet | klientkonteksten (`device_id` + `origin`) |
+| «Denne enheten» avgjøres av | at klientens eget endepunkt matcher | at klientens egen kontekst matcher |
+| «Slå av» | `push_revoke(id)` | `native_notif_revoke(id)` |
+
+**Den native raden bærer ingen vert.** Appens interne origin (`localhost`) er en
+KONTEKSTNØKKEL, ikke en adresse brukeren har vært på — å vise den ville forvirret
+uten å opplyse. «Huskis · Android» er allerede så navngitt raden kan bli.
+
+**Metadataen er en klassifikasjon, ikke en måling.** Begge tabellene bærer
 `browser`, `platform`, `origin` og `device_id` — et fast, lite ordforråd,
 vertsnavnet, og enhetens egen lokale id. Hele user-agenten lagres ALDRI, og det
 finnes ingen skjermmål, ingen fonter, ingenting som kan settes sammen til et
-fingeravtrykk. Klienten sender verdiene selv, og fornyelsen holder dem — og
+fingeravtrykk. Klienten sender verdiene selv, og runden holder dem — og
 `seen_at` — ferske: `push_subscribe()` kjøres når endepunktet eller språket har
-endret seg, og ellers minst hvert kvarter.
+endret seg, `native_notif_touch()` når kanalstatusen har endret seg, og begge
+ellers minst hvert kvarter.
 
 **Endepunktene forlater aldri serveren.** `list_my_devices()` tar klientens eget
-endepunkt INN og bruker det til å merke «denne enheten»; ingen adresse går den
-andre veien.
+endepunkt og klientkontekst INN og bruker dem til å merke «denne enheten»; ingen
+adresse går den andre veien.
+
+#### Android i enhetslisten
+
+Android har ikke noe abonnement å telle. Kanalen planlegger LOKALE alarmer, og
+det er nettopp poenget med den — den virker uten server, uten sender og uten
+nett. Men det som ikke finnes noe sted, kan ingen annen enhet se eller slå av,
+og «Enheter med varsler» ville i praksis betydd «nettlesere med web push».
+
+`public.native_notif_devices` er derfor et lite statusbord, og ikke mer enn det:
+
+| Felt | Hva det er |
+|---|---|
+| `user_id` + `device_id` + `origin` | klientkonteksten — og en UNIK indeks, så én app er ÉN rad selv om den har logget inn flere ganger |
+| `browser` / `platform` | «Huskis» / «Android», de samme klassifikasjonene som ellers |
+| `enabled` | klientens egen rapport: er kanalen på her (bryteren PÅ og tillatelsen gitt)? |
+| `seen_at` | sist appen sa fra |
+| `revoked_at` | brukeren slo av varslene for denne appen fra en annen enhet |
+
+Statusen meldes av `native_notif_touch()`, og den går **sjelden med vilje**:
+
+| Utløser | Hvorfor |
+|---|---|
+| innlogging / `cloudStart()` | appen skal være synlig i listen fra første runde, ikke først etter et kvarter |
+| brukeren slår varslene PÅ | eksplisitt (`p_explicit`) — det er den ene handlingen som opphever en fjern-avslåing |
+| brukeren slår varslene AV | listen skal slutte å vise appen med det samme |
+| statusen har endret seg | tillatelsen kan trekkes i systeminnstillingene mens appen står åpen |
+| ellers: hvert kvarter | en puls, så metadataen ikke blir permanent foreldet |
+
+Ingen skriving hvert femte sekund: en runde som verken har ny status eller har
+ventet ut kvarteret sitt gjør ingenting — den går ikke engang over pluginbroen
+for å spørre om tillatelsen, for bryteren i `localStorage` avgjør allerede at
+kanalen er av. Og signalet over nullstiller bare dempingen så lenge klienten og
+serveren er UENIGE; er nedriggingen alt gjort, står runden stille igjen.
+
+**Et svar som lander for sent gjelder ikke lenger.** Statusrunden er et
+nettverkskall, og tilstanden det gjaldt kan ha blitt en annen mens vi ventet. To
+ting gjør et svar foreldet, og de er ikke det samme:
+
+| Hva som endret seg | Eksempel | Hva et gammelt svar ville gjort |
+|---|---|---|
+| **identiteten** | utlogging, kontobytte | et `revoked` fra forrige konto avlyser den NYE kontoens alarmer |
+| **viljen** | brukeren trykket «slå på» | et `revoked` utstedt før trykket river ned det hun nettopp slo på |
+
+Begge bumper den samme epoken (`notifEpoch`), som leses FØR kallet og
+sammenlignes når svaret lander. Den andre halvdelen er ikke en detalj: uten den
+holder det med et raskt AV/PÅ for at en gammel runde skal overstyre valget.
+Epoken bumpes derfor i det bryteren trykkes — før tillatelsesdialogen, som kan
+stå oppe en stund — og web push-fornyelsen leser den samme epoken. En nedrigging
+etter en fjern-avslåing (`notifChannelRevokedHere()`) bumper den også: kanalen er
+av her fra da av, og en runde som var på vei med «på» skal ikke sette serveren
+tilbake til noe brukeren ikke har.
+
+**Og rekkefølgen: én skriving om gangen.** Epoken verner om SVARET. Den verner
+ikke om SKRIVINGEN: to statuskall som er i lufta samtidig når databasen i den
+rekkefølgen nettet gir dem, og et gammelt «på» som landet etter et nytt «av»
+ville latt SERVEREN stå igjen med «på» — telefonen ble stående i «Enheter med
+varsler» med varsler brukeren nettopp slo av, til noe annet meldte fra.
+`push_lock()` løser det ikke: den serialiserer transaksjonene, men vet ikke
+hvilken av dem som bærer det nyeste valget.
+
+Alle statusskrivinger går derfor gjennom én kø i klienten (`nativeNotifTouch()`),
+utloggingens melding inkludert: et kall stiller seg bakerst og starter først når
+det forrige har landet. Serverens siste skriving er dermed alltid klientens
+siste valg, og et svar kan ikke lenger lande etter et nyere. En runde som har
+stått i kø mens valget byttet, skriver ikke i det hele tatt — den ville skrevet
+en vilje som ikke finnes lenger — og en automatisk runde som har fått en nyere
+bak seg i køen droppes, så en treg server ikke gir et ras av skrivinger i det
+den svarer. Det LOKALE valget venter ikke på køen: alarmene legges og avlyses på
+telefonen med det samme.
+
+**En app som ikke har varsler på, får ingen rad.** Runden går fra hver
+innlogging på hver Android-enhet, også de som aldri slår varslene på; uten den
+regelen ville tabellen fylt seg med rader som bare sier «av».
+
+**En app uten en levende økt er ikke en varselenhet.** Listen krever at
+klientkonteksten fortsatt har en økt i `device_sessions` → `auth.sessions`
+(`native_notif_active()`). Det er utloggingsgarantien: en app som ble logget ut
+— lokalt, fra en annen enhet, eller ved at kontoen ble slettet — skal ikke bli
+stående som en «enhet med varsler» i påvente av at den utloggede klienten
+samarbeider. Utloggingen melder i tillegg fra selv (`enabled = false`) og river
+ned de planlagte alarmene, men listen er ikke avhengig av at det kallet kom
+fram.
+
+#### Fjern-avslåing av en Android-app: hva den kan love
+
+Semantikken er den samme som for et abonnement — valget er varig, og bare et
+eksplisitt «slå på varsler» i nettopp den appen tar det tilbake — men
+GJENNOMFØRINGEN er en annen, og det skal ikke skjules.
+
+Et web push-abonnement slås av på serveren, og da er det av: utboksen tømmes og
+senderen plukker ingenting opp. Androids alarmer ligger derimot allerede i
+telefonens egen alarmkø. Uten en pushkanal (FCM) har serveren **ingen vei inn**
+til en app som ikke kjører, og Huskis innfører ikke en slik kanal for dette.
+
+Rekkefølgen er derfor:
+
+1. serveren registrerer avslåingen **umiddelbart** (`revoked_at`), og appen
+   forsvinner fra listen med det samme;
+2. en **åpen** app oppdager det i sin neste synk-runde — doc-et bærer
+   `notif_revoked` for nettopp denne klienten, dempingen nullstilles,
+   statusrunden går i den samme runden, serveren svarer `revoked`, og appen
+   avlyser alarmene sine, setter bryteren av og oppdaterer panelet;
+3. en **lukket** app gjør nøyaktig det samme neste gang den er i bruk og får
+   kontakt med serveren;
+4. i mellomtiden kan alarmer som allerede var planlagt fortsatt fyre.
+
+Dette er **ikke** øyeblikkelig fjernstyring av en lukket app, og UI-et lover
+ikke at det er det: kvitteringen etter et «Slå av» på en Android-rad sier
+«Slått av. Huskis-appen tar ned varslene neste gang den er i bruk.» Én setning,
+på det ene stedet den er relevant — ikke en advarsel som ligger i veien for alle
+de andre radene.
+
+**Automatisk synk kan aldri oppheve en fjern-avslåing.** Statusrunden sender
+`p_explicit => false`, og serveren lar da raden bli liggende avslått og svarer
+`revoked` i stedet. Bare bryteren i appen (`p_explicit => true`) tar valget
+tilbake — nøyaktig som `push_subscribe(..., p_explicit => true)` gjør for en
+nettleser.
+
+**«Slå av varsler på alle andre enheter» dekker begge kanaltypene.**
+`notif_revoke_others(endpoint, device_id, origin)` kaller `push_revoke_others()`
+for abonnementene og markerer de native klientene som ikke er kalleren selv.
+Gjeldende klient beholdes uansett hvilken type den er — derfor går både
+endepunktet og klientkonteksten inn. Låsen (`push_lock()`) tas først, og dekker
+begge tabellene: en statusrunde fra en av de andre klientene skal ikke kunne
+melde seg på igjen rett etter at løkken leste listen sin.
 
 #### Fjern-avslåing er varig
 
@@ -1340,11 +1484,19 @@ utboksen, og neste tikk tar det samme arbeidet.
 
 - **Web push** fanner ut til ALLE brukerens aktive abonnementer — én
   utbokslinje per abonnement, hver med sitt eget utfall. Et dødt endepunkt slås
-  av uten å røre de andre. `get_my_doc()` teller de aktive og gir tallet til
-  panelet, så «på» sier hvor mange enheter det gjelder — og «Vis enheter» åpner
-  listen over dem (se «Enhetene med varsler»).
+  av uten å røre de andre.
 - **Android** trenger ingen fan-ut: hver installasjon planlegger sine egne
   lokale varsler fra den samme planen, med de samme deterministiske ID-ene.
+- `get_my_doc().push_devices` teller de aktive i BEGGE kanalene og gir tallet
+  til panelet, så «på» sier hvor mange enheter det gjelder — og «Vis enheter»
+  åpner listen over dem (se «Enhetene med varsler»). Faller tallet, går web
+  push-fornyelsen med én gang i stedet for å vente ut kvarteret sitt.
+- `get_my_doc().notif_revoked` er det PRESISE signalet for den native kanalen:
+  er nettopp denne klientens kanal slått av fra en annen enhet? Et aggregat
+  duger ikke alene der — slår én enhet av mens en annen slår på i det samme
+  vinduet, står tallet stille, og telefonen hadde ventet ut kvarteret sitt med
+  alarmer brukeren nettopp slo av. Nettleseren kjenner igjen sitt eget
+  abonnement på ENDEPUNKTET, som doc-et verken har eller skal ha.
 - **To enheter varsler begge.** Det er normalt og forventet, som e-post på både
   telefon og laptop.
 - **Planen** legges derimot av ÉN enhet av gangen — den som holder tidssonen (se

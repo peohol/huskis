@@ -22,6 +22,12 @@
 # Testen kjører begge rekkefølgene i begge variantene — samme endepunkt, og to
 # ulike i samme kontekst — og krever at alle fire ender med AV.
 #
+# DEN NATIVE KANALEN har det samme kappløpet uten å ha et abonnement: telefonens
+# automatiske statusrunde (`native_notif_touch()`) mot «slå av varsler på alle
+# andre enheter» (`notif_revoke_others()`). Låsen er den SAMME — `push_lock()`
+# dekker begge tabellene, nettopp fordi «alle andre» spenner over dem begge — og
+# scenario 5–6 kjører de to rekkefølgene.
+#
 # Kjøres av run-tests.sh mot den samme databasen som resten av suiten.
 # Autoritativt for modellen: docs/varsler.md.
 # ============================================================
@@ -36,6 +42,7 @@ EP2='https://push.example.com/kapplop-rotert'   # samme klient, nytt endepunkt
 K1="BP$(printf 'k%.0s' $(seq 83))r1"
 K2="BP$(printf 'k%.0s' $(seq 83))r2"
 S1="$(printf 's%.0s' $(seq 20))r1"
+NDEV='d-kapp-app'                              # Android-appens klientkontekst
 
 feil() { echo "FAIL: $1" >&2; exit 1; }
 ok()   { echo "PASS: $1"; }
@@ -61,6 +68,22 @@ aktive() {
   $PSQL -c "select count(*) from public.push_subscriptions
              where user_id = '$R' and device_id = 'd-kapp' and origin = 'www.huskis.no'
                and revoked_at is null and disabled_at is null"
+}
+
+# Den NATIVE klientens status: aktiv, av eller ikke registrert i det hele tatt.
+# Leses som eier, utenom RLS — testen skal se sannheten.
+nativ_tilstand() {
+  $PSQL -c "select coalesce((select case when revoked_at is null and enabled then 'aktiv' else 'av' end
+                               from public.native_notif_devices
+                              where user_id = '$R' and device_id = '$NDEV' and origin = 'localhost'), 'borte')"
+}
+
+# Telefonens vanlige, automatiske statusrunde — nøyaktig kallet appen gjør.
+# `p_explicit` er FALSK: det er hele forskjellen på en rapport og et valg.
+nativ_runde() {
+  $PSQL -c "select set_config('request.jwt.claim.sub', '$R', false);
+            set role authenticated;
+            select public.native_notif_touch(true, 'Huskis', 'Android', 'localhost', '$NDEV')" | tail -n 1
 }
 
 # Brukeren står ved klienten og slår varslene på igjen. Det rydder også sporene
@@ -230,7 +253,88 @@ case "$svar" in
   *) feil "fornyelsen av E2 slo på varslene igjen: $svar" ;;
 esac
 
+# ---------- 5. NATIVE: «slå av alle andre» mens telefonens statusrunde er i lufta ----------
+# Android har intet abonnement — kanalen er lokale alarmer, og det serveren har
+# er en STATUS per klientkontekst (`native_notif_devices`). Kappløpet er det
+# samme: telefonens automatiske statusrunde går hvert kvarter, og «slå av
+# varsler på alle andre enheter» kan treffe midt i den. Uten den FELLES låsen
+# (`push_lock()` dekker begge tabellene) kunne runden skrevet `enabled = true`
+# rett etter at løkken leste listen sin, og telefonen stått igjen som PÅ.
+$PSQL >/dev/null <<SQL
+select set_config('request.jwt.claim.sub', '$R', false);
+set role authenticated;
+select public.native_notif_touch(true, 'Huskis', 'Android', 'localhost', '$NDEV');
+SQL
+[ "$(nativ_tilstand)" = aktiv ] || feil "fikstur: den native klienten skulle vært aktiv"
+
+(
+  $PSQL >/dev/null <<SQL
+begin;
+select set_config('request.jwt.claim.sub', '$R', false);
+set local role authenticated;
+select public.notif_revoke_others(null, 'd-annen', 'www.huskis.no');
+select pg_sleep(2);
+commit;
+SQL
+) &
+avslaer=$!
+sleep 0.5
+
+start=$(date +%s%N)
+svar=$(nativ_runde)
+gikk=$(( ($(date +%s%N) - start) / 1000000 ))
+wait "$avslaer" || feil "«slå av alle andre» feilet"
+
+case "$svar" in
+  *'"revoked": true'*) ok 'telefonens statusrunde som løp inn i en samtidig avslåing ble avvist' ;;
+  *) feil "statusrunden slo på de native varslene igjen: $svar" ;;
+esac
+[ "$(nativ_tilstand)" = av ] || feil "den native klienten står aktiv etter en samtidig avslåing"
+ok '… og den native klienten står fortsatt som avslått'
+[ "$gikk" -ge 1000 ] || feil "statusrunden ventet ikke på låsen (${gikk} ms)"
+ok "… og den ventet på låsen i stedet for å lese en foreldet tilstand (${gikk} ms)"
+
+# ---------- 6. NATIVE: statusrunden kommer FØRST, avslåingen etterpå ----------
+# Motsatt rekkefølge. Brukeren ba om AV, og en statusrunde som tilfeldigvis var
+# i gang skal ikke overstyre det.
+$PSQL >/dev/null -c "select set_config('request.jwt.claim.sub', '$R', false);
+                     set role authenticated;
+                     select public.native_notif_touch(true, 'Huskis', 'Android', 'localhost',
+                                                      '$NDEV', true)"
+[ "$(nativ_tilstand)" = aktiv ] || feil "det eksplisitte «slå på» tok ikke på den native klienten"
+
+(
+  $PSQL >/dev/null <<SQL
+begin;
+select set_config('request.jwt.claim.sub', '$R', false);
+set local role authenticated;
+select public.native_notif_touch(true, 'Huskis', 'Android', 'localhost', '$NDEV');
+select pg_sleep(2);
+commit;
+SQL
+) &
+runden=$!
+sleep 0.5
+
+start=$(date +%s%N)
+$PSQL >/dev/null -c "select set_config('request.jwt.claim.sub', '$R', false);
+                     set role authenticated;
+                     select public.notif_revoke_others(null, 'd-annen', 'www.huskis.no')"
+gikk=$(( ($(date +%s%N) - start) / 1000000 ))
+wait "$runden" || feil "statusrunden feilet"
+
+[ "$(nativ_tilstand)" = av ] || feil "avslåingen forsvant bak en samtidig statusrunde"
+ok 'avslåingen som kom mens en statusrunde skrev, vant likevel'
+[ "$gikk" -ge 1000 ] || feil "avslåingen ventet ikke på statusrunden (${gikk} ms)"
+ok "… og den ventet på statusrundens lås (${gikk} ms)"
+
+svar=$(nativ_runde)
+case "$svar" in
+  *'"revoked": true'*) ok '… og den neste automatiske statusrunden blir avvist' ;;
+  *) feil "den neste statusrunden slo på de native varslene igjen: $svar" ;;
+esac
+
 # ---------- opprydning ----------
 $PSQL >/dev/null -c "reset role; delete from auth.users where id = '$R'"
 
-echo '✅ test-push-race.sh: alle fire rekkefølgene ender med AV'
+echo '✅ test-push-race.sh: alle seks rekkefølgene ender med AV (web push og native)'

@@ -762,6 +762,74 @@ end;
 $$;
 
 -- ------------------------------------------------------------
+-- 4e. NATIVE VARSELENHETER — Android-appens egen varselkanal
+--
+--    «Enheter med varsler» skal beskrive ALLE Huskis-klienter som faktisk
+--    varsler utenfor appen. Web push har `push_subscriptions`; Android har
+--    ingenting der, og skal ikke ha det: appen planlegger LOKALE alarmer på
+--    telefonen (`@capacitor/local-notifications`), ingen server er involvert,
+--    og det finnes ikke noe endepunkt å registrere. Uten denne tabellen ville
+--    listen bare hett «enheter med varsler» — den ville betydd «nettlesere med
+--    web push», og en telefon som varslet helt korrekt var usynlig fra
+--    huskis.no.
+--
+--    RADEN ER EN KLIENTKONTEKST, ikke en økt: `user_id` + `device_id` +
+--    `origin`, nøyaktig den samme trekanten `push_subscribe()` kjenner en
+--    avslått nettleser igjen på. Det er ikke en detalj — det er det som gjør
+--    at én telefon blir ÉN rad selv om den har logget inn flere ganger, og at
+--    en fjern-avslåing overlever en ny innlogging. Ingen måling av maskinen:
+--    `device_id` er et tilfeldig tall Huskis selv skrev i `localStorage`.
+--
+--    `enabled` er klientens egen rapport om at kanalen er PÅ der (bryteren på
+--    OG tillatelsen gitt), skrevet av `native_notif_touch()` ved innlogging,
+--    ved hvert på/av og ellers hvert kvarter. `revoked_at` er det samme som på
+--    et abonnement: brukeren slo av varslene for DENNE klienten fra en annen
+--    enhet, og bare et EKSPLISITT «slå på varsler» på nettopp den klienten tar
+--    det tilbake.
+--
+--    LEVENDE ØKT er porten. En rad er ikke i seg selv en aktiv varselenhet —
+--    en app som er logget ut skal ikke stå igjen som «enhet med varsler» selv
+--    om den aldri fikk sagt fra. Listen krever derfor at klientkonteksten
+--    fortsatt har en levende økt (`device_sessions` → `auth.sessions`), og da
+--    faller lokal utlogging, fjern-utlogging og kontosletting ut av seg selv.
+--
+--    Tabellen er LÅST som utboksen og sidebordet: RLS på, ingen policyer,
+--    ingen grants. Alt går gjennom RPC-ene, som setter `user_id` fra
+--    `auth.uid()`.
+-- ------------------------------------------------------------
+
+create table if not exists public.native_notif_devices (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  -- Klientkonteksten: enhetens egen lokale id og verten appen kjører på.
+  device_id   text not null,
+  origin      text not null,
+  -- Klassifikasjoner, aldri råtekst: «Huskis», «Android».
+  browser     text,
+  platform    text,
+  -- Er den native kanalen PÅ der akkurat nå? Klientens egen rapport.
+  enabled     boolean not null default false,
+  created_at  bigint not null default (extract(epoch from now()) * 1000)::bigint,
+  seen_at     bigint not null default (extract(epoch from now()) * 1000)::bigint,
+  -- Brukeren slo av varslene for denne klienten fra en annen enhet.
+  revoked_at  bigint
+);
+
+-- ÉN RAD PER KLIENTKONTEKST. Uten den unike indeksen ville en app som logger
+-- inn på nytt (eller har to økter) blitt to rader — og «Enheter med varsler»
+-- hadde vist den samme telefonen to ganger.
+create unique index if not exists native_notif_devices_ctx_idx
+  on public.native_notif_devices (user_id, device_id, origin);
+
+-- Det aktive settet: det listen og telleren i get_my_doc() leser.
+create index if not exists native_notif_devices_active_idx
+  on public.native_notif_devices (user_id)
+  where enabled and revoked_at is null;
+
+alter table public.native_notif_devices enable row level security;
+revoke all on public.native_notif_devices from public, anon, authenticated;
+
+-- ------------------------------------------------------------
 -- 5. ROLLER, LÅSER og CAPABILITIES
 --
 -- ============================================================================
@@ -2627,9 +2695,12 @@ begin
   -- et abonnement som ble stående ville sendt en push til en slettet konto.
   delete from public.push_deliveries where user_id = uid;
   delete from public.push_subscriptions where user_id = uid;
-  -- Den gjenkjennelige metadataen om øktene mine. Kaskaden ville tatt den
-  -- uansett (auth.users), men ryddingen skal være lesbar.
+  -- Den gjenkjennelige metadataen om øktene mine, og statusen til de native
+  -- varselkanalene. Kaskaden ville tatt begge uansett (auth.users), men
+  -- ryddingen skal være lesbar — og en native rad som ble stående ville vært
+  -- en «enhet med varsler» for en konto som ikke finnes.
   delete from public.device_sessions where user_id = uid;
+  delete from public.native_notif_devices where user_id = uid;
 
   -- 5. Profilen og selve kontoen.
   delete from public.profiles where id = uid;
@@ -3527,6 +3598,229 @@ exception when others then null;   -- manglende rettighet skal ikke velte migrer
 end $$;
 
 -- ------------------------------------------------------------
+-- 8e2. NATIVE VARSEL-RPC-ER — Android-appens plass i «Enheter med varsler»
+--
+--    Android varsler LOKALT: alarmene ligger på telefonen, og ingen server
+--    leverer dem. Det som mangler er derfor ikke en leveringskanal, men en
+--    STATUS — serveren må vite at kanalen er på der, ellers kan ingen annen
+--    enhet se den eller slå den av.
+--
+--    native_notif_touch(enabled, browser, platform, origin, device_id, explicit)
+--      Klienten rapporterer sin egen kanalstatus for sin egen klientkontekst
+--      (aldri en annens — `user_id` settes fra `auth.uid()`). Svarer om
+--      konteksten er fjern-avslått, som er måten en åpen app OPPDAGER at en
+--      annen enhet slo den av.
+--
+--    native_notif_revoke(id)
+--      Fjern-avslåing av ÉN native klient. Samme semantikk som
+--      `push_revoke()`: valget blir stående, og bare et eksplisitt «slå på
+--      varsler» på nettopp den klienten tar det tilbake.
+--
+--    notif_revoke_others(endpoint, device_id, origin)
+--      «Slå av varsler på alle andre enheter», nå for BEGGE kanaltypene:
+--      `push_revoke_others()` for nettleserne, og de native klientene som ikke
+--      er kalleren selv. Gjeldende klient beholdes uansett hvilken type den er.
+--
+--    HVA DENNE MODELLEN IKKE KAN: en LUKKET Android-app. Alarmene er allerede
+--    lagt i operativsystemets alarmkø, og uten en pushkanal (FCM) har serveren
+--    ingen vei inn til å avlyse dem. Avslåingen registreres derfor umiddelbart
+--    her, og gjennomføres på telefonen neste gang appen er i bruk og får
+--    kontakt. Autoritativt: docs/varsler.md.
+-- ------------------------------------------------------------
+
+/* DE AKTIVE NATIVE VARSELENHETENE for én bruker.
+
+   Tre ledd, og det tredje er det som gjør listen sann: kanalen er på
+   (`enabled`), brukeren har ikke slått den av fra en annen enhet
+   (`revoked_at`), OG klientkonteksten har fortsatt en levende økt. Uten det
+   siste ville en app som ble logget ut — lokalt, fra en annen enhet, eller ved
+   at kontoen ble slettet — blitt stående som en «enhet med varsler» helt til
+   den ble åpnet igjen og rakk å si fra selv. Utloggingen skal ikke være
+   avhengig av at den utloggede klienten samarbeider.
+
+   Feiler oppslaget i `auth.sessions` (rettigheten mangler i et prosjekt),
+   svarer vi ÅPENT — de samme radene uten øktkravet. Det er det samme valget
+   som `session_alive()` tar: en manglende opplysning skal ikke kunne skjule en
+   enhet brukeren faktisk har.
+   INTERN: ingen EXECUTE til klientroller (se grants nederst). */
+create or replace function public.native_notif_active(p_uid uuid)
+returns setof public.native_notif_devices
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if p_uid is null then return; end if;
+  begin
+    return query
+      select n.* from public.native_notif_devices n
+       where n.user_id = p_uid and n.enabled and n.revoked_at is null
+         and exists (select 1 from public.device_sessions d
+                      join auth.sessions x on x.id = d.session_id
+                     where d.user_id = n.user_id
+                       and d.device_id = n.device_id and d.origin = n.origin);
+  exception when others then
+    return query
+      select n.* from public.native_notif_devices n
+       where n.user_id = p_uid and n.enabled and n.revoked_at is null;
+  end;
+end;
+$$;
+
+/* KLIENTEN MELDER FRA om sin egen native varselkanal.
+
+   `p_explicit` er hele forskjellen på en RAPPORT og et VALG, nøyaktig som i
+   `push_subscribe()`: den automatiske runden (innlogging, hvert kvarter) skal
+   aldri kunne oppheve at brukeren slo av varslene her fra en annen enhet. Bare
+   et trykk på bryteren på nettopp denne klienten gjør det.
+
+   Låsen er den samme som abonnementene bruker (`push_lock()`): «slå av varsler
+   på alle andre enheter» spenner over begge kanaltypene, og de to må derfor
+   serialiseres mot hverandre. Uten den kunne en helt vanlig statusrunde fra
+   telefonen sneket seg inn etter at løkken leste listen sin, og enheten
+   brukeren nettopp slo av hadde stått igjen som på. */
+create or replace function public.native_notif_touch(p_enabled boolean,
+                                                     p_browser text default null,
+                                                     p_platform text default null,
+                                                     p_origin text default null,
+                                                     p_device_id text default null,
+                                                     p_explicit boolean default false)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  uid     uuid   := auth.uid();
+  now_ms  bigint := (extract(epoch from now()) * 1000)::bigint;
+  dev     text   := left(p_device_id, 60);
+  org     text   := left(p_origin, 120);
+  rad_id  uuid;
+  tilbake bigint;
+  vil     boolean := coalesce(p_enabled, false);
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  /* Uten en klientkontekst finnes det ingen rad å skrive: raden ER konteksten,
+     og en rad uten den ville verken kunne slås av eller kjennes igjen. */
+  if dev is null or dev = '' or org is null or org = '' then
+    raise exception 'mangler klientkontekst';
+  end if;
+
+  perform public.push_lock(uid);
+
+  select id, revoked_at into rad_id, tilbake
+    from public.native_notif_devices
+   where user_id = uid and device_id = dev and origin = org
+   for update;
+
+  /* FJERN-AVSLÅTT, og runden er ikke et eksplisitt «slå på». Da står valget:
+     raden blir liggende avslått, og svaret sier fra slik at appen kan rigge
+     ned sin egen ende (avlyse alarmene, sette bryteren av). */
+  if tilbake is not null and not coalesce(p_explicit, false) then
+    update public.native_notif_devices
+       set enabled  = false,
+           browser  = coalesce(left(p_browser, 40), browser),
+           platform = coalesce(left(p_platform, 40), platform),
+           seen_at  = now_ms
+     where id = rad_id;
+    return jsonb_build_object('id', rad_id, 'revoked', true, 'enabled', false);
+  end if;
+
+  /* EN KLIENT SOM ALDRI HAR HATT VARSLER PÅ TRENGER INGEN RAD. Runden går fra
+     hver innlogging på hver Android-enhet, også de som aldri slår varslene på;
+     uten denne linjen ville tabellen fylt seg med rader som bare sier «av».
+     Utloggingens egen avmelding er det samme tilfellet — finnes det ingen rad,
+     er det ingenting å slå av. */
+  if rad_id is null and not vil then
+    return jsonb_build_object('id', null, 'revoked', false, 'enabled', false);
+  end if;
+
+  insert into public.native_notif_devices (user_id, device_id, origin, browser, platform, enabled)
+  values (uid, dev, org, left(p_browser, 40), left(p_platform, 40), vil)
+  on conflict (user_id, device_id, origin) do update
+     set browser  = coalesce(left(p_browser, 40), public.native_notif_devices.browser),
+         platform = coalesce(left(p_platform, 40), public.native_notif_devices.platform),
+         enabled  = vil,
+         seen_at  = now_ms,
+         /* Bare et eksplisitt «slå PÅ» opphever en fjern-avslåing. Et
+            eksplisitt «slå av» trenger ikke gjøre det — raden er av uansett,
+            og sporet koster ingenting. */
+         revoked_at = case when coalesce(p_explicit, false) and vil
+                           then null else public.native_notif_devices.revoked_at end
+  returning id into rad_id;
+
+  return jsonb_build_object('id', rad_id, 'revoked', false, 'enabled', vil);
+end;
+$$;
+
+/* FJERN-AVSLÅING av ÉN native klient. Speiler `push_revoke()`: raden blir
+   stående som sporet som HÅNDHEVER valget, og bare et eksplisitt «slå på
+   varsler» der tar det tilbake. Ingen løkke over konteksten — den unike
+   indeksen gjør at én kontekst ER én rad.
+
+   `false` når id-en ikke er min: samme svar som for en id som ikke finnes, for
+   en feilmelding ville i seg selv fortalt at raden eksisterte.
+
+   Alarmene ligger på telefonen. Serveren kan derfor ikke avlyse dem her — den
+   registrerer valget, og appen gjennomfører det i sin neste synk-runde. */
+create or replace function public.native_notif_revoke(p_id uuid)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare
+  uid    uuid   := auth.uid();
+  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
+  traff  integer;
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  if p_id is null then return false; end if;
+  if not exists (select 1 from public.native_notif_devices
+                  where id = p_id and user_id = uid) then
+    return false;
+  end if;
+  perform public.push_lock(uid);
+  -- Idempotent: en rad som alt er avslått beholder tidspunktet sitt, og svarer
+  -- `true`. To faner som slår av den samme enheten har begge fått viljen sin.
+  update public.native_notif_devices
+     set revoked_at = coalesce(revoked_at, now_ms), enabled = false
+   where id = p_id and user_id = uid;
+  get diagnostics traff = row_count;
+  return traff > 0;
+end;
+$$;
+
+/* «SLÅ AV VARSLER PÅ ALLE ANDRE ENHETER» — på tvers av begge kanaltypene.
+
+   Nettleserne tas av `push_revoke_others()`, som eier hele den semantikken fra
+   før (klientkonteksten til endepunktet som ringte spares, ikke bare URL-en).
+   Her legges de native klientene til, med den samme regelen: alle unntatt
+   kallerens egen kontekst.
+
+   Kalleren sender sin egen kontekst inn. En nettleser har ingen native rad å
+   spare, og en telefon har ikke noe endepunkt — begge sender likevel det de
+   har, og det som ikke treffer noe er et no-op.
+
+   Låsen tas FØR listen leses, av samme grunn som i `push_revoke_others()`: en
+   samtidig statusrunde fra en av de andre klientene skal ikke kunne melde seg
+   på igjen rett etter at løkken leste listen sin. */
+create or replace function public.notif_revoke_others(p_endpoint text default null,
+                                                      p_device_id text default null,
+                                                      p_origin text default null)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  uid    uuid := auth.uid();
+  antall integer := 0;
+  dev    text := left(p_device_id, 60);
+  org    text := left(p_origin, 120);
+  r      record;
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  perform public.push_lock(uid);
+  antall := public.push_revoke_others(p_endpoint);
+  for r in select n.id from public.native_notif_devices n
+            where n.user_id = uid and n.enabled and n.revoked_at is null
+              and (dev is null or dev = '' or org is null or org = ''
+                   or n.device_id is distinct from dev
+                   or n.origin is distinct from org)
+  loop
+    if public.native_notif_revoke(r.id) then antall := antall + 1; end if;
+  end loop;
+  return antall;
+end;
+$$;
+
+-- ------------------------------------------------------------
 -- 8f. ØKT-RPC-ER — «hvor er jeg logget inn?» og fjern-utlogging
 --
 --    Supabase Auth eier øktene. Disse tre legger bare et lesbart lag over
@@ -3633,7 +3927,16 @@ begin
 end;
 $$;
 
-create or replace function public.list_my_devices(p_endpoint text default null)
+/* Signaturen utvides med klientkonteksten (den native halvdelen av listen
+   trenger den for å merke «denne enheten»), og den GAMLE må droppes:
+   PostgREST velger overlast ut fra navngitte argumenter, og to varianter av
+   samme funksjon ville gjort valget tvetydig. En eldre klient som bare sender
+   `p_endpoint` treffer fortsatt denne — de to nye har default. */
+drop function if exists public.list_my_devices(text);
+
+create or replace function public.list_my_devices(p_endpoint text default null,
+                                                  p_device_id text default null,
+                                                  p_origin text default null)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   uid  uuid := auth.uid();
@@ -3673,21 +3976,46 @@ begin
         left join public.device_sessions d on d.session_id = x.id
        where x.user_id = uid), '[]'::jsonb),
 
-    /* ABONNEMENTENE. Bare de AKTIVE: en rad som er død (404/410) eller
+    /* VARSELENHETENE — begge kanaltypene i ÉN liste, fordi det er ETT
+       spørsmål: hvor kommer varslene også når Huskis er lukket? Skilte vi dem,
+       ville UI-et fått to seksjoner brukeren ikke kan skille fra hverandre
+       («nettlesere med web push» og «apper med lokale alarmer» er en teknisk
+       forskjell, ikke en forskjell hun har bedt om).
+
+       WEB: bare de AKTIVE abonnementene. En rad som er død (404/410) eller
        tilbakekalt er ikke en enhet brukeren kan slå av, den er et spor. Og
        aldri endepunktet — det er adressen varslene sendes til, og den har
-       ingenting i et UI å gjøre. «Denne enheten» avgjøres av at klientens
-       eget endepunkt matcher, altså uten at endepunktet går ut. */
+       ingenting i et UI å gjøre. «Denne enheten» avgjøres av at klientens eget
+       endepunkt matcher, altså uten at endepunktet går ut.
+
+       NATIVE: Android-appene med kanalen på og en levende økt
+       (`native_notif_active`). `origin` er `null` med vilje: verten er
+       appens interne (`localhost`), og den er en KONTEKSTNØKKEL her, ikke en
+       adresse brukeren har vært på. En rad som sier «Huskis · Android» er
+       allerede så navngitt den kan bli.
+
+       `kind` er det klienten dispatcher på når raden slås av: et abonnement og
+       en native klient slås av på hver sin måte. */
     'push', coalesce((
       select jsonb_agg(jsonb_build_object(
-               'id', s.id,
-               'current', (p_endpoint is not null and s.endpoint = p_endpoint),
-               'browser', s.browser, 'platform', s.platform, 'origin', s.origin,
-               'createdAt', s.created_at, 'seenAt', s.seen_at)
-             order by (p_endpoint is not null and s.endpoint = p_endpoint) desc,
-                      s.seen_at desc, s.id)
-        from public.push_subscriptions s
-       where s.user_id = uid and s.disabled_at is null and s.revoked_at is null), '[]'::jsonb)
+               'id', e.id, 'kind', e.kind, 'current', e.current,
+               'browser', e.browser, 'platform', e.platform, 'origin', e.origin,
+               'createdAt', e.created_at, 'seenAt', e.seen_at)
+             order by e.current desc, e.seen_at desc, e.id)
+        from (
+          select s.id, 'web'::text as kind,
+                 (p_endpoint is not null and s.endpoint = p_endpoint) as current,
+                 s.browser, s.platform, s.origin, s.created_at, s.seen_at
+            from public.push_subscriptions s
+           where s.user_id = uid and s.disabled_at is null and s.revoked_at is null
+          union all
+          select n.id, 'native'::text,
+                 (p_device_id is not null and p_device_id <> ''
+                  and p_origin is not null and p_origin <> ''
+                  and n.device_id = p_device_id and n.origin = p_origin),
+                 n.browser, n.platform, null::text, n.created_at, n.seen_at
+            from public.native_notif_active(uid) n
+        ) e), '[]'::jsonb)
   ) into res;
 
   return res;
@@ -3990,13 +4318,45 @@ begin
         -- planlegger kun når den holder sonen (docs/varsler.md).
         'tz', p.tz, 'tzAt', p.tz_at)
       from public.notification_prefs p where p.user_id = uid),
-    -- Hvor mange nettlesere som har web push på akkurat nå. Ett tall, ikke
-    -- endepunktene: innstillingen skal kunne si «og 2 andre» uten at doc-et
-    -- bærer adresser en annen fane kunne lest. Listen (uten adresser) hentes
-    -- av list_my_devices() når brukeren faktisk åpner den.
+    /* Hvor mange ENHETER som har varsler på akkurat nå — nettlesere med web
+       push OG Android-apper med den native kanalen på. Ett tall, ikke
+       endepunktene: innstillingen skal kunne si «og 2 andre» uten at doc-et
+       bærer adresser en annen fane kunne lest. Listen (uten adresser) hentes
+       av list_my_devices() når brukeren faktisk åpner den.
+
+       Begge kanaltypene teller, og det er ikke kosmetikk: tallet er også
+       SIGNALET klientene bruker. Faller det, går statusrunden med én gang i
+       stedet for å vente ut vinduet sitt — og det er slik en fjern-avslått
+       klient oppdager valget innen en synk-runde i stedet for innen et
+       kvarter. */
     'push_devices', (select count(*) from public.push_subscriptions
                       where user_id = uid and disabled_at is null
-                        and revoked_at is null),
+                        and revoked_at is null)
+                  + (select count(*) from public.native_notif_active(uid)),
+    /* ER DENNE KLIENTENS NATIVE VARSELKANAL SLÅTT AV fra en annen enhet?
+
+       Et PRESIST signal, og ikke bare fordi det er penere: telleren over er et
+       AGGREGAT. Den faller når noen slår av en enhet — men bare hvis ingen
+       annen enhet slo sine PÅ i det samme vinduet. Skjer begge deler mellom to
+       runder, står tallet stille, og en åpen Android-app ville ventet ut
+       kvarteret sitt med alarmer brukeren nettopp slo av. Her ser den det i
+       neste runde, uansett hva de andre enhetene gjorde.
+
+       To indeksoppslag: øktens egen rad i sidebordet (primærnøkkel), og
+       klientkonteksten dens i statusbordet (unik indeks). `false` når økt-
+       claimet mangler eller klienten aldri har meldt en status — en manglende
+       opplysning skal aldri kunne lese seg som en avslåing.
+
+       KUN den native kanalen. En nettleser kjenner igjen sitt eget abonnement
+       på ENDEPUNKTET, og det har doc-et ikke — og skal ikke ha: det er
+       adressen varslene sendes til. Der er telleren fortsatt signalet. */
+    'notif_revoked', (select exists (
+        select 1 from public.device_sessions d
+          join public.native_notif_devices n
+            on n.user_id = d.user_id and n.device_id = d.device_id
+           and n.origin = d.origin
+         where d.user_id = uid and d.session_id = public.current_session_id()
+           and n.revoked_at is not null)),
     /* LEVER ØKTEN ENNÅ? Ett indeksoppslag på primærnøkkelen i `auth.sessions`,
        og den ene grunnen til at det står i det pollede doc-et: et allerede
        utstedt access-token er gyldig til det utløper, så en fjern-utlogget
@@ -4517,7 +4877,7 @@ revoke all on public.profiles, public.universes, public.groups, public.cards,
               public.items, public.memberships, public.share_invites,
               public.tombstones, public.notifications,
               public.notification_prefs, public.push_subscriptions,
-              public.device_sessions from anon;
+              public.device_sessions, public.native_notif_devices from anon;
 
 -- profiles: e-posten speiles KUN fra auth.users (triggerne over) og er
 -- skrivebeskyttet for klienter — ellers kunne en bruker kapre ventende
@@ -4570,6 +4930,10 @@ grant select, insert, update, delete on public.universes, public.groups,
 --     sessions     |   |   |   |   |  Kun session_touch()/list_my_devices()/
 --                  |   |   |   |   |  revoke_my_session(), som alle setter
 --                  |   |   |   |   |  user_id fra auth.uid() selv.
+--   native_notif_  | – | – | – | – | LÅST tabell: ingen policy, ingen grant.
+--     devices      |   |   |   |   |  Kun native_notif_touch()/_revoke()/
+--                  |   |   |   |   |  notif_revoke_others()/list_my_devices(),
+--                  |   |   |   |   |  som alle setter user_id fra auth.uid().
 --
 -- Kolonnene uten ✓ er trukket tilbake under. `tests/db-contract.test.js` og
 -- smoke-testen holder matrisen og virkeligheten i takt.
@@ -4605,6 +4969,11 @@ revoke all on public.push_deliveries from public, anon, authenticated;
 -- user_id fra auth.uid(). En direkte vei ville latt en klient skrive en rad
 -- for en annen brukers økt-id, og dermed navngi en økt hen ikke eier.
 revoke all on public.device_sessions from public, anon, authenticated;
+-- native_notif_devices er det samme for Android-appens varselkanal: klienten
+-- ser den gjennom list_my_devices() og skriver den gjennom
+-- native_notif_touch(). En direkte vei ville latt en klient skrive en rad for
+-- en annen brukers enhet — eller slå av varslene på en enhet hen ikke eier.
+revoke all on public.native_notif_devices from public, anon, authenticated;
 
 do $$
 declare fn text;
@@ -4632,8 +5001,11 @@ begin
     'public.push_unsubscribe(text)',
     'public.push_revoke(uuid)',
     'public.push_revoke_others(text)',
+    'public.native_notif_touch(boolean, text, text, text, text, boolean)',
+    'public.native_notif_revoke(uuid)',
+    'public.notif_revoke_others(text, text, text)',
     'public.session_touch(text, text, text, text)',
-    'public.list_my_devices(text)',
+    'public.list_my_devices(text, text, text)',
     'public.revoke_my_session(uuid)'
   ] loop
     execute format('revoke execute on function %s from public, anon', fn);
@@ -4651,6 +5023,10 @@ revoke all on function public.push_due_count() from public, anon, authenticated;
 revoke all on function public.push_end_queue(uuid, bigint, text) from public, anon, authenticated;
 revoke all on function public.push_lock(uuid) from public, anon, authenticated;
 revoke all on function public.prune_device_sessions(uuid) from public, anon, authenticated;
+-- native_notif_active() leser hele brukerens sett uten en egen
+-- autorisasjonssjekk — kallerne (list_my_devices/get_my_doc) sender sin egen
+-- `auth.uid()` inn. Den er en byggekloss, ikke en RPC.
+revoke all on function public.native_notif_active(uuid) from public, anon, authenticated;
 -- session_alive()/current_session_id() svarer bare om KALLERENS egen økt, men
 -- de er byggeklosser inne i RPC-ene — ikke en RPC klienten skal kalle selv.
 revoke all on function public.session_alive(uuid) from public, anon, authenticated;

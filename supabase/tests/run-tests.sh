@@ -30,6 +30,7 @@ $PSQL --no-psqlrc --echo-errors -f tests/test-account-deletion.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-notifications.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-push.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-sessions.sql
+$PSQL --no-psqlrc --echo-errors -f tests/test-native-notif.sql
 
 # Låsen i push_subscribe() kan ikke bevises fra ÉN databaseøkt: den handler om
 # to samtidige. Denne kjører fornyelse og «slå av» mot hverandre i begge
@@ -52,4 +53,5 @@ $PSQL --no-psqlrc --echo-errors -f smoke-test.sql
 
 echo "✅ Alle SQL-tester grønne (roller, capabilities, mappeflytting, e-postvarsel,"
 echo "   gravsteiner, kontosletting, varsler, web push (òg samtidighet), økter,"
+echo "   native varselenheter,"
 echo "   migrering av gamle listedelinger og deploy-smoke-testen — begge løp)."
