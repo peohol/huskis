@@ -215,6 +215,33 @@ det ville rukket å skje), **gest- og animasjonsfysikk** (trykk-og-hold,
 smooth-scroll, PEEK_MS), og **tidsvindu-observasjon** (ro-vinduet i
 sync-status). Slike steder har en kommentar som sier hvorfor.
 
+## Datoer i fiksturer
+
+Nettleserkonteksten har sin EGEN tidssone (`timezoneId`, i praksis
+`Europe/Oslo`), og det er den appen daterer etter: «i dag», «i går», bunkene i
+varselmodalen, chipene under navnet. Testprosessen står i sin egen sone — UTC i
+CI. To regler følger av det:
+
+- **Regn fiksturens datoer i SIDEN, ikke i Node.** `new Date()` i testfilen er
+  et annet døgn enn nettleserens i timene mellom det ene døgnskiftet og det
+  andre, og da går testen rødt av kalenderen i stedet for av koden. Hent
+  datoene med `p.evaluate` (`notif-modal.test.js` har `sideklokke()`,
+  `notif-native-devices.test.js` gjør det samme i det små). Å sette
+  `process.env.TZ` i stedet virker bare til noen legger en test med en annen
+  `timezoneId` ved siden av.
+- **En rad som skal ligge i DAGENS bunke må klemmes innenfor døgnet.** «Nå
+  minus en time» er i går hver gang testen kjører den første timen etter
+  midnatt. Seed «for et øyeblikk siden, men tidligst rett etter midnatt».
+
+Sonen står ett sted per fil, og kontekstene lages gjennom den samme fabrikken,
+slik at et nytt løp ikke kan komme inn med sin egen. `HUSKIS_TZ` overstyrer
+den, og er måten en fil kjøres i andre døgnkonstellasjoner uten å vente på
+klokka:
+
+```bash
+HUSKIS_TZ=Etc/GMT+8 NODE_PATH=$(npm root -g) node tests/notif-modal.test.js
+```
+
 ## Konvensjoner i testfilene
 
 - Kommentarblokk øverst: nummerert liste over hva filen dekker, og en

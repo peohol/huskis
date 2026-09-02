@@ -54,11 +54,19 @@
   (docs/varsler.md), så et tidløst objekt ville tømt historikken i første
   synk-runde. `settTid()` holder de to i takt der en test endrer tid.
 
+  MERK om TIDEN: alt som skal bety «i dag», «i går» eller «i morgen» hentes fra
+  SIDEN (`sideklokke`), aldri fra `new Date()` i testprosessen. Nettleseren har
+  sin egen tidssone (`TZ`), og det er den appen daterer etter; Node-prosessen
+  står i CI i UTC. Og en rad som skal ligge i dagens bunke seedes «for et
+  øyeblikk siden, men tidligst rett etter midnatt» — ikke «nå minus en time»,
+  som er i går hver gang testen kjører den første timen etter midnatt.
+
   Kjøres på BÅDE desktop- og mobil-viewport.
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/notif-modal.test.js
+    HUSKIS_TZ=Etc/GMT+8 NODE_PATH=$(npm root -g) node tests/notif-modal.test.js
 */
 const { chromium } = require('playwright');
 
@@ -66,6 +74,55 @@ const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 const results = [];
 const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'FAIL') + ' — ' + n + (x !== '' ? '  [' + (typeof x === 'string' ? x : JSON.stringify(x)) + ']' : '')); };
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/* ÉN tidssone for hele filen, og den settes på KONTEKSTEN — ikke på
+   testprosessen. Appen daterer alt etter NETTLESERENS klokke, så sonen her er
+   fasiten på hva «i dag» betyr; `HUSKIS_TZ` lar den samme filen kjøres i andre
+   døgnkonstellasjoner uten å vente på klokka. Fabrikken finnes for at et nytt
+   løp ikke skal kunne komme inn med sin egen sone. */
+const TZ = process.env.HUSKIS_TZ || 'Europe/Oslo';
+const nyKontekst = (browser, opts) => browser.newContext(Object.assign(
+  { timezoneId: TZ, locale: 'nb-NO' }, opts || {}));
+
+/* FIKSTURENS DATOER REGNES I SIDEN, IKKE I NODE.
+   Nettleseren står i `TZ`, testprosessen i sin egen sone (UTC i CI). Regnes
+   «i dag» i Node, er de to ute av takt i timene mellom det ene døgnskiftet og
+   det andre, og filen går rødt av kalenderen i stedet for av koden — det var
+   issue #173. Ett oppslag i siden gir grunnlaget; resten regnes ut av det.
+
+   Én gang per løp: sonen står fast, og radene ligger sekunder — ikke timer —
+   fra hverandre. */
+async function sideklokke(p) {
+  const t = await p.evaluate(() => {
+    const n = new Date();
+    const pad2 = (x) => String(x).padStart(2, '0');
+    return { ms: Date.now(),
+      midnatt: new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime(),
+      iDag: n.getFullYear() + '-' + pad2(n.getMonth() + 1) + '-' + pad2(n.getDate()) };
+  });
+  /* Døgnet `off` dager fra sidens i dag, som datostreng. UTC-regningen er et
+     rent kalendertriks: en datostreng bærer ingen sone, og et UTC-døgn er
+     alltid 24 timer, så månedsskifte og skuddår treffer uten at sommertid kan
+     skli inn i regnestykket. */
+  const dag = (off) => {
+    const d = new Date(t.iDag + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + off);
+    return d.toISOString().slice(0, 10);
+  };
+  /* Kl. 12 lokalt, `off` døgn unna. Midt på dagen tåler at en
+     sommertidsovergang flytter døgnet en time: kl. 11 eller 13 er fortsatt
+     samme kalenderdøgn, og kalenderdøgnet er det bunkene grupperes på. */
+  const kl12 = (off) => t.midnatt + off * 86400000 + 12 * 3600000;
+  /* «For et øyeblikk siden» — men aldri før midnatt, og aldri fram i tid. En
+     rad må være PASSERT for å være synlig, og samtidig ligge i DAGENS døgn:
+     seedes den som «nå minus en time», havner den i går hver gang testen
+     kjører den første timen etter midnatt. `k` teller ett trinn bakover per
+     rad, nyeste først; trinnet er ett sekund når det er plass og krymper mot
+     midnatt, så tretti rader får plass uansett hvor ungt døgnet er. */
+  const steg = Math.max(0, Math.min(30000, t.ms - t.midnatt)) / 30;
+  const nettopp = (k) => Math.round(t.ms - (k + 1) * steg);
+  return { dag, kl12, nettopp };
+}
 
 const U = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
   const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
@@ -203,8 +260,8 @@ const rowsOf = (p) => p.evaluate(() => [...document.querySelectorAll('#notif-bod
 
 async function run(label, viewport, mobile) {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext(Object.assign({ viewport,
-    timezoneId: 'Europe/Oslo', locale: 'nb-NO' }, mobile ? { isMobile: true, hasTouch: true } : {}));
+  const ctx = await nyKontekst(browser, Object.assign({ viewport },
+    mobile ? { isMobile: true, hasTouch: true } : {}));
   const p = await ctx.newPage();
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
@@ -224,11 +281,14 @@ async function run(label, viewport, mobile) {
   log(label + ' 1b: badgen er skjult når ingenting er ulest',
     tom.hidden === true && tom.label === 'Varsler', JSON.stringify(tom));
 
-  const NÅ = Date.now();
+  /* Alle tre skal ligge under «I dag» (2i), så de dateres av SIDENS klokke og
+     klemmes innenfor dagens døgn. «Nå minus en time» ville vært i går hver
+     gang testen kjørte den første timen etter midnatt. */
+  const k = await sideklokke(p);
   await addNotifs(p, [
-    { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Skattemelding', at: NÅ - 60000, value: '2026-06-14T12:00' },
-    { type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur', at: NÅ - 3600000, value: '2026-06-20' },
-    { type: 'startNow', obj_type: 'item', obj_id: id.I3, name: 'Pakke', at: NÅ - 7200000, value: '2026-06-10T08:00' },
+    { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Skattemelding', at: k.nettopp(3), value: '2026-06-14T12:00' },
+    { type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur', at: k.nettopp(4), value: '2026-06-20' },
+    { type: 'startNow', obj_type: 'item', obj_id: id.I3, name: 'Pakke', at: k.nettopp(5), value: '2026-06-10T08:00' },
   ]);
   await cycle(p);
   const tre = await badgeInfo(p);
@@ -284,7 +344,7 @@ async function run(label, viewport, mobile) {
 
   // Et varsel som ankommer MENS modalen står åpen skal ikke bli lest.
   await addNotifs(p, [{ type: 'startSoon', obj_type: 'card', obj_id: id.C3,
-    name: 'Flyttedag', at: NÅ - 10000, value: '2026-06-25' }]);
+    name: 'Flyttedag', at: k.nettopp(0), value: '2026-06-25' }]);
   await cycle(p);
   const medNytt = await rowsOf(p);
   const nyBadge = await badgeInfo(p);
@@ -328,10 +388,7 @@ async function run(label, viewport, mobile) {
   // passert er ingen utsettelse, og skal avvises i stedet for å logges.
   await p.click('#notif-snooze-panel .notif-snooze-more');
   await p.waitForTimeout(200);
-  const iGår = new Date(Date.now() - 24 * 3600 * 1000);
-  const pad2 = (n) => String(n).padStart(2, '0');
-  const dStr = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-  await p.fill('#notif-snooze-panel input[type="date"]', dStr(iGår));
+  await p.fill('#notif-snooze-panel input[type="date"]', k.dag(-1));
   await p.fill('#notif-snooze-panel input[type="time"]', '09:00');
   const førUtsett = await p.evaluate(() => window.HK_MOCK._loadDB().notifications.length);
   await p.click('#notif-snooze-panel .btn');
@@ -346,8 +403,7 @@ async function run(label, viewport, mobile) {
     avvist.antall === førUtsett, JSON.stringify(avvist));
 
   // … og et tidspunkt fram i tid logger varselet på nøyaktig det tidspunktet.
-  const iMorgen = new Date(Date.now() + 24 * 3600 * 1000);
-  await p.fill('#notif-snooze-panel input[type="date"]', dStr(iMorgen));
+  await p.fill('#notif-snooze-panel input[type="date"]', k.dag(1));
   await p.fill('#notif-snooze-panel input[type="time"]', '07:30');
   await p.click('#notif-snooze-panel .btn');
   await p.waitForTimeout(600);
@@ -361,7 +417,7 @@ async function run(label, viewport, mobile) {
       treffer: ny.length === 1 && Math.abs(ny[0].at - mål) < 60000,
       synlige: document.querySelectorAll('#notif-body .notif-item').length,
       badge: document.getElementById('notif-badge').hidden };
-  }, dStr(iMorgen));
+  }, k.dag(1));
   log(label + ' 9d: et egendefinert tidspunkt logger ETT varsel på akkurat det tidspunktet',
     utsatt.antall === førUtsett + 1 && utsatt.snoozed === 1 && utsatt.treffer && utsatt.lukket,
     JSON.stringify(utsatt));
@@ -613,16 +669,17 @@ async function run(label, viewport, mobile) {
 // Engelsk: hele flaten går gjennom ordboken (docs/sprak.md).
 async function runEngelsk() {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
-    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
+  const ctx = await nyKontekst(browser, { viewport: { width: 1200, height: 900 } });
   const p = await ctx.newPage();
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
   console.log('\n== engelsk ==');
   const { id, uid, db } = buildDB();
   await seed(p, db, uid, 'en');
+  // Raden skal stå under «Today» (12b), så den dateres av sidens klokke.
+  const k = await sideklokke(p);
   await addNotifs(p, [{ type: 'dueOver', obj_type: 'card', obj_id: id.C1,
-    name: 'Tax return', at: Date.now() - 60000, value: '2026-06-14T12:00' }]);
+    name: 'Tax return', at: k.nettopp(0), value: '2026-06-14T12:00' }]);
   await cycle(p);
   const knapp = await badgeInfo(p);
   await p.click('#notif-btn');
@@ -673,8 +730,7 @@ async function runEngelsk() {
    og ikke det nye svaret. */
 async function runKontobytte() {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
-    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
+  const ctx = await nyKontekst(browser, { viewport: { width: 1200, height: 900 } });
   const p = await ctx.newPage();
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
@@ -756,8 +812,7 @@ async function runKontobytte() {
    avhengig av hvilken dato den kjøres på. */
 async function runDatoer() {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
-    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
+  const ctx = await nyKontekst(browser, { viewport: { width: 1200, height: 900 } });
   const p = await ctx.newPage();
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
@@ -765,40 +820,30 @@ async function runDatoer() {
   const { id, uid, db } = buildDB();
   await seed(p, db, uid);
 
-  const pad2 = (n) => String(n).padStart(2, '0');
-  const dStr = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-  const dagen = (off) => { const x = new Date(); x.setDate(x.getDate() + off); return x; };
-  // Kl. 12 lokalt på hvert døgn: et varsel logget midt på dagen kan ikke skli
-  // over til nabodøgnet uansett når testen kjøres.
-  const kl12 = (off) => { const x = dagen(off); x.setHours(12, 0, 0, 0); return x.getTime(); };
-  /* Dagens rader må være PASSERT (et varsel fram i tid er usynlig) og samtidig
-     ligge innenfor dagens døgn — også hvis testen skulle kjøre like etter
-     midnatt. Derfor «for et øyeblikk siden, men tidligst rett etter midnatt». */
-  const midnatt = new Date().setHours(0, 0, 0, 0);
-  const nettopp = (k) => Math.max(midnatt + 3000, Date.now() - 10000) - k * 1000;
+  const k = await sideklokke(p);
 
   // Objektenes tider settes FØRST: en rad hvis verdi ikke stemmer med objektet
   // ryddes bort (docs/varsler.md), så fiksturen må være i takt med varslene.
-  await settTid(p, id.C1, 'due', dStr(dagen(0)) + 'T09:00');
-  await settTid(p, id.C2, 'start', dStr(dagen(0)));
-  await settTid(p, id.I3, 'start', dStr(dagen(1)) + 'T17:00');
-  await settTid(p, id.I1, 'start', dStr(dagen(-1)) + 'T06:10');
-  await settTid(p, id.I2, 'start', dStr(dagen(-5)) + 'T06:00');
+  await settTid(p, id.C1, 'due', k.dag(0) + 'T09:00');
+  await settTid(p, id.C2, 'start', k.dag(0));
+  await settTid(p, id.I3, 'start', k.dag(1) + 'T17:00');
+  await settTid(p, id.I1, 'start', k.dag(-1) + 'T06:10');
+  await settTid(p, id.I2, 'start', k.dag(-5) + 'T06:00');
   await addNotifs(p, [
     // I dag: en utløpt frist med klokkeslett, og en start uten klokkeslett.
     { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Skattemelding',
-      at: nettopp(0), value: dStr(dagen(0)) + 'T09:00' },
+      at: k.nettopp(0), value: k.dag(0) + 'T09:00' },
     { type: 'startNow', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur',
-      at: nettopp(1), value: dStr(dagen(0)) },
+      at: k.nettopp(1), value: k.dag(0) },
     // … og et varsel om noe som begynner i MORGEN, logget i dag.
     { type: 'startSoon', obj_type: 'item', obj_id: id.I3, name: 'Pakke',
-      at: nettopp(2), value: dStr(dagen(1)) + 'T17:00' },
+      at: k.nettopp(2), value: k.dag(1) + 'T17:00' },
     // I går.
     { type: 'startNow', obj_type: 'item', obj_id: id.I1, name: 'Levere',
-      at: kl12(-1), value: dStr(dagen(-1)) + 'T06:10' },
+      at: k.kl12(-1), value: k.dag(-1) + 'T06:10' },
     // Og en eldre bunke, som skal få ukedag + full dato.
     { type: 'startNow', obj_type: 'item', obj_id: id.I2, name: 'Pumpe dekk',
-      at: kl12(-5), value: dStr(dagen(-5)) + 'T06:00' },
+      at: k.kl12(-5), value: k.dag(-5) + 'T06:00' },
   ]);
   await cycle(p);
   await p.click('#notif-btn');
@@ -815,13 +860,19 @@ async function runDatoer() {
   log('14a: varslene samles i bunker per døgn, nyeste bunke øverst',
     bunker.length === 3 && bunker[0].dag === 'I dag' && bunker[1].dag === 'I går',
     JSON.stringify(bunker.map((b) => b.dag)));
-  const eldre = new Date(); eldre.setDate(eldre.getDate() - 5);
+  /* Ukedagen og måneden leses ut av datostrengen fra siden. `new Date(år, mnd,
+     dag)` er lokal veggtid i testprosessen, men ukedagen til en kalenderdato
+     er den samme i enhver sone — datoen er alt hentet fra nettleseren. */
+  const eldreDel = k.dag(-5).split('-').map(Number);
+  const eldre = new Date(eldreDel[0], eldreDel[1] - 1, eldreDel[2]);
   const ukedager = ['Søndag', 'Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag'];
   const måneder = ('januar februar mars april mai juni juli august september oktober ' +
     'november desember').split(' ');
   const ventet = ukedager[eldre.getDay()] + ' ' + eldre.getDate() + '. ' + måneder[eldre.getMonth()];
   log('14b: eldre bunker står med ukedag foran den fulle datoen',
-    bunker[2].dag === ventet, bunker[2].dag + ' (ventet ' + ventet + ')');
+    bunker.length === 3 && bunker[2].dag === ventet,
+    (bunker.length === 3 ? bunker[2].dag : '(' + bunker.length + ' bunker)') +
+      ' (ventet ' + ventet + ')');
 
   const m = {};
   bunker.forEach((b) => b.rader.forEach((r) => { m[r.navn] = r.melding; }));
@@ -846,8 +897,7 @@ async function runDatoer() {
    varselet og sveip-til-høyre for å fjerne den før tiden er ute. */
 async function runToasts() {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
-    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
+  const ctx = await nyKontekst(browser, { viewport: { width: 1200, height: 900 } });
   const p = await ctx.newPage();
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
@@ -863,18 +913,16 @@ async function runToasts() {
   await seed(p, db, uid);
   await p.waitForTimeout(500);
 
-  const pad2 = (n) => String(n).padStart(2, '0');
-  const dStr = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-  const dagen = (off) => { const x = new Date(); x.setDate(x.getDate() + off); return x; };
+  const k = await sideklokke(p);
 
   log('15a: historikken som alt lå der gir ingen toast',
     (await p.locator('.notif-toast').count()) === 0);
 
   // … men et varsel som kommer ETTERPÅ gjør det. Objektet får først den tiden
   // varselet handler om — ellers rydder appen raden bort som ugyldig.
-  await settTid(p, id.C2, 'due', dStr(dagen(3)));
+  await settTid(p, id.C2, 'due', k.dag(3));
   await addNotifs(p, [{ type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur',
-    at: Date.now() - 500, value: dStr(dagen(3)) }]);
+    at: Date.now() - 500, value: k.dag(3) }]);
   await cycle(p);
   await p.waitForSelector('.notif-toast', { timeout: 4000 });
   const toast = await p.evaluate(() => {
@@ -917,9 +965,9 @@ async function runToasts() {
     (await p.locator('.notif-toast').count()) === 0);
 
   // Et nytt varsel → trykk på toasten skal åpne modalen ved NØYAKTIG det varselet.
-  await settTid(p, id.I3, 'start', dStr(dagen(0)) + 'T07:00');
+  await settTid(p, id.I3, 'start', k.dag(0) + 'T07:00');
   await addNotifs(p, [{ type: 'startNow', obj_type: 'item', obj_id: id.I3, name: 'Pakke',
-    at: Date.now() - 300, value: dStr(dagen(0)) + 'T07:00' }]);
+    at: Date.now() - 300, value: k.dag(0) + 'T07:00' }]);
   await cycle(p);
   await p.waitForSelector('.notif-toast', { timeout: 4000 });
   const toast2 = await p.evaluate(() => ({
@@ -943,9 +991,9 @@ async function runToasts() {
 
   /* Står modalen åpen, ER varselet allerede synlig der — da skal ingen toast
      legge seg oppå og peke på noe brukeren ser. */
-  await settTid(p, id.C3, 'due', dStr(dagen(0)) + 'T08:00');
+  await settTid(p, id.C3, 'due', k.dag(0) + 'T08:00');
   await addNotifs(p, [{ type: 'dueOver', obj_type: 'card', obj_id: id.C3, name: 'Flyttedag',
-    at: Date.now() - 200, value: dStr(dagen(0)) + 'T08:00' }]);
+    at: Date.now() - 200, value: k.dag(0) + 'T08:00' }]);
   await cycle(p);
   await p.waitForTimeout(500);
   const medÅpenModal = await p.evaluate(() => ({
@@ -961,11 +1009,11 @@ async function runToasts() {
      det underste først. */
   await p.keyboard.press('Escape');
   await p.waitForTimeout(300);
-  await settTid(p, id.I1, 'start', dStr(dagen(0)) + 'T08:00');
+  await settTid(p, id.I1, 'start', k.dag(0) + 'T08:00');
   await p.click('#events-btn');
   await p.waitForSelector('#events-modal:not([hidden])');
   await addNotifs(p, [{ type: 'startNow', obj_type: 'item', obj_id: id.I1, name: 'Under kalenderen',
-    at: Date.now() - 30000, value: dStr(dagen(0)) + 'T08:00' }]);
+    at: Date.now() - 30000, value: k.dag(0) + 'T08:00' }]);
   await cycle(p);
   // Raden MÅ ha kommet fram mens kalendermodalen sto åpen — ellers ville
   // fraværet av en toast bevist ingenting.
@@ -983,7 +1031,7 @@ async function runToasts() {
      millisekunders avvik mellom dem ville gjort den ene raden usynlig ennå. */
   await addNotifs(p, [
     { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Første', at: Date.now() - 30000, value: '2026-06-14T12:00' },
-    { type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Andre', at: Date.now() - 20000, value: dStr(dagen(3)) },
+    { type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Andre', at: Date.now() - 20000, value: k.dag(3) },
   ]);
   await cycle(p);
   await p.waitForFunction(() => {
@@ -1008,18 +1056,24 @@ async function runToasts() {
    før midnatt og spoles forbi den. */
 async function runMidnatt() {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
-    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
+  const ctx = await nyKontekst(browser, { viewport: { width: 1200, height: 900 } });
   const p = await ctx.newPage();
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
   console.log('\n== midnatt ==');
-  /* 20. mai 2026, 20 sekunder før midnatt i SIDENS tidssone (Europa/Oslo, som
-     er UTC+2 i mai — ingen sommertidsovergang i nærheten). Tidspunktet må
-     skrives som et UTC-øyeblikk: `new Date(år, mnd, …)` her ville blitt tolket
-     i testprosessens sone, som ikke er sidens. `resume()` lar tiden gå normalt
-     derfra, så innlogging og synk oppfører seg som ellers. */
-  await p.clock.install({ time: new Date('2026-05-20T21:59:40Z') });
+  /* 20 sekunder før NESTE midnatt i SIDENS tidssone. Øyeblikket regnes ut av
+     siden selv: et fast UTC-klokkeslett ville bare vært «rett før midnatt» i
+     én bestemt sone, og en annen sone hadde gitt en fastfram-spoling som ikke
+     krysser noe døgnskifte i det hele tatt. `setHours(24, …)` går gjennom Date,
+     så en sommertidsovergang regnes av kalenderen og ikke av oss.
+     `resume()` lar tiden gå normalt derfra, så innlogging og synk oppfører seg
+     som ellers. */
+  const førMidnatt = await p.evaluate(() => {
+    const d = new Date();
+    d.setHours(24, 0, 0, 0);
+    return d.getTime() - 20000;
+  });
+  await p.clock.install({ time: new Date(førMidnatt) });
   await p.clock.resume();
   const { id, uid, db } = buildDB();
   await seed(p, db, uid);
