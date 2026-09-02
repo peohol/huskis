@@ -127,41 +127,52 @@ select public.t_check('markøren står stille når p_cursor er utelatt («Utsett
   (select cursor_at from public.notification_prefs where user_id = :'A')
     <= (extract(epoch from now()) * 1000)::bigint);
 
--- ---------- 4b. LEVETIDEN: et varsel som har ligget 30 døgn finnes ikke ----------
+-- ---------- 4b. LEVETIDEN: 30 døgn etter at raden ble historikk ----------
 -- Radene skrives her direkte som EIER (ingen insert-policy for klienten), fordi
 -- poenget er en rad som har fått LIGGE og bli gammel — ikke en logging.
--- Alderen er radens egen (`created_at`), og bare en PASSERT rad har en alder.
+-- Levetiden måles fra det SENESTE av `created_at` og `at`, altså fra det
+-- øyeblikket raden ble historikk. De fire siste radene her er hver sin grunn
+-- til at ingen av de to tidene duger alene.
 reset role;
+\set MND 'public.notify_max_age_ms()'
 insert into public.notifications (user_id, key, type, obj_type, obj_id, name, path, value, at, created_at)
 values
-  -- Passert OG gammel → skal bort.
+  -- Ringte for lenge siden OG ble skrevet for lenge siden → skal bort.
   (:'A', 'dueOver|card|gammel',    'dueOver',  'card', :'AC', 'Gammel',    'x', '2020-01-01',
-   :t0 - 2000, :t0 - public.notify_max_age_ms() - 1000),
-  -- Passert, men skrevet så vidt innenfor levetiden → blir stående.
+   :t0 - :MND - 2000, :t0 - :MND - 2000),
+  -- Så vidt innenfor levetiden → blir stående.
   (:'A', 'dueOver|card|nesten',    'dueOver',  'card', :'AC', 'Nesten',    'x', '2020-01-02',
-   :t0 - 2000, :t0 - public.notify_max_age_ms() + 3600000),
-  -- Gammel rad, men ennå ikke forfalt: det er PLANEN, ikke historikk.
+   :t0 - :MND + 3600000, :t0 - :MND + 3600000),
+  -- Gammel rad som ennå ikke har ringt: det er PLANEN, ikke historikk.
   (:'A', 'startNow|card|planlagt', 'startNow', 'card', :'AC', 'Planlagt',  'x', '2030-01-01',
-   :t0 + 3600000, :t0 - public.notify_max_age_ms() - 1000),
-  -- Fersk rad om en GAMMEL hendelse (appen har vært lukket lenge): skal vises.
+   :t0 + 3600000, :t0 - :MND - 2000),
+  /* Fersk rad om en 90 døgn gammel hendelse (appen har vært lukket lenge).
+     Bare `at` ville slettet den i den samme runden den ble logget. */
   (:'A', 'dueOver|card|etterslep', 'dueOver',  'card', :'AC', 'Etterslep', 'x', '2020-01-03',
-   :t0 - 90::bigint * 24 * 60 * 60 * 1000, :t0 - 1000);
+   :t0 - 90::bigint * 24 * 60 * 60 * 1000, :t0 - 1000),
+  /* PLANEN legges opp til en måned fram, så en rad ved horisontens ytterkant er
+     allerede en måned gammel i det den ringer. Bare `created_at` ville ryddet
+     den bort i nøyaktig det øyeblikket den ble relevant. */
+  (:'A', 'dueOver|card|nyringt',   'dueOver',  'card', :'AC', 'Nyringt',   'x', '2020-01-04',
+   :t0 - 2000, :t0 - :MND - 2000);
 select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
-select public.t_check('get_my_doc() leverer ikke en rad som har ligget lenger enn levetiden',
+select public.t_check('get_my_doc() leverer ikke en rad som ble historikk for mer enn levetiden siden',
   not exists (select 1 from jsonb_array_elements(public.get_my_doc() -> 'notifications') e
                where e ->> 'name' = 'Gammel'));
 select public.notify_record('[]'::jsonb);
 select public.t_check('… og første logging etterpå SLETTER den',
   (select count(*) from public.notifications where user_id = :'A' and name = 'Gammel') = 0);
-select public.t_check('en rad som så vidt er innenfor levetiden står urørt',
+select public.t_check('en rad så vidt innenfor levetiden står urørt',
   (select count(*) from public.notifications where user_id = :'A' and name = 'Nesten') = 1);
-select public.t_check('en PLANLAGT rad er ikke historikk og røres ikke, uansett alder',
+select public.t_check('en rad som ennå ikke har ringt er ikke historikk og røres ikke, uansett alder',
   (select count(*) from public.notifications where user_id = :'A' and name = 'Planlagt') = 1);
 select public.t_check('en FERSK rad om en gammel hendelse blir stående — den er ikke sett ennå',
   (select count(*) from public.notifications where user_id = :'A' and name = 'Etterslep') = 1);
+select public.t_check('en PLANLAGT rad som nettopp ringte overlever at den ble LAGT for en måned siden',
+  (select count(*) from public.notifications where user_id = :'A' and name = 'Nyringt') = 1);
 -- Ryddes bort igjen, så resten av fila måler mot de to opprinnelige radene.
 delete from public.notifications where user_id = :'A'
-   and name in ('Nesten', 'Planlagt', 'Etterslep');
+   and name in ('Nesten', 'Planlagt', 'Etterslep', 'Nyringt');
 
 -- ---------- 5. RLS: B ser ALDRI A sine varsler ----------
 reset role; select set_config('request.jwt.claim.sub', :'B', false); set role authenticated;

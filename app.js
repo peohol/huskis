@@ -10172,24 +10172,27 @@
      har, og det er de NÆRMESTE tersklene som beholdes. */
   const NOTIF_PLAN_HORIZON_MS = 30 * DAY_MS;
   const NOTIF_PLAN_MAX = 40;
-  /* LEVETIDEN. Et varsel som har ligget lenger enn dette finnes ikke lenger —
-     serveren sletter det ved hver logging og leverer det ikke i doc-et
-     (`notify_max_age_ms()` i supabase/users-and-sharing.sql). Alderen er
-     radens EGEN (`createdAt`), ikke hendelsens: det er hvor lenge varselet har
-     ligget der brukeren opplever, og en app som har vært lukket lenge skal
-     rekke å VISE tersklene den logger. Rader fram i tid (planen framover og
-     «Utsett») er ikke historikk og måles ikke.
+  /* LEVETIDEN. Et varsel som ble historikk for lenger siden enn dette finnes
+     ikke lenger — serveren sletter det ved hver logging og leverer det ikke i
+     doc-et (`notify_max_age_ms()` i supabase/users-and-sharing.sql).
+
+     Målt fra det SENESTE av `createdAt` og `at`. Ingen av de to duger alene:
+     bare `at` ville slettet en rad i den samme runden den ble logget (en app
+     som har vært lukket lenge logger gamle terskler, og de skal SES), og bare
+     `createdAt` ville tatt en PLANLAGT rad i det den ringte — planen legges
+     opp til en måned fram (`NOTIF_PLAN_HORIZON_MS`), så en rad ved ytterkanten
+     er allerede en måned gammel da. En rad som ennå ikke har ringt har `at`
+     foran nå, og røres derfor aldri.
 
      Vakten her er ikke en dublett av serverens: en rad kan runde 30 døgn mens
      appen står åpen, og en eldre server-versjon i en mellomrunde skal heller
      ikke kunne vise en rad appen sier ikke finnes. */
   const NOTIF_MAX_AGE_MS = 30 * DAY_MS;
   function notifExpired(row, now) {
-    // Uten `createdAt` vet vi ikke alderen, og da beholdes raden: vakten skal
+    // Mangler begge tidene, vet vi ingenting, og da beholdes raden: vakten skal
     // feile mot Å VISE, ikke mot å skjule noe brukeren aldri fikk se.
-    const laget = Number(row.createdAt);
-    return Number(row.at) < now && Number.isFinite(laget) && laget > 0 &&
-      laget < now - NOTIF_MAX_AGE_MS;
+    const ble = Math.max(Number(row.at) || 0, Number(row.createdAt) || 0);
+    return ble > 0 && ble < now - NOTIF_MAX_AGE_MS;
   }
   const NOTIF_BADGE_MAX = 99;      // over dette: «99+», så badgen ikke sprenger knappen
   const NOTIF_UNDO_S = 10;         // angre-vinduet for «Tøm varsler», i sekunder
@@ -10449,8 +10452,9 @@
      kjører generatoren og logger. Begge kalles fra `cloudCycle`. */
   function applyNotifications(my) {
     const rows = (my && my.notifications) || [];
-    // Levetiden er ikke valgfri (docs/varsler.md): en rad som har ligget lenger
-    // enn den finnes ikke for brukeren, uansett hva doc-et bar med seg.
+    // Levetiden er ikke valgfri (docs/varsler.md): en rad som ble historikk for
+    // lenger siden enn den finnes ikke for brukeren, uansett hva doc-et bar
+    // med seg.
     const nåMs = Date.now();
     notifRows = rows.filter((r) => !notifExpired(r, nåMs));
     // Radene vi har bedt serveren slette, men ennå ikke sett forsvinne. Er de

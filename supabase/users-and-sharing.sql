@@ -2734,17 +2734,21 @@ $$;
 --        den gjelder også en historikk som er langt under taket: et varsel som
 --        har ligget en måned ber ikke lenger om oppmerksomhet.
 --
---    ALDEREN er radens EGEN — `created_at`, altså hvor lenge varselet har
---    ligget der — og ikke hvor gammel hendelsen den beskriver er. To grunner:
---    det er den alderen brukeren opplever («dette kom for en måned siden»), og
---    en rad kan da aldri slettes i den samme operasjonen som skrev den. En app
---    som har vært lukket lenge logger terskler som passerte for lenge siden
---    (docs/varsler.md, «Markøren er hele idempotensen»), og de skal vises når
---    de kommer — ikke forsvinne før de er sett.
+--    LEVETIDEN TELLER FRA DET ØYEBLIKKET RADEN BLE HISTORIKK, altså fra det
+--    SENESTE av `created_at` og `at`. Ingen av de to duger alene:
+--      • bare `at` ville slettet en rad i den samme operasjonen som skrev den.
+--        En app som har vært lukket lenge logger terskler som passerte for
+--        lenge siden (docs/varsler.md, «Markøren er hele idempotensen»), og de
+--        skal vises når de kommer — ikke forsvinne før de er sett;
+--      • bare `created_at` ville tatt en PLANLAGT rad i det den ringte. Planen
+--        legges opp til en måned fram, så en rad ved horisontens ytterkant er
+--        allerede en måned gammel når `at` passerer.
+--    Med det seneste av de to lever hver rad en måned ETTER at den ble
+--    relevant, uansett hvilken vei den kom.
 --
---    Og radene FRAM i tid røres ikke uansett alder: planen og «Utsett» er
---    ikke historikk, og en plan skal ikke kunne bli ryddet bort før den har
---    fått ringt.
+--    Radene FRAM i tid røres dermed heller ikke: for dem er `at` det seneste,
+--    og det ligger foran nå. Planen og «Utsett» er ikke historikk, og skal
+--    aldri ryddes bort før de har fått ringt.
 -- ------------------------------------------------------------
 
 /* Levetiden for en varselrad, ett sted. Brukes både av opprydningen i
@@ -2812,17 +2816,16 @@ begin
          updated_at = now()
    where user_id = uid;
 
-  /* ALDEREN først: et varsel som har ligget lenger enn levetiden slettes,
-     uansett hvor kort historikken er. To vilkår, og begge må holde:
-       • raden har PASSERT (`at < nå`) — planen framover og et utsatt varsel er
-         ikke historikk, og skal aldri ryddes bort før de har fått ringt;
-       • raden er GAMMEL (`created_at` eldre enn levetiden) — det er hvor lenge
-         varselet har ligget der som er alderen, ikke hvor gammel hendelsen er.
-     Kaskaden tar leveringene i utboksen med seg. */
+  /* LEVETIDEN først: en rad som ble historikk for lenger siden enn levetiden
+     slettes, uansett hvor kort historikken er. Målt fra det SENESTE av
+     `created_at` og `at` — se blokken over: en planlagt rad ved horisontens
+     ytterkant er allerede en måned gammel når den ringer, og en fersk rad om
+     en gammel terskel er ikke gammel. En rad som ennå ikke har ringt har `at`
+     foran nå og røres derfor ikke. Kaskaden tar leveringene i utboksen med
+     seg. */
   delete from public.notifications n
    where n.user_id = uid
-     and n.at < now_ms
-     and n.created_at < now_ms - public.notify_max_age_ms();
+     and greatest(n.created_at, n.at) < now_ms - public.notify_max_age_ms();
 
   delete from public.notifications n
    where n.user_id = uid
@@ -4334,8 +4337,8 @@ begin
     -- (så en lang historikk ikke gjør hver eneste synk-runde tyngre) og
     -- levetiden på 30 døgn. Filteret her er ikke en dublett av opprydningen:
     -- det er det som gjør at en rad ALDRI vises for gammel, uansett hvor lenge
-    -- det er siden forrige logging ryddet. Vilkårene er de samme: en rad som
-    -- ennå ikke har forfalt er plan, ikke historikk, og har ingen alder.
+    -- det er siden forrige logging ryddet. Regnestykket er det samme — det
+    -- seneste av `created_at` og `at`, altså da raden ble historikk.
     'notifications', coalesce((select jsonb_agg(jsonb_build_object(
         'id', n.id, 'key', n.key, 'type', n.type,
         'objType', n.obj_type, 'objId', n.obj_id,
@@ -4345,9 +4348,8 @@ begin
         order by n.at desc, n.created_at desc, n.id desc)
       from (select * from public.notifications
              where user_id = uid
-               and (at >= (extract(epoch from now()) * 1000)::bigint
-                    or created_at >= (extract(epoch from now()) * 1000)::bigint
-                                     - public.notify_max_age_ms())
+               and greatest(created_at, at) >=
+                     (extract(epoch from now()) * 1000)::bigint - public.notify_max_age_ms()
              order by at desc, created_at desc, id desc
              limit 200) n), '[]'::jsonb),
     -- Preferansene + generator-markøren. `null` betyr «ingen rad ennå», og da

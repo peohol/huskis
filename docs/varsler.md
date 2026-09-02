@@ -356,27 +356,33 @@ lest/ulest skal være det samme på alle mine enheter.
 - Historikken har **to grenser**, og begge håndheves av serveren:
   - et **tak på 200 rader per bruker** — `notify_record()` rydder de eldste
     utover det;
-  - en **levetid på 30 døgn** (`notify_max_age_ms()`) — en rad som har ligget
-    lenger enn det, SLETTES. Den er ikke valgfri og gjelder også en kort
-    historikk: et varsel som har ligget en måned ber ikke lenger om
+  - en **levetid på 30 døgn** (`notify_max_age_ms()`) — en rad som ble
+    historikk for lenger siden enn det, SLETTES. Den er ikke valgfri og gjelder
+    også en kort historikk: et varsel som har ligget en måned ber ikke lenger om
     oppmerksomhet.
 
-  **Alderen er radens egen**, `created_at` — hvor lenge varselet har ligget der
-  — og ikke hvor gammel hendelsen den beskriver er. To grunner: det er den
-  alderen brukeren opplever, og en rad kan da aldri slettes i den samme
-  operasjonen som skrev den. En app som har vært lukket lenge logger terskler
-  som passerte for lenge siden (se «Markøren er hele idempotensen»), og de skal
-  VISES når de kommer.
+  **Levetiden teller fra det ØYEBLIKKET raden ble historikk** — altså fra det
+  SENESTE av `created_at` og `at`. Ingen av de to duger alene:
 
-  **Rader fram i tid røres aldri**, uansett alder: planen framover og et utsatt
-  varsel er ikke historikk, og en plan skal ikke kunne ryddes bort før den har
-  fått ringt. Vilkåret er derfor begge deler — raden har passert OG er gammel.
+  - bare `at` ville slettet en rad i den samme operasjonen som skrev den. En app
+    som har vært lukket lenge logger terskler som passerte for lenge siden (se
+    «Markøren er hele idempotensen»), og de skal VISES når de kommer;
+  - bare `created_at` ville tatt en PLANLAGT rad i det den ringte. Planen legges
+    opp til en måned fram (`NOTIF_PLAN_HORIZON_MS`), så en rad ved horisontens
+    ytterkant er allerede en måned gammel når `at` passerer.
 
-  `get_my_doc()` filtrerer på det samme, så en rad aldri VISES for gammel selv
-  om det er lenge siden forrige logging ryddet. Klienten gjør det også, i
-  `applyNotifications()`: en rad kan runde 30 døgn mens appen står åpen. Tallet
-  står ett sted i hvert lag — `notify_max_age_ms()` i SQL-en, `NOTIF_MAX_AGE_MS`
-  i `app.js` og i `mock-backend.js`.
+  Med det seneste av de to lever hver rad en måned ETTER at den ble relevant,
+  uansett hvilken vei den kom.
+
+  **Rader fram i tid røres dermed aldri**: for dem er `at` det seneste, og det
+  ligger foran nå. Planen framover og et utsatt varsel er ikke historikk, og
+  skal ikke kunne ryddes bort før de har fått ringt.
+
+  `get_my_doc()` filtrerer på det samme regnestykket, så en rad aldri VISES for
+  gammel selv om det er lenge siden forrige logging ryddet. Klienten gjør det
+  også, i `applyNotifications()`: en rad kan runde 30 døgn mens appen står åpen.
+  Tallet står ett sted i hvert lag — `notify_max_age_ms()` i SQL-en,
+  `NOTIF_MAX_AGE_MS` i `app.js` og i `mock-backend.js`.
 
 Radene og preferansene kommer med `get_my_doc()` (samme runde som resten), og
 generatoren kjøres sist i hver synk-runde. Skjemaendringene er additive: en
