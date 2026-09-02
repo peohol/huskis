@@ -46,19 +46,38 @@
         (varselmodalen selv eller en annen modal).
     16. Midnatt: en modal som står ÅPEN over midnatt maler seg om av seg selv
         («I dag» → «I går»), også når appen ligger stille og ingen synk-runde
-        rører den. Playwrights klokke settes rett før midnatt og spoles forbi.
+        rører den. Klokka pinnes rett før midnatt og spoles forbi.
     17. Slett-knappen på raden tar ÉN rad, også fra kontoen.
+    18. Døgnskiftet kan ikke treffe et LØP: hver kontekst pinnes midt på dagen,
+        så fiksturens døgn og appens er det samme fra første til siste sjekk —
+        uansett hva riggens klokke sto på da suiten ble startet.
+    19. Sommertid: et lokalt døgn er 23 eller 25 timer gjennom en overgang, og
+        fiksturens tidspunkter regnes fra døgnets egne grenser — ikke i
+        millisekunder fra midnatt. Målt på Oslos to overganger i 2026.
 
   MERK om fiksturen: objektene BÆRER tidene varslene handler om. En rad hvis
   verdi ikke lenger stemmer med objektets tid ryddes bort av appen selv
   (docs/varsler.md), så et tidløst objekt ville tømt historikken i første
   synk-runde. `settTid()` holder de to i takt der en test endrer tid.
 
+  MERK om TIDEN: hver kontekst lages av `nySide`, som setter tidssonen OG
+  pinner klokka til kl. 12 lokalt før siden navigerer. Alle tider fiksturen
+  bruker hentes så fra SIDEN (`sideklokke`), aldri fra `new Date()` i
+  testprosessen — den står i en annen sone og på en annen klokke. Tre feller,
+  alle tre stengt:
+    · sonen        — nettleseren daterer i `TZ`, Node i CI i UTC;
+    · døgnstarten  — «nå minus en time» er i går hver gang testen kjører den
+                     første timen etter midnatt (`nettopp` klemmer innenfor);
+    · døgnskiftet  — et løp som selv krysser midnatt daterer i ett døgn og
+                     sjekker i et annet (pinningen holder midnatt tolv timer
+                     unna; 18 er regresjonstesten).
+
   Kjøres på BÅDE desktop- og mobil-viewport.
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/notif-modal.test.js
+    HUSKIS_TZ=Etc/GMT+8 NODE_PATH=$(npm root -g) node tests/notif-modal.test.js
 */
 const { chromium } = require('playwright');
 
@@ -66,6 +85,140 @@ const BASE = process.env.HUSKIS_URL || 'http://localhost:8000';
 const results = [];
 const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'FAIL') + ' — ' + n + (x !== '' ? '  [' + (typeof x === 'string' ? x : JSON.stringify(x)) + ']' : '')); };
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/* ÉN tidssone for hele filen, og den settes på KONTEKSTEN — ikke på
+   testprosessen. Appen daterer alt etter NETTLESERENS klokke, så sonen her er
+   fasiten på hva «i dag» betyr; `HUSKIS_TZ` lar den samme filen kjøres i andre
+   døgnkonstellasjoner uten å vente på klokka. */
+const TZ = process.env.HUSKIS_TZ || 'Europe/Oslo';
+
+// Klokkeslettet `kl` ([time, minutt, sekund] lokalt) i SIDENS inneværende
+// døgn, som absolutt øyeblikk. Regnes i siden, som er den eneste som kjenner
+// sonen sin — og som etter en `clock.install` er den eneste som kjenner
+// klokka si.
+const lokaltKl = (p, kl) => p.evaluate((kl) => {
+  const d = new Date();
+  d.setHours(kl[0], kl[1] || 0, kl[2] || 0, 0);
+  return d.getTime();
+}, kl);
+
+/* KONTEKST OG SIDE I ETT, MED KLOKKA PINNET MIDT PÅ DAGEN.
+
+   Fiksturen daterer radene sine i sidens døgn (`sideklokke`), og appen tegner
+   dem i det samme døgnet. Det holder bare så lenge løpet ikke KRYSSER et
+   døgnskifte underveis: skjer det, er radene datert i går mens appen tegner i
+   dag, og «I dag»-sjekkene faller — ikke fordi appen tar feil, men fordi
+   kalenderen skiftet midt i løpet.
+
+   Klokka settes derfor til kl. 12 lokalt i den datoen riggen står i, og får
+   så gå normalt videre (`resume`): timerne — synk, nedtellinger, toaster —
+   måles på ekte tid som før, men midnatt er tolv timer unna uansett når
+   suiten startes. Et løp på et minutt kan da ikke nå fram til det.
+
+   Fordi klokka må pinnes FØR siden navigerer, lages konteksten og siden her
+   sammen — et nytt løp kan da verken komme inn med sin egen sone eller uten
+   pinningen.
+
+   - `kl`   pinner et annet klokkeslett; løpet som SKAL over midnatt (16)
+            bruker det.
+   - `rigg` later som om riggens egen klokke sto et annet sted da pinningen
+            regnet: `[time, minutt, sekund]` i dagens dato, eller et absolutt
+            øyeblikk (ms eller Date) for et løp som må stå på en BESTEMT dato.
+            Brukes av regresjonstestene — 18, som viser at pinningen virker fra
+            en rigg rett før midnatt, og 19, som må stå på en kjent
+            sommertidsovergang — uten å vente til klokka faktisk er der. */
+async function nySide(browser, opts) {
+  const o = Object.assign({ timezoneId: TZ, locale: 'nb-NO' }, opts || {});
+  const kl = o.kl || [12, 0, 0];
+  const rigg = o.rigg;
+  delete o.kl; delete o.rigg;
+  const ctx = await browser.newContext(o);
+  const p = await ctx.newPage();
+  // Riggens klokke først (ekte, eller den `rigg` later som), så pinningen —
+  // ett løp gjennom den samme koden i alle tilfeller.
+  const riggTid = Array.isArray(rigg) ? await lokaltKl(p, rigg) : rigg;
+  await p.clock.install(rigg ? { time: new Date(riggTid) } : {});
+  await p.clock.resume();
+  await p.clock.setSystemTime(new Date(await lokaltKl(p, kl)));
+  return p;
+}
+
+/* FIKSTURENS TIDER REGNES I SIDEN, IKKE I NODE.
+   Nettleseren står i `TZ` og på en pinnet klokke (`nySide`); testprosessen
+   står i sin egen sone (UTC i CI) og på riggens klokke. Regnes «i dag» eller
+   «for et minutt siden» i Node, er de to ute av takt — og filen går rødt av
+   kalenderen i stedet for av koden (issue #173). Ett oppslag i siden gir
+   grunnlaget; resten regnes ut av det.
+
+   Én gang per løp: sonen står fast, klokka er pinnet, og radene ligger
+   sekunder — ikke timer — fra hverandre. */
+async function sideklokke(p) {
+  const t = await p.evaluate((spenn) => {
+    const n = new Date();
+    const pad2 = (x) => String(x).padStart(2, '0');
+    /* Lokal midnatt for hvert døgn fiksturene kan trenge, regnet av
+       kalenderen i siden — ikke som `midnatt ± n · 24 t`, som bommer med en
+       time gjennom en sommertidsovergang. */
+    const midnatt = {};
+    for (let o = -spenn; o <= spenn; o++) {
+      const d = new Date();
+      // Kl. 12 FØRST: et døgnbytte regnet fra et klokkeslett som ikke finnes
+      // (timen sommertiden hopper over) normaliseres videre og kan skli en dag.
+      // Kl. 12 finnes hver eneste dag.
+      d.setHours(12, 0, 0, 0);
+      d.setDate(d.getDate() + o);
+      d.setHours(0, 0, 0, 0);
+      midnatt[o] = d.getTime();
+    }
+    return { ms: Date.now(), midnatt: midnatt,
+      iDag: n.getFullYear() + '-' + pad2(n.getMonth() + 1) + '-' + pad2(n.getDate()) };
+  }, 8);   // ett hakk mer enn `dag`/`døgnstart` brukes med: `midtPåDøgnet` leser off + 1
+  /* Døgnet `off` dager fra sidens i dag, som datostreng. UTC-regningen er et
+     rent kalendertriks: en datostreng bærer ingen sone, og et UTC-døgn er
+     alltid 24 timer, så månedsskifte og skuddår treffer uten at sommertid kan
+     skli inn i regnestykket. */
+  const dag = (off) => {
+    const d = new Date(t.iDag + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + off);
+    return d.toISOString().slice(0, 10);
+  };
+  /* Lokal midnatt `off` døgn unna — og MIDT i det døgnet, regnet som halvveis
+     mellom denne døgnstarten og den neste. Ikke «midnatt + 12 t»: et lokalt
+     døgn er 23 eller 25 timer gjennom en sommertidsovergang, og da er
+     midnatt + 12 t hverken kl. 12 eller midt i noe. Midtpunktet er det
+     fiksturen faktisk vil ha — et tidspunkt som ikke kan skli ut av døgnet
+     sitt. */
+  const døgnstart = (off) => t.midnatt[off];
+  const midtPåDøgnet = (off) => t.midnatt[off] + (t.midnatt[off + 1] - t.midnatt[off]) / 2;
+  /* Rett etter at døgnet `off` begynte, og rett før det slutter. Begge er
+     uttrykt fra døgnets EGNE grenser — en halvtime inn fra hver ende — så de
+     ligger i det døgnet enten det er 23, 24 eller 25 timer langt. Et
+     klokkeslett regnet i millisekunder fra midnatt ville sklidd ut. */
+  const tidligIDøgnet = (off) => t.midnatt[off] + 30 * 60000;
+  const sentIDøgnet = (off) => t.midnatt[off + 1] - 30 * 60000;
+  /* «For et øyeblikk siden» — men aldri før midnatt, og aldri fram i tid. En
+     rad må være PASSERT for å være synlig, og samtidig ligge i DAGENS døgn:
+     seedes den som «nå minus en time», havner den i går hver gang testen
+     kjører den første timen etter midnatt. `k` teller ett trinn bakover per
+     rad, nyeste først; trinnet er ett sekund når det er plass og krymper mot
+     midnatt, så tretti rader får plass uansett hvor ungt døgnet er. */
+  const steg = Math.max(0, Math.min(30000, t.ms - t.midnatt[0])) / 30;
+  const nettopp = (k) => Math.round(t.ms - (k + 1) * steg);
+  /* «For `ms` millisekunder siden», målt på SIDENS klokke. Radene må ligge i
+     fortiden for å være synlige, og siden klokka er pinnet er testprosessens
+     `Date.now()` et helt annet tall — den kan ikke brukes til dette. */
+  const sidenNå = (ms) => t.ms - ms;
+  return { dag, døgnstart, midtPåDøgnet, tidligIDøgnet, sentIDøgnet, nettopp, sidenNå };
+}
+
+/* Døgnet fiksturen ble datert i skal stå til siste sjekk i løpet. Pinningen i
+   `nySide` gjør at det ikke KAN skli; dette er nettet som sier fra hvis den
+   noen gang blir borte. */
+const sammeDøgn = (p, k) => p.evaluate((d) => {
+  const n = new Date();
+  const q = (x) => String(x).padStart(2, '0');
+  return n.getFullYear() + '-' + q(n.getMonth() + 1) + '-' + q(n.getDate()) === d;
+}, k.dag(0));
 
 const U = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
   const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
@@ -203,9 +356,8 @@ const rowsOf = (p) => p.evaluate(() => [...document.querySelectorAll('#notif-bod
 
 async function run(label, viewport, mobile) {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext(Object.assign({ viewport,
-    timezoneId: 'Europe/Oslo', locale: 'nb-NO' }, mobile ? { isMobile: true, hasTouch: true } : {}));
-  const p = await ctx.newPage();
+  const p = await nySide(browser, Object.assign({ viewport },
+    mobile ? { isMobile: true, hasTouch: true } : {}));
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
   console.log('\n== ' + label + ' ==');
@@ -224,11 +376,14 @@ async function run(label, viewport, mobile) {
   log(label + ' 1b: badgen er skjult når ingenting er ulest',
     tom.hidden === true && tom.label === 'Varsler', JSON.stringify(tom));
 
-  const NÅ = Date.now();
+  /* Alle tre skal ligge under «I dag» (2i), så de dateres av SIDENS klokke og
+     klemmes innenfor dagens døgn. «Nå minus en time» ville vært i går hver
+     gang testen kjørte den første timen etter midnatt. */
+  const k = await sideklokke(p);
   await addNotifs(p, [
-    { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Skattemelding', at: NÅ - 60000, value: '2026-06-14T12:00' },
-    { type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur', at: NÅ - 3600000, value: '2026-06-20' },
-    { type: 'startNow', obj_type: 'item', obj_id: id.I3, name: 'Pakke', at: NÅ - 7200000, value: '2026-06-10T08:00' },
+    { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Skattemelding', at: k.nettopp(3), value: '2026-06-14T12:00' },
+    { type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur', at: k.nettopp(4), value: '2026-06-20' },
+    { type: 'startNow', obj_type: 'item', obj_id: id.I3, name: 'Pakke', at: k.nettopp(5), value: '2026-06-10T08:00' },
   ]);
   await cycle(p);
   const tre = await badgeInfo(p);
@@ -284,7 +439,7 @@ async function run(label, viewport, mobile) {
 
   // Et varsel som ankommer MENS modalen står åpen skal ikke bli lest.
   await addNotifs(p, [{ type: 'startSoon', obj_type: 'card', obj_id: id.C3,
-    name: 'Flyttedag', at: NÅ - 10000, value: '2026-06-25' }]);
+    name: 'Flyttedag', at: k.nettopp(0), value: '2026-06-25' }]);
   await cycle(p);
   const medNytt = await rowsOf(p);
   const nyBadge = await badgeInfo(p);
@@ -328,10 +483,7 @@ async function run(label, viewport, mobile) {
   // passert er ingen utsettelse, og skal avvises i stedet for å logges.
   await p.click('#notif-snooze-panel .notif-snooze-more');
   await p.waitForTimeout(200);
-  const iGår = new Date(Date.now() - 24 * 3600 * 1000);
-  const pad2 = (n) => String(n).padStart(2, '0');
-  const dStr = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-  await p.fill('#notif-snooze-panel input[type="date"]', dStr(iGår));
+  await p.fill('#notif-snooze-panel input[type="date"]', k.dag(-1));
   await p.fill('#notif-snooze-panel input[type="time"]', '09:00');
   const førUtsett = await p.evaluate(() => window.HK_MOCK._loadDB().notifications.length);
   await p.click('#notif-snooze-panel .btn');
@@ -346,8 +498,7 @@ async function run(label, viewport, mobile) {
     avvist.antall === førUtsett, JSON.stringify(avvist));
 
   // … og et tidspunkt fram i tid logger varselet på nøyaktig det tidspunktet.
-  const iMorgen = new Date(Date.now() + 24 * 3600 * 1000);
-  await p.fill('#notif-snooze-panel input[type="date"]', dStr(iMorgen));
+  await p.fill('#notif-snooze-panel input[type="date"]', k.dag(1));
   await p.fill('#notif-snooze-panel input[type="time"]', '07:30');
   await p.click('#notif-snooze-panel .btn');
   await p.waitForTimeout(600);
@@ -361,7 +512,7 @@ async function run(label, viewport, mobile) {
       treffer: ny.length === 1 && Math.abs(ny[0].at - mål) < 60000,
       synlige: document.querySelectorAll('#notif-body .notif-item').length,
       badge: document.getElementById('notif-badge').hidden };
-  }, dStr(iMorgen));
+  }, k.dag(1));
   log(label + ' 9d: et egendefinert tidspunkt logger ETT varsel på akkurat det tidspunktet',
     utsatt.antall === førUtsett + 1 && utsatt.snoozed === 1 && utsatt.treffer && utsatt.lukket,
     JSON.stringify(utsatt));
@@ -425,7 +576,7 @@ async function run(label, viewport, mobile) {
 
   // Et varsel som ankommer ETTER øyeblikksbildet skal ikke slettes med det.
   await addNotifs(p, [{ type: 'dueOver', obj_type: 'card', obj_id: id.C2,
-    name: 'Etterpå', at: Date.now() - 1000, value: '2026-06-20' }]);
+    name: 'Etterpå', at: k.sidenNå(1000), value: '2026-06-20' }]);
   await cycle(p);
   const underAngre = await rowsOf(p);
   log(label + ' 7d: et varsel som ankommer under angre-vinduet vises …',
@@ -517,8 +668,8 @@ async function run(label, viewport, mobile) {
   await p.click('#notif-close');
   await p.waitForTimeout(200);
   await addNotifs(p, [
-    { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Skattemelding', at: Date.now() - 5000, value: '2026-06-14T12:00' },
-    { type: 'dueOver', obj_type: 'card', obj_id: 'ffffffff-ffff-4fff-bfff-ffffffffffff', name: 'Borte', at: Date.now() - 9000, value: '2026-06-01' },
+    { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Skattemelding', at: k.sidenNå(5000), value: '2026-06-14T12:00' },
+    { type: 'dueOver', obj_type: 'card', obj_id: 'ffffffff-ffff-4fff-bfff-ffffffffffff', name: 'Borte', at: k.sidenNå(9000), value: '2026-06-01' },
   ]);
   await cycle(p);
   await p.click('#notif-btn');
@@ -546,7 +697,7 @@ async function run(label, viewport, mobile) {
   // Sett fristen tilbake, så resten av løpet står på den samme fiksturen.
   await settTid(p, id.C1, 'due', '2026-06-14T12:00');
   await addNotifs(p, [{ type: 'dueOver', obj_type: 'card', obj_id: id.C1,
-    name: 'Skattemelding', at: Date.now() - 5000, value: '2026-06-14T12:00' }]);
+    name: 'Skattemelding', at: k.sidenNå(5000), value: '2026-06-14T12:00' }]);
   await cycle(p);
   await p.click('#notif-body .notif-item .notif-row');
   await p.waitForFunction(() => document.getElementById('notif-modal').hidden, null, { timeout: 4000 });
@@ -562,7 +713,7 @@ async function run(label, viewport, mobile) {
   const mange = [];
   for (let i = 0; i < 120; i++) {
     mange.push({ type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Masse ' + i,
-      at: Date.now() - 20000 - i * 1000, value: '2026-06-14T12:00' });
+      at: k.sidenNå(20000 + i * 1000), value: '2026-06-14T12:00' });
   }
   await addNotifs(p, mange);
   await cycle(p);
@@ -606,6 +757,8 @@ async function run(label, viewport, mobile) {
   log(label + ' 11b: Escape lukker, og fokus går tilbake til bjellen',
     etterEscape.skjult === true && etterEscape.fokus === 'notif-btn', JSON.stringify(etterEscape));
 
+  log(label + ': døgnet fiksturen ble datert i står til siste sjekk',
+    await sammeDøgn(p, k) === true);
   log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | '));
   await browser.close();
 }
@@ -613,16 +766,16 @@ async function run(label, viewport, mobile) {
 // Engelsk: hele flaten går gjennom ordboken (docs/sprak.md).
 async function runEngelsk() {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
-    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
-  const p = await ctx.newPage();
+  const p = await nySide(browser, { viewport: { width: 1200, height: 900 } });
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
   console.log('\n== engelsk ==');
   const { id, uid, db } = buildDB();
   await seed(p, db, uid, 'en');
+  // Raden skal stå under «Today» (12b), så den dateres av sidens klokke.
+  const k = await sideklokke(p);
   await addNotifs(p, [{ type: 'dueOver', obj_type: 'card', obj_id: id.C1,
-    name: 'Tax return', at: Date.now() - 60000, value: '2026-06-14T12:00' }]);
+    name: 'Tax return', at: k.nettopp(0), value: '2026-06-14T12:00' }]);
   await cycle(p);
   const knapp = await badgeInfo(p);
   await p.click('#notif-btn');
@@ -661,6 +814,8 @@ async function runEngelsk() {
     eq(prefs, ['Deadline passed', 'Deadline in less than a week', 'Starting now',
       'Starts in less than a week', 'Notifications on this device']),
     JSON.stringify(prefs));
+  log('engelsk: døgnet fiksturen ble datert i står til siste sjekk',
+    await sammeDøgn(p, k) === true);
   log('engelsk: ingen JS-feil', errs.length === 0, errs.join(' | '));
   await browser.close();
 }
@@ -673,9 +828,7 @@ async function runEngelsk() {
    og ikke det nye svaret. */
 async function runKontobytte() {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
-    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
-  const p = await ctx.newPage();
+  const p = await nySide(browser, { viewport: { width: 1200, height: 900 } });
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
   console.log('\n== kontobytte ==');
@@ -716,11 +869,12 @@ async function runKontobytte() {
     return H && H.authUser && H.lastMy && H.state.universes.length > 0;
   }, null, { timeout: 25000, polling: 200 });
 
+  const k = await sideklokke(p);
   await addNotifs(p, [
     { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Skattemelding',
-      at: Date.now() - 60000, value: '2026-06-14T12:00' },
+      at: k.sidenNå(60000), value: '2026-06-14T12:00' },
     { type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur',
-      at: Date.now() - 90000, value: '2026-06-20' },
+      at: k.sidenNå(90000), value: '2026-06-20' },
   ]);
   await p.evaluate(() => window.__huskis.cloudCycle());
   await p.waitForFunction(() => window.__huskis.notifRows.length === 2, null,
@@ -756,49 +910,46 @@ async function runKontobytte() {
    avhengig av hvilken dato den kjøres på. */
 async function runDatoer() {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
-    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
-  const p = await ctx.newPage();
+  const p = await nySide(browser, { viewport: { width: 1200, height: 900 } });
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
   console.log('\n== datoer ==');
   const { id, uid, db } = buildDB();
   await seed(p, db, uid);
 
-  const pad2 = (n) => String(n).padStart(2, '0');
-  const dStr = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-  const dagen = (off) => { const x = new Date(); x.setDate(x.getDate() + off); return x; };
-  // Kl. 12 lokalt på hvert døgn: et varsel logget midt på dagen kan ikke skli
-  // over til nabodøgnet uansett når testen kjøres.
-  const kl12 = (off) => { const x = dagen(off); x.setHours(12, 0, 0, 0); return x.getTime(); };
-  /* Dagens rader må være PASSERT (et varsel fram i tid er usynlig) og samtidig
-     ligge innenfor dagens døgn — også hvis testen skulle kjøre like etter
-     midnatt. Derfor «for et øyeblikk siden, men tidligst rett etter midnatt». */
-  const midnatt = new Date().setHours(0, 0, 0, 0);
-  const nettopp = (k) => Math.max(midnatt + 3000, Date.now() - 10000) - k * 1000;
+  const k = await sideklokke(p);
 
   // Objektenes tider settes FØRST: en rad hvis verdi ikke stemmer med objektet
   // ryddes bort (docs/varsler.md), så fiksturen må være i takt med varslene.
-  await settTid(p, id.C1, 'due', dStr(dagen(0)) + 'T09:00');
-  await settTid(p, id.C2, 'start', dStr(dagen(0)));
-  await settTid(p, id.I3, 'start', dStr(dagen(1)) + 'T17:00');
-  await settTid(p, id.I1, 'start', dStr(dagen(-1)) + 'T06:10');
-  await settTid(p, id.I2, 'start', dStr(dagen(-5)) + 'T06:00');
+  await settTid(p, id.C1, 'due', k.dag(0) + 'T09:00');
+  await settTid(p, id.C2, 'start', k.dag(0));
+  await settTid(p, id.I3, 'start', k.dag(1) + 'T17:00');
+  await settTid(p, id.I1, 'start', k.dag(-1) + 'T06:10');
+  await settTid(p, id.I2, 'start', k.dag(-5) + 'T06:00');
   await addNotifs(p, [
     // I dag: en utløpt frist med klokkeslett, og en start uten klokkeslett.
     { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Skattemelding',
-      at: nettopp(0), value: dStr(dagen(0)) + 'T09:00' },
+      at: k.nettopp(0), value: k.dag(0) + 'T09:00' },
     { type: 'startNow', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur',
-      at: nettopp(1), value: dStr(dagen(0)) },
+      at: k.nettopp(1), value: k.dag(0) },
     // … og et varsel om noe som begynner i MORGEN, logget i dag.
     { type: 'startSoon', obj_type: 'item', obj_id: id.I3, name: 'Pakke',
-      at: nettopp(2), value: dStr(dagen(1)) + 'T17:00' },
-    // I går.
+      at: k.nettopp(2), value: k.dag(1) + 'T17:00' },
+    // I går — midt på dagen, og i BEGGE kantene av det samme døgnet. De tre
+    // skal i én bunke: regnes bunkenøkkelen i UTC i stedet for lokalt,
+    // sprekker kantene fra hverandre i enhver sone som ikke ER UTC, og det er
+    // nettopp den forvekslingen som er lett å gjøre (14h).
     { type: 'startNow', obj_type: 'item', obj_id: id.I1, name: 'Levere',
-      at: kl12(-1), value: dStr(dagen(-1)) + 'T06:10' },
+      at: k.midtPåDøgnet(-1), value: k.dag(-1) + 'T06:10' },
+    // Kantene: en halvtime inn fra hver ende av gårsdagen. De regnes fra
+    // døgnets egne grenser, ikke i millisekunder fra midnatt (19).
+    { type: 'startNow', obj_type: 'item', obj_id: id.I1, name: 'Ved døgnstart',
+      at: k.tidligIDøgnet(-1), value: k.dag(-1) + 'T06:10' },
+    { type: 'startNow', obj_type: 'item', obj_id: id.I1, name: 'Ved døgnslutt',
+      at: k.sentIDøgnet(-1), value: k.dag(-1) + 'T06:10' },
     // Og en eldre bunke, som skal få ukedag + full dato.
     { type: 'startNow', obj_type: 'item', obj_id: id.I2, name: 'Pumpe dekk',
-      at: kl12(-5), value: dStr(dagen(-5)) + 'T06:00' },
+      at: k.midtPåDøgnet(-5), value: k.dag(-5) + 'T06:00' },
   ]);
   await cycle(p);
   await p.click('#notif-btn');
@@ -815,13 +966,19 @@ async function runDatoer() {
   log('14a: varslene samles i bunker per døgn, nyeste bunke øverst',
     bunker.length === 3 && bunker[0].dag === 'I dag' && bunker[1].dag === 'I går',
     JSON.stringify(bunker.map((b) => b.dag)));
-  const eldre = new Date(); eldre.setDate(eldre.getDate() - 5);
+  /* Ukedagen og måneden leses ut av datostrengen fra siden. `new Date(år, mnd,
+     dag)` er lokal veggtid i testprosessen, men ukedagen til en kalenderdato
+     er den samme i enhver sone — datoen er alt hentet fra nettleseren. */
+  const eldreDel = k.dag(-5).split('-').map(Number);
+  const eldre = new Date(eldreDel[0], eldreDel[1] - 1, eldreDel[2]);
   const ukedager = ['Søndag', 'Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag'];
   const måneder = ('januar februar mars april mai juni juli august september oktober ' +
     'november desember').split(' ');
   const ventet = ukedager[eldre.getDay()] + ' ' + eldre.getDate() + '. ' + måneder[eldre.getMonth()];
   log('14b: eldre bunker står med ukedag foran den fulle datoen',
-    bunker[2].dag === ventet, bunker[2].dag + ' (ventet ' + ventet + ')');
+    bunker.length === 3 && bunker[2].dag === ventet,
+    (bunker.length === 3 ? bunker[2].dag : '(' + bunker.length + ' bunker)') +
+      ' (ventet ' + ventet + ')');
 
   const m = {};
   bunker.forEach((b) => b.rader.forEach((r) => { m[r.navn] = r.melding; }));
@@ -836,7 +993,17 @@ async function runDatoer() {
     .split(' ')[eldre.getMonth()]);
   log('14g: lenger tilbake står den faktiske datoen i meldingen',
     m['Pumpe dekk'] === 'Begynte ' + eldreDag + ' kl. 06:00.', m['Pumpe dekk']);
+  /* Hele kalenderdøgnet i ÉN bunke, kantene med. Bunkene brytes på det LOKALE
+     døgnet (`localDateStr`); en nøkkel regnet i UTC ville lagt kl. 00:30 og
+     kl. 23:30 samme dag i hver sin bunke overalt der sonen har et offset. */
+  const iGår = bunker.find((b) => b.dag === 'I går');
+  log('14h: hele døgnet havner i ÉN bunke — også radene i kantene av det',
+    !!iGår && eq(iGår.rader.map((r) => r.navn),
+      ['Ved døgnslutt', 'Levere', 'Ved døgnstart']),
+    JSON.stringify(iGår ? iGår.rader.map((r) => r.navn) : null));
 
+  log('datoer: døgnet fiksturen ble datert i står til siste sjekk',
+    await sammeDøgn(p, k) === true);
   log('datoer: ingen JS-feil', errs.length === 0, errs.join(' | '));
   await browser.close();
 }
@@ -846,35 +1013,31 @@ async function runDatoer() {
    varselet og sveip-til-høyre for å fjerne den før tiden er ute. */
 async function runToasts() {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
-    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
-  const p = await ctx.newPage();
+  const p = await nySide(browser, { viewport: { width: 1200, height: 900 } });
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
   console.log('\n== toasts ==');
   const { id, uid, db } = buildDB();
+  // Klokka hentes før seedingen: raden under dateres av den, ikke av Node.
+  const k = await sideklokke(p);
   /* HISTORIKKEN SKAL IKKE TOASTE. Raden ligger på kontoen FØR appen åpnes, og
      den første runden seeder «sett»-settet uten å vise noe — ellers ville en
      innlogging gitt en vegg av toaster. */
   db.notifications.push({ id: U(), user_id: uid, key: 'k-gammel', snoozed: false,
     type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Gammel',
     path: 'Arbeid › Klinikk', value: '2026-06-14T12:00',
-    at: Date.now() - 3600000, created_at: Date.now() - 3600000, read_at: null });
+    at: k.sidenNå(3600000), created_at: k.sidenNå(3600000), read_at: null });
   await seed(p, db, uid);
   await p.waitForTimeout(500);
-
-  const pad2 = (n) => String(n).padStart(2, '0');
-  const dStr = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-  const dagen = (off) => { const x = new Date(); x.setDate(x.getDate() + off); return x; };
 
   log('15a: historikken som alt lå der gir ingen toast',
     (await p.locator('.notif-toast').count()) === 0);
 
   // … men et varsel som kommer ETTERPÅ gjør det. Objektet får først den tiden
   // varselet handler om — ellers rydder appen raden bort som ugyldig.
-  await settTid(p, id.C2, 'due', dStr(dagen(3)));
+  await settTid(p, id.C2, 'due', k.dag(3));
   await addNotifs(p, [{ type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Sykkeltur',
-    at: Date.now() - 500, value: dStr(dagen(3)) }]);
+    at: k.sidenNå(500), value: k.dag(3) }]);
   await cycle(p);
   await p.waitForSelector('.notif-toast', { timeout: 4000 });
   const toast = await p.evaluate(() => {
@@ -917,9 +1080,9 @@ async function runToasts() {
     (await p.locator('.notif-toast').count()) === 0);
 
   // Et nytt varsel → trykk på toasten skal åpne modalen ved NØYAKTIG det varselet.
-  await settTid(p, id.I3, 'start', dStr(dagen(0)) + 'T07:00');
+  await settTid(p, id.I3, 'start', k.dag(0) + 'T07:00');
   await addNotifs(p, [{ type: 'startNow', obj_type: 'item', obj_id: id.I3, name: 'Pakke',
-    at: Date.now() - 300, value: dStr(dagen(0)) + 'T07:00' }]);
+    at: k.sidenNå(300), value: k.dag(0) + 'T07:00' }]);
   await cycle(p);
   await p.waitForSelector('.notif-toast', { timeout: 4000 });
   const toast2 = await p.evaluate(() => ({
@@ -943,9 +1106,9 @@ async function runToasts() {
 
   /* Står modalen åpen, ER varselet allerede synlig der — da skal ingen toast
      legge seg oppå og peke på noe brukeren ser. */
-  await settTid(p, id.C3, 'due', dStr(dagen(0)) + 'T08:00');
+  await settTid(p, id.C3, 'due', k.dag(0) + 'T08:00');
   await addNotifs(p, [{ type: 'dueOver', obj_type: 'card', obj_id: id.C3, name: 'Flyttedag',
-    at: Date.now() - 200, value: dStr(dagen(0)) + 'T08:00' }]);
+    at: k.sidenNå(200), value: k.dag(0) + 'T08:00' }]);
   await cycle(p);
   await p.waitForTimeout(500);
   const medÅpenModal = await p.evaluate(() => ({
@@ -961,11 +1124,11 @@ async function runToasts() {
      det underste først. */
   await p.keyboard.press('Escape');
   await p.waitForTimeout(300);
-  await settTid(p, id.I1, 'start', dStr(dagen(0)) + 'T08:00');
+  await settTid(p, id.I1, 'start', k.dag(0) + 'T08:00');
   await p.click('#events-btn');
   await p.waitForSelector('#events-modal:not([hidden])');
   await addNotifs(p, [{ type: 'startNow', obj_type: 'item', obj_id: id.I1, name: 'Under kalenderen',
-    at: Date.now() - 30000, value: dStr(dagen(0)) + 'T08:00' }]);
+    at: k.sidenNå(30000), value: k.dag(0) + 'T08:00' }]);
   await cycle(p);
   // Raden MÅ ha kommet fram mens kalendermodalen sto åpen — ellers ville
   // fraværet av en toast bevist ingenting.
@@ -978,12 +1141,11 @@ async function runToasts() {
 
   /* Følger man ÉN toast inn i modalen, skal søsknene ikke bli liggende oppå
      den ut timeren sin — de viser rader modalen nå selv har. */
-  /* Tidspunktene settes godt tilbake i tid: `at` regnes her i testprosessen,
-     mens synligheten (`at <= now`) måles av SIDENS klokke, og et par hundre
-     millisekunders avvik mellom dem ville gjort den ene raden usynlig ennå. */
+  // Tidspunktene settes godt tilbake i tid, og på SIDENS klokke: synligheten
+  // (`at <= now`) måles der, ikke i testprosessen.
   await addNotifs(p, [
-    { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Første', at: Date.now() - 30000, value: '2026-06-14T12:00' },
-    { type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Andre', at: Date.now() - 20000, value: dStr(dagen(3)) },
+    { type: 'dueOver', obj_type: 'card', obj_id: id.C1, name: 'Første', at: k.sidenNå(30000), value: '2026-06-14T12:00' },
+    { type: 'dueSoon', obj_type: 'card', obj_id: id.C2, name: 'Andre', at: k.sidenNå(20000), value: k.dag(3) },
   ]);
   await cycle(p);
   await p.waitForFunction(() => {
@@ -998,29 +1160,28 @@ async function runToasts() {
     toFør === 2 && (await p.locator('.notif-toast').count()) === 0,
     'før ' + toFør);
 
+  log('toasts: døgnet fiksturen ble datert i står til siste sjekk',
+    await sammeDøgn(p, k) === true);
   log('toasts: ingen JS-feil', errs.length === 0, errs.join(' | '));
   await browser.close();
 }
 
 /* MIDNATT. Datooverskriftene og dagsnavnene i meldingene avhenger av hvilket
    DØGN vi står i, ikke av radene: en modal som står åpen over midnatt uten at
-   noe annet skjer må male seg om av seg selv. Playwrights klokke settes rett
-   før midnatt og spoles forbi den. */
+   noe annet skjer må male seg om av seg selv. Klokka pinnes rett før midnatt
+   og spoles forbi den. */
 async function runMidnatt() {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 },
-    timezoneId: 'Europe/Oslo', locale: 'nb-NO' });
-  const p = await ctx.newPage();
+  /* Dette er det ENE løpet som skal over midnatt, så det pinnes 20 sekunder
+     før i stedet for midt på dagen. Klokkeslettet er lokalt og regnes i siden
+     (`nySide`): et fast UTC-øyeblikk ville bare vært «rett før midnatt» i én
+     bestemt sone, og i en annen gitt en spoling som ikke krysser noe
+     døgnskifte i det hele tatt. */
+  const p = await nySide(browser, { viewport: { width: 1200, height: 900 },
+    kl: [23, 59, 40] });
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
   console.log('\n== midnatt ==');
-  /* 20. mai 2026, 20 sekunder før midnatt i SIDENS tidssone (Europa/Oslo, som
-     er UTC+2 i mai — ingen sommertidsovergang i nærheten). Tidspunktet må
-     skrives som et UTC-øyeblikk: `new Date(år, mnd, …)` her ville blitt tolket
-     i testprosessens sone, som ikke er sidens. `resume()` lar tiden gå normalt
-     derfra, så innlogging og synk oppfører seg som ellers. */
-  await p.clock.install({ time: new Date('2026-05-20T21:59:40Z') });
-  await p.clock.resume();
   const { id, uid, db } = buildDB();
   await seed(p, db, uid);
 
@@ -1084,12 +1245,169 @@ async function runMidnatt() {
   await browser.close();
 }
 
+/* DØGNSKIFTET UNDER ET LØP — regresjonstesten for issue #173.
+
+   Fiksturen daterer radene sine i sidens døgn, og appen tegner dem i det
+   samme. Krysser løpet et døgnskifte underveis, holder ikke det lenger: da er
+   radene datert i går mens appen med rette tegner i dag. Vernet er at hver
+   kontekst pinnes midt på dagen (`nySide`), så midnatt er tolv timer unna
+   uansett når suiten startes.
+
+   Begge tilfellene drives fram med Playwrights klokke, ikke med riggens egen,
+   så beviset ikke henger på hva klokka tilfeldigvis er når testen kjøres:
+
+     18a  et løp pinnet 23:59:40 spoles 40 minutter og MISTER døgnet — faren
+          er ekte, og det er nettopp den `sammeDøgn` er satt til å fange;
+     18b  et løp der riggen står 23:59:40, men pinningen har fått gjøre jobben
+          sin, tåler den samme spolingen;
+     18c  pinningen lander midt på dagen fra en hvilken som helst riggklokke.
+
+   18b er den som blir rød hvis pinningen fjernes fra `nySide`: da blir sidens
+   klokke stående der riggen sa, og de 40 minuttene bærer den over midnatt. */
+async function døgnLøp(browser, opts) {
+  const p = await nySide(browser, Object.assign({ viewport: { width: 1200, height: 900 } }, opts));
+  const { id, uid, db } = buildDB();
+  await seed(p, db, uid);
+  const k = await sideklokke(p);
+  await addNotifs(p, [{ type: 'dueOver', obj_type: 'card', obj_id: id.C1,
+    name: 'Skattemelding', at: k.nettopp(0), value: '2026-06-14T12:00' }]);
+  await cycle(p);
+  await p.click('#notif-btn');
+  await p.waitForTimeout(300);
+  const før = await p.evaluate(() => (document.querySelector('.notif-day-head') || {}).textContent || '');
+  /* 40 minutter: mer enn nok til å bære et løp pinnet 23:59:40 over midnatt,
+     og mangedobbelt av det hele denne filen tar. Modalen står åpen, så
+     omtegningen ved midnatt (16) treffer den. */
+  await p.clock.fastForward('00:40');
+  await p.waitForTimeout(600);
+  const etter = await p.evaluate(() => (document.querySelector('.notif-day-head') || {}).textContent || '');
+  const stårStille = await sammeDøgn(p, k);
+  await p.context().close();
+  return { før, etter, stårStille };
+}
+
+async function runDøgnskifte() {
+  const browser = await chromium.launch();
+  console.log('\n== døgnskifte ==');
+
+  // a) Uten vernet: pinnet rett før midnatt, altså slik en urørt rigg ville
+  //    stått hvis suiten ble startet 23:59.
+  const utsatt = await døgnLøp(browser, { kl: [23, 59, 40] });
+  log('18a: et løp som krysser midnatt mister døgnet fiksturen ble datert i',
+    utsatt.før === 'I dag' && utsatt.etter === 'I går' && utsatt.stårStille === false,
+    JSON.stringify(utsatt));
+
+  // b) Med vernet: riggen står 23:59:40, men pinningen har flyttet løpet midt
+  //    på dagen. Samme sekvens, samme spoling.
+  const vernet = await døgnLøp(browser, { rigg: [23, 59, 40] });
+  log('18b: pinningen holder det SAMME løpet i det samme døgnet',
+    vernet.før === 'I dag' && vernet.etter === 'I dag' && vernet.stårStille === true,
+    JSON.stringify(vernet));
+
+  /* c) Og pinningen skal lande midt på dagen uansett hva riggens klokke sier —
+        også på selveste døgnskiftet. Ingen app lastes her; det som måles er
+        klokka siden får. */
+  const riggtider = [[0, 0, 5], [6, 30, 0], [12, 0, 0], [18, 45, 0], [23, 59, 59]];
+  const landinger = [];
+  for (const rigg of riggtider) {
+    const p = await nySide(browser, { rigg: rigg });
+    landinger.push(await p.evaluate(() => {
+      const n = new Date();
+      const midnatt = new Date(n.getFullYear(), n.getMonth(), n.getDate(), 24, 0, 0, 0);
+      return { time: n.getHours(), timerTilMidnatt: (midnatt - n) / 3600000 };
+    }));
+    await p.context().close();
+  }
+  log('18c: pinningen lander midt på dagen fra en hvilken som helst riggklokke',
+    landinger.length === riggtider.length &&
+    landinger.every((l) => l.time === 12 && l.timerTilMidnatt >= 11),
+    JSON.stringify(landinger));
+
+  await browser.close();
+}
+
+/* SOMMERTID — regresjonstesten mot 24-timers-antakelsen.
+
+   Et lokalt døgn er ikke alltid 24 timer. I `Europe/Oslo` er søndag 29. mars
+   2026 tjuetre timer (klokka hopper 02 → 03) og søndag 25. oktober tjuefem
+   (03 → 02). Et tidspunkt som skal ligge i et bestemt døgn må derfor regnes
+   fra DØGNETS EGNE grenser, ikke som et antall millisekunder fra midnatt:
+   «midnatt + 23,5 t» er 00:30 NESTE døgn på den korte dagen, og en rad som
+   skulle ligge sist i går bytter da bunke.
+
+   Løpet står alltid i `Europe/Oslo` — overgangene er den sonens, og det er dem
+   som skal testes — og pinnes på datoen ETTER hver overgang, så det er «i går»
+   som er det skjeve døgnet. Ingen app lastes; det som måles er regningen. */
+async function runSommertid() {
+  const browser = await chromium.launch();
+  console.log('\n== sommertid ==');
+  const T = 3600000;
+  /* Kl. 12 lokalt dagen etter hver overgang. Det grove øyeblikket trenger bare
+     treffe riktig DATO — `nySide` snapper selv til kl. 12 lokalt derfra. */
+  const døgn = [
+    { navn: '30. mars (i går var 23 t)', tid: '2026-03-30T10:00:00Z', timer: 23 },
+    { navn: '26. oktober (i går var 25 t)', tid: '2026-10-26T11:00:00Z', timer: 25 },
+  ];
+  const målt = [];
+  for (const d of døgn) {
+    const p = await nySide(browser, { timezoneId: 'Europe/Oslo', rigg: d.tid });
+    const k = await sideklokke(p);
+    /* Veggklokke og dato for et øyeblikk, lest i siden — det er den som
+       kjenner sonen, og fasiten på hvilket døgn et tidspunkt havner i. */
+    const veggtid = (ms) => p.evaluate((ms) => {
+      const n = new Date(ms);
+      const q = (x) => String(x).padStart(2, '0');
+      return { dato: n.getFullYear() + '-' + q(n.getMonth() + 1) + '-' + q(n.getDate()),
+        klokke: q(n.getHours()) + ':' + q(n.getMinutes()) };
+    }, ms);
+    // NØYAKTIG de hjelperne fiksturen selv bruker (14h) — ikke et uttrykk
+    // skrevet om igjen her, som ville latt en feil i hjelperen slippe unna.
+    const først = await veggtid(k.tidligIDøgnet(-1));
+    const sist = await veggtid(k.sentIDøgnet(-1));
+    // Slik en 24-timers-antakelse ville regnet det samme tidspunktet.
+    const naivt = await veggtid(k.døgnstart(-1) + 23 * 3600000 + 30 * 60000);
+    const midt = await veggtid(k.midtPåDøgnet(-1));
+    målt.push({ navn: d.navn, venterTimer: d.timer,
+      timer: (k.døgnstart(0) - k.døgnstart(-1)) / T,
+      iGår: k.dag(-1), først: først, sist: sist, naivt: naivt, midt: midt });
+    await p.context().close();
+  }
+
+  log('19a: de to overgangsdøgnene er faktisk 23 og 25 timer lange',
+    målt.every((m) => m.timer === m.venterTimer),
+    JSON.stringify(målt.map((m) => m.navn + ': ' + m.timer + ' t')));
+
+  log('19b: begge kantene av i går ligger I går på overgangsdøgnene, 00:30 og 23:30',
+    målt.every((m) => m.først.dato === m.iGår && m.først.klokke === '00:30' &&
+      m.sist.dato === m.iGår && m.sist.klokke === '23:30'),
+    JSON.stringify(målt.map((m) => [m.først, m.sist])));
+
+  /* Tennene: den samme raden regnet som «midnatt + 23,5 t» sklir ut av døgnet
+     sitt på den korte dagen — og lander på feil klokkeslett på den lange. */
+  const kort = målt[0];
+  const lang = målt[1];
+  log('19c: millisekundregningen bommer — den korte dagen mister døgnet helt',
+    kort.naivt.dato !== kort.iGår && lang.naivt.dato === lang.iGår &&
+    lang.naivt.klokke !== '23:30',
+    JSON.stringify({ kort: kort.naivt, lang: lang.naivt,
+      iGår: [kort.iGår, lang.iGår] }));
+
+  log('19d: midtpunktet ligger midt i det faktiske døgnet, ikke på kl. 12',
+    målt.every((m) => m.midt.dato === m.iGår) &&
+    kort.midt.klokke === '12:30' && lang.midt.klokke === '11:30',
+    JSON.stringify(målt.map((m) => m.midt)));
+
+  await browser.close();
+}
+
 (async () => {
   await run('desktop', { width: 1200, height: 900 }, false);
   await run('mobil', { width: 390, height: 780 }, true);
   await runDatoer();
   await runToasts();
   await runMidnatt();
+  await runDøgnskifte();
+  await runSommertid();
   await runEngelsk();
   await runKontobytte();
   const ok = results.filter(Boolean).length;

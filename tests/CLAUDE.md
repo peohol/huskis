@@ -215,6 +215,60 @@ det ville rukket å skje), **gest- og animasjonsfysikk** (trykk-og-hold,
 smooth-scroll, PEEK_MS), og **tidsvindu-observasjon** (ro-vinduet i
 sync-status). Slike steder har en kommentar som sier hvorfor.
 
+## Datoer i fiksturer
+
+Nettleserkonteksten har sin EGEN tidssone (`timezoneId`, i praksis
+`Europe/Oslo`), og det er den appen daterer etter: «i dag», «i går», bunkene i
+varselmodalen, chipene under navnet. Testprosessen står i sin egen sone — UTC i
+CI. To regler følger av det:
+
+- **Regn fiksturens datoer i SIDEN, ikke i Node.** `new Date()` i testfilen er
+  et annet døgn enn nettleserens i timene mellom det ene døgnskiftet og det
+  andre, og da går testen rødt av kalenderen i stedet for av koden. Hent
+  datoene med `p.evaluate` (`notif-modal.test.js` har `sideklokke()`,
+  `notif-native-devices.test.js` gjør det samme i det små). Å sette
+  `process.env.TZ` i stedet virker bare til noen legger en test med en annen
+  `timezoneId` ved siden av.
+- **En rad som skal ligge i DAGENS bunke må klemmes innenfor døgnet.** «Nå
+  minus en time» er i går hver gang testen kjører den første timen etter
+  midnatt. Seed «for et øyeblikk siden, men tidligst rett etter midnatt».
+- **Et lokalt døgn er ikke 24 timer.** Gjennom en sommertidsovergang er det 23
+  eller 25 (`Europe/Oslo`: 29. mars og 25. oktober 2026). Uttrykk derfor et
+  tidspunkt som skal ligge i et bestemt døgn fra døgnets EGNE grenser — «en
+  halvtime etter at det begynte», «en halvtime før det neste begynner» — aldri
+  som et antall millisekunder fra midnatt. «Midnatt + 23,5 t» er 00:30 NESTE
+  døgn på den korte dagen, og raden bytter bunke. Regn døgnbytter med
+  `setDate` fra et trygt ankerpunkt (kl. 12 finnes hver dag), ikke ved å legge
+  til døgn i millisekunder.
+- **Løpet må ikke kunne KRYSSE et døgnskifte.** De to reglene over daterer
+  fiksturen riktig i det øyeblikket den lages; skifter kalenderen mens løpet
+  står på, er radene datert i går mens appen med rette tegner i dag. Pinn
+  derfor klokka midt på dagen når konteksten lages — `clock.install` på et
+  lokalt kl. 12, og `clock.resume()` rett etter, så timerne (synk,
+  nedtellinger, toaster) fortsatt måles på ekte tid. Midnatt er da tolv timer
+  unna uansett når suiten startes.
+
+Sonen OG pinningen står ett sted per fil, og kontekstene lages gjennom den
+samme fabrikken (`nySide` i `notif-modal.test.js`), slik at et nytt løp verken
+kan komme inn med sin egen sone eller uten pinnet klokke. `HUSKIS_TZ`
+overstyrer sonen:
+
+```bash
+HUSKIS_TZ=Etc/GMT+8 NODE_PATH=$(npm root -g) node tests/notif-modal.test.js
+```
+
+Et løp som SKAL over midnatt pinner et annet klokkeslett og spoler forbi
+(`clock.fastForward`). Vil du vise at pinningen virker fra en rigg som står
+rett før midnatt — eller at kalenderregningen tåler en sommertidsovergang — må
+klokka simuleres, ikke ventes på: `nySide` tar en `rigg`-parameter nettopp for
+det (et klokkeslett i dag, eller et absolutt øyeblikk for en bestemt dato), og
+`notif-modal.test.js` (18 og 19) er mønsteret. Bevis som bare hviler på å kjøre
+i mange tidssoner er ikke nok; de er avhengige av hva klokka tilfeldigvis er.
+
+Og en hjelper som fiksturen bruker, skal testes gjennom SEG SELV — ikke ved at
+testen skriver om det samme uttrykket. Skrives det om, slipper en feil i
+hjelperen unna.
+
 ## Konvensjoner i testfilene
 
 - Kommentarblokk øverst: nummerert liste over hva filen dekker, og en
