@@ -10065,13 +10065,31 @@
      — begge deler kan kjøre før kanal-seksjonen lenger nede er nådd. */
   let notifChState = 'unsupported';
   let notifChBusy = false;   // ett tillatelsesforsøk om gangen
-  /* Bumpes hver gang varseltilstanden nullstilles — inn- og utlogging,
-     kontobytte. Et kanalkall som allerede var i LUFTA da det skjedde, bærer
-     den forrige kontoens svar, og et `revoked` derfra ville rigget ned den
-     NYE kontoens kanal: avlyst alarmene på telefonen og slått av bryteren på
-     enheten, for et valg ingen tok på denne kontoen. Samme grep som
-     `devicesEpoch` bruker for enhetslistene. */
+  /* GYLDIGHETEN TIL ET SVAR SOM ER I LUFTA.
+
+     Et kanalkall er et nettverkskall, og tilstanden det gjaldt kan ha blitt en
+     annen mens vi ventet. To ting gjør et svar foreldet, og de er ikke det
+     samme:
+
+       · IDENTITETEN byttet — inn- og utlogging, kontobytte. Svaret bærer den
+         forrige brukerens tilstand.
+       · VILJEN byttet — brukeren rørte bryteren. Et `revoked` som ble utstedt
+         FØR trykket ville da slått av nettopp det hun akkurat slo på.
+
+     Begge bumper den samme telleren, fordi begge betyr det samme for et svar
+     som ennå ikke har landet: det gjelder en tilstand som ikke finnes lenger.
+     Uten den andre halvdelen holder det med et raskt AV/PÅ for at en gammel
+     runde skal rive ned det nye valget. Samme grep som `devicesEpoch` bruker
+     for enhetslistene. */
   let notifEpoch = 0;
+  /* … og INNENFOR én epoke: rekkefølgen mellom to runder som er i lufta
+     samtidig. En tvungen runde (doc-signalet) og pulsen kan overlappe, og da
+     skal den ELDSTE ikke få skrive markøren sist — den ville sagt at kanalen
+     er meldt med en status som er overkjørt, og dempet den neste runden på
+     et foreldet grunnlag. `notifNativeSeq` teller runder som er startet,
+     `notifNativeDone` den ferskeste som har fått lov å skrive. */
+  let notifNativeSeq = 0;
+  let notifNativeDone = 0;
 
   /* Enhetens tidssone, slik plattformen selv navngir den. Terskeltidene er
      absolutte millisekunder regnet ut av `timeMs()` fra lokal veggtid, så de
@@ -11860,8 +11878,9 @@
       if (merke === notifPushMark && Date.now() - notifPushMarkAt < PUSH_RENEW_MS) return;
       const epoke = notifEpoch;
       const svar = await this.register(sub);
-      // Byttet kontoen mens vi ventet, hører svaret til den FORRIGE brukeren —
-      // og et `revoked` derfra ville rigget ned den nye kontoens kanal.
+      /* Byttet kontoen — eller brukerens valg — mens vi ventet, gjelder svaret
+         en tilstand som ikke finnes lenger, og et `revoked` derfra ville rigget
+         ned kanalen hun akkurat slo på. */
       if (epoke !== notifEpoch) return;
       notifPushMark = merke;
       notifPushMarkAt = Date.now();
@@ -11918,15 +11937,22 @@
     if (!eksplisitt && merke === notifNativeMark &&
         Date.now() - notifNativeMarkAt < PUSH_RENEW_MS) return;
     const d = clientDescriptor();
+    /* Hvem denne runden gjelder, lest FØR kallet: identiteten og viljen
+       (`notifEpoch`), og rundens egen plass i køen (`runde`). */
     const epoke = notifEpoch;
+    const runde = ++notifNativeSeq;
+    // Er svaret fortsatt verdt noe når det lander? Nei hvis kontoen eller
+    // brukerens valg har endret seg siden vi spurte, og nei hvis en NYERE
+    // runde alt har svart — da er dette svaret det utdaterte av de to.
+    const gjelder = () => epoke === notifEpoch && runde > notifNativeDone;
     try {
       const { data, error } = await client.rpc('native_notif_touch', {
         p_enabled: på, p_browser: d.browser, p_platform: d.platform,
         p_origin: d.origin, p_device_id: d.deviceId, p_explicit: eksplisitt,
       });
       if (error) throw error;
-      // Byttet kontoen mens vi ventet, hører svaret til den FORRIGE brukeren.
-      if (epoke !== notifEpoch) return;
+      if (!gjelder()) return;
+      notifNativeDone = runde;
       notifNativeMark = merke;
       notifNativeMarkAt = Date.now();
       notifNativeRetryAt = 0;
@@ -11937,9 +11963,11 @@
         await notifChannelRevokedHere();
       }
     } catch (e) {
-      // Stille: neste runde prøver igjen, med en pause så en server som
-      // nettopp sa nei ikke blir spurt hvert femte sekund. Merket står urørt.
-      notifNativeRetryAt = Date.now() + NOTIF_RETRY_MS;
+      /* Stille: neste runde prøver igjen, med en pause så en server som nettopp
+         sa nei ikke blir spurt hvert femte sekund. Merket står urørt — og en
+         feil fra en runde som ikke gjelder lenger skal ikke pålegge den NYE
+         tilstanden en pause den ikke har fortjent. */
+      if (gjelder()) notifNativeRetryAt = Date.now() + NOTIF_RETRY_MS;
     }
   }
 
@@ -12104,6 +12132,11 @@
     const ch = notifChannel();
     if (!ch || notifChBusy) return;
     notifChBusy = true;
+    /* BRUKEREN HAR SAGT FRA, og det gjelder fra nå. Alt som allerede er i lufta
+       ble utstedt om en vilje som ikke er hennes lenger — et `revoked` fra en
+       runde som startet før trykket skal ikke få slå av det hun nettopp slo på.
+       Bumpes FØR tillatelsesdialogen, som kan stå oppe en stund. */
+    notifEpoch++;
     // Optimistisk maling: systemdialogen kan stå oppe en stund, og bryteren
     // skal ikke se død ut imens.
     notifChState = on ? 'on' : 'off';
@@ -18960,8 +18993,10 @@
     planNotifications, nativeNotifId, nativeNotifSig, notifWallClock, deviceTz,
     notifChannel, setNotifChannel, syncNotifChannel, refreshNotifChannelState,
     // Den native kanalens status på serveren (docs/varsler.md, «Android i
-    // enhetslisten») — testene kjører runden uten å vente ut kvarteret.
+    // enhetslisten») — testene kjører runden uten å vente ut kvarteret, og
+    // leser markøren for å se at et gammelt svar ikke overskrev et nyere.
     syncNativeNotifDevice,
+    get notifNativeMark() { return notifNativeMark; },
     // Enheter og økter (docs/accounts.md) — oppsett og inspeksjon i tester.
     pushDeployAllowed, deployKind, pushPreviewBlocked,
     clientBrowser, clientPlatform, clientOriginHost,

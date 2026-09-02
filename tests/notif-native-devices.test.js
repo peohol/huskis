@@ -36,6 +36,10 @@
      9. Utlogging tar varselstatusen med seg — og alarmene.
     10. Et statussvar som lander ETTER et kontobytte forkastes: et «slått av»
         fra forrige konto skal ikke rigge ned den nye kontoens kanal.
+    11. … og det samme når VILJEN endrer seg i stedet for identiteten: et
+        «slått av» som ble utstedt før brukeren trykket «slå på», skal ikke
+        rive ned det hun nettopp slo på — i BEGGE rekkefølger, både når det
+        gamle svaret lander før og etter brukerens eget.
 
   Kjør:
     python3 -m http.server 8000                        # fra repo-roten, i egen terminal
@@ -153,7 +157,8 @@ function fakePlattform() {
   const q = new URLSearchParams(location.search);
   const ch = q.get('ch');
   window.__kanal = { schedule: [], cancel: [], pending: [], alarmer: [],
-    perm: q.get('perm') || 'granted', spurt: 0, kall: {}, broKall: 0, hold: null };
+    perm: q.get('perm') || 'granted', spurt: 0, kall: {}, broKall: 0,
+    hold: null, holdAlle: null, holdt: [] };
 
   Object.defineProperty(navigator, 'userAgentData', { value: undefined, configurable: true });
 
@@ -174,10 +179,25 @@ function fakePlattform() {
         c.rpc = function (navn, params) {
           window.__kanal.kall[navn] = (window.__kanal.kall[navn] || 0) + 1;
           const svar = ekte(navn, params);
-          if (window.__kanal.hold === navn) {
-            window.__kanal.hold = null;
+          /* `holdAlle` holder HVERT kall med dette navnet, ikke bare det neste.
+             Uten det kan en poll-runde snike seg inn og fullføre midt i et
+             kappløp testen setter opp — og da måler den noe annet enn den tror. */
+          if (window.__kanal.hold === navn || window.__kanal.holdAlle === navn) {
+            if (window.__kanal.hold === navn) window.__kanal.hold = null;
             return new Promise((slipp) => {
-              window.__kanal.slippSvar = () => svar.then(slipp);
+              /* Køen, ikke ett svar: rekkefølgen mellom to kall som er i lufta
+                 SAMTIDIG er nettopp det del 11 måler, og da må testen kunne
+                 holde begge og slippe dem i den rekkefølgen den vil.
+                 `slippSvar` slipper det eldste — som før, for del 10. */
+              window.__kanal.holdt.push(() => svar.then(slipp));
+              window.__kanal.slippSvar = () => {
+                const f = window.__kanal.holdt.shift();
+                return f ? f() : Promise.resolve();
+              };
+              // Slipp alt som står i kø, i rekkefølge.
+              window.__kanal.slippAlle = async () => {
+                while (window.__kanal.holdt.length) await window.__kanal.slippSvar();
+              };
             });
           }
           return svar;
@@ -645,6 +665,163 @@ const omTiDager = (p) => p.evaluate(() => {
         vil: window.__huskis.notifChannelWanted(), revoked: window.__huskis.pushRevokedHere }))));
 
     log('10: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
+    await ctx.close();
+  }
+
+  /* ====== Del 11: et gammelt svar som lander etter et NYERE eksplisitt PÅ ====== */
+  /* Kontobytte er ikke den eneste måten et statussvar kan bli foreldet på.
+     Brukeren kan ha rørt bryteren mens kallet var i lufta — og et `revoked`
+     som ble utstedt FØR trykket ville da slått av nettopp det hun akkurat slo
+     på, uten at noen bytter konto. Det er den samme klassen feil som del 10,
+     men med VILJEN som endrer seg i stedet for identiteten. */
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 780 },
+      userAgent: AND_UA });
+    const p = await ctx.newPage();
+    const feil = [];
+    p.on('pageerror', (e) => feil.push(String(e)));
+    await ctx.addInitScript(fakePlattform);
+    const URL_A = BASE + '/?mock=1&ch=native';
+    await p.goto(URL_A);
+    const due = await omTiDager(p);
+    await seed(p, URL_A, buildDB(due, { web: true, appØkt: true }), SESS_APP,
+      { 'mine-lister-device': 'd-app' });
+    await p.evaluate(() => window.__huskis.setNotifChannel(true));
+    await p.waitForFunction(() => window.__kanal.alarmer.length > 0, null, { timeout: 10000, polling: 100 });
+
+    // En annen enhet slår av. Neste statusrunde vil svare `revoked`.
+    await p.evaluate(async () => {
+      const c = window.HK_MOCK.createClient();
+      const liste = (await c.rpc('list_my_devices', { p_endpoint: null,
+        p_device_id: 'd-annen', p_origin: 'localhost' })).data;
+      const rad = (liste.push || []).find((x) => x.kind === 'native');
+      await c.rpc('native_notif_revoke', { p_id: rad.id });
+    });
+
+    /* BEGGE REKKEFØLGENE, som i `test-push-race.sh`. Den ordinære runden og det
+       eksplisitte trykket er i lufta SAMTIDIG, og hvem som svarer først skal
+       ikke avgjøre utfallet — brukerens valg skal vinne uansett.
+
+       Rekkefølge 1: det GAMLE svaret lander FØRST, mens det eksplisitte kallet
+       fortsatt henger. Da finnes det ingen nyere runde å sammenligne med, og
+       det er bare epoken — bumpet i det brukeren trykket — som kan skille dem. */
+    /* HVERT statuskall holdes nå, ikke bare det neste. Da kan ingen poll-runde
+       fullføre i bakgrunnen og gjøre kappløpet til noe annet enn det testen
+       setter opp — og når det gamle svaret slippes, finnes det GARANTERT ingen
+       nyere runde som har svart. Da er epoken det eneste som kan skille dem. */
+    await p.evaluate(async () => {
+      window.__kanal.holdAlle = 'native_notif_touch';
+      window.__huskis.cloudCycle();                  // runde 1: den ordinære
+      await new Promise((r) => setTimeout(r, 150));  // … fram til RPC-en
+      window.__huskis.setNotifChannel(true);         // runde 2: brukerens trykk
+    });
+    await p.waitForFunction(() => window.__kanal.holdt.length >= 2,
+      null, { timeout: 10000, polling: 50 });
+    log('11a: begge kallene er i lufta samtidig — det gamle og brukerens eget',
+      (await p.evaluate(() => window.__kanal.holdt.length)) >= 2 &&
+      (await p.evaluate(() => window.__huskis.notifChannelWanted())) === true,
+      await p.evaluate(() => window.__kanal.holdt.length));
+
+    // Slipp det GAMLE først. Det bærer `revoked: true` fra før trykket.
+    await p.evaluate(async () => { await window.__kanal.slippSvar(); });
+    await p.waitForTimeout(400);
+    log('11b: det gamle «slått av»-svaret river IKKE ned det brukeren nettopp slo på',
+      (await p.evaluate(() => window.__huskis.notifChannelWanted())) === true &&
+      (await p.evaluate(() => window.__huskis.pushRevokedHere)) === false,
+      JSON.stringify(await p.evaluate(() => ({
+        vil: window.__huskis.notifChannelWanted(), revoked: window.__huskis.pushRevokedHere }))));
+    log('11c: … alarmene står urørt på telefonen',
+      (await p.evaluate(() => window.__kanal.alarmer.length)) > 0,
+      await p.evaluate(() => window.__kanal.alarmer.length));
+
+    // … og så brukerens eget kall, som skal gjøre nøyaktig det hun ba om.
+    await p.evaluate(async () => {
+      window.__kanal.holdAlle = null;
+      await window.__kanal.slippAlle();
+    });
+    await p.waitForFunction(() => {
+      const r = (window.HK_MOCK._loadDB().native_notif_devices || [])[0];
+      return r && !r.revoked_at && r.enabled === true;
+    }, null, { timeout: 10000, polling: 100 }).catch(() => {});
+    const d11 = await dbOf(p);
+    log('11d: … og det eksplisitte valget står igjen: avslåingen er opphevet',
+      !!natRad(d11, 'd-app') && natRad(d11, 'd-app').enabled === true &&
+      natRad(d11, 'd-app').revoked_at == null, JSON.stringify(natRad(d11, 'd-app')));
+
+    /* Rekkefølge 2: det NYE svaret lander først, det gamle etterpå. Her er det
+       rundenummeret som skiller dem — epoken er den samme for begge, siden
+       trykket kom før begge kallene. */
+    await p.evaluate(async () => {
+      const c = window.HK_MOCK.createClient();
+      const liste = (await c.rpc('list_my_devices', { p_endpoint: null,
+        p_device_id: 'd-annen', p_origin: 'localhost' })).data;
+      const rad = (liste.push || []).find((x) => x.kind === 'native');
+      await c.rpc('native_notif_revoke', { p_id: rad.id });
+    });
+    await p.evaluate(() => { window.__kanal.hold = 'native_notif_touch'; });
+    await p.evaluate(() => { window.__huskis.cloudCycle(); });
+    await p.waitForFunction(() => window.__kanal.holdt.length === 1,
+      null, { timeout: 10000, polling: 50 });
+    // Den NYERE runden går helt fram mens den gamle henger.
+    await p.evaluate(() => window.__huskis.setNotifChannel(true));
+    await p.waitForFunction(() => {
+      const r = (window.HK_MOCK._loadDB().native_notif_devices || [])[0];
+      return r && !r.revoked_at && r.enabled === true;
+    }, null, { timeout: 10000, polling: 100 });
+    await p.evaluate(async () => { await window.__kanal.slippSvar(); });
+    await p.waitForTimeout(400);
+    const d11b = await dbOf(p);
+    log('11e: motsatt rekkefølge — det gamle svaret som lander SIST blir også forkastet',
+      (await p.evaluate(() => window.__huskis.notifChannelWanted())) === true &&
+      (await p.evaluate(() => window.__huskis.pushRevokedHere)) === false &&
+      (await p.evaluate(() => window.__kanal.alarmer.length)) > 0,
+      JSON.stringify(await p.evaluate(() => ({
+        vil: window.__huskis.notifChannelWanted(),
+        revoked: window.__huskis.pushRevokedHere,
+        alarmer: window.__kanal.alarmer.length }))));
+    log('11f: … og serverstatusen er fortsatt PÅ, ikke avslått',
+      !!natRad(d11b, 'd-app') && natRad(d11b, 'd-app').enabled === true &&
+      natRad(d11b, 'd-app').revoked_at == null, JSON.stringify(natRad(d11b, 'd-app')));
+
+    /* … og den siste halvdelen: to runder i SAMME epoke, altså uten at
+       brukeren har rørt bryteren. Da kan ikke epoken skille dem, og det er
+       rundenummeret som må sørge for at den eldste ikke skriver markøren sist.
+       Markøren er det dempingen leser: sto den igjen på et overkjørt svar,
+       ville neste runde blitt vurdert på feil grunnlag.
+
+       `setNotifChannelWanted` flyttes direkte, uten bryteren — nettopp for å
+       få to runder med ULIK status innenfor én epoke. */
+    await p.evaluate(async () => {
+      window.__kanal.holdAlle = 'native_notif_touch';
+      /* `explicit` bare for å komme forbi dempingen — to runder rett etter
+         hverandre med samme status ville ellers blitt til én. Poenget her er
+         rekkefølgen, ikke hva som utløste rundene. */
+      window.__huskis.setNotifChannelWanted(true);
+      window.__huskis.syncNativeNotifDevice({ explicit: true });   // eldste: «on»
+      await new Promise((r) => setTimeout(r, 150));
+      window.__huskis.setNotifChannelWanted(false);
+      window.__huskis.syncNativeNotifDevice({ explicit: true });   // nyeste: «off»
+    });
+    await p.waitForFunction(() => window.__kanal.holdt.length === 2,
+      null, { timeout: 10000, polling: 50 });
+    // Den NYESTE slippes først, den eldste etterpå.
+    await p.evaluate(async () => {
+      const nyest = window.__kanal.holdt.splice(1, 1)[0];
+      await nyest();
+    });
+    await p.waitForTimeout(200);
+    const merkeFør = await p.evaluate(() => window.__huskis.notifNativeMark);
+    await p.evaluate(async () => {
+      window.__kanal.holdAlle = null;
+      await window.__kanal.slippAlle();
+    });
+    await p.waitForTimeout(200);
+    const merkeEtter = await p.evaluate(() => window.__huskis.notifNativeMark);
+    log('11g: den nyeste runden satte markøren', merkeFør === 'off', merkeFør);
+    log('11h: … og det eldre svaret som landet etterpå overskrev den IKKE',
+      merkeEtter === 'off', JSON.stringify({ før: merkeFør, etter: merkeEtter }));
+
+    log('11: ingen JS-feil i konsollen', feil.length === 0, feil.join(' | '));
     await ctx.close();
   }
 

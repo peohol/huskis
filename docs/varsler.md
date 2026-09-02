@@ -1103,13 +1103,27 @@ for å spørre om tillatelsen, for bryteren i `localStorage` avgjør allerede at
 kanalen er av. Og signalet over nullstiller bare dempingen så lenge klienten og
 serveren er UENIGE; er nedriggingen alt gjort, står runden stille igjen.
 
-**Et svar som lander etter et kontobytte forkastes.** Statusrunden er et
-nettverkskall, og en utlogging kan rekke å skje mens det er i lufta. Et
-`revoked` fra den FORRIGE kontoen ville ellers avlyst den nye kontoens alarmer
-og slått av bryteren på enheten, for et valg ingen tok der. Både denne runden og
-web push-fornyelsen leser derfor en epoke før kallet og forkaster svaret hvis
-varseltilstanden er nullstilt i mellomtiden — samme grep som enhetslistene
-bruker.
+**Et svar som lander for sent gjelder ikke lenger.** Statusrunden er et
+nettverkskall, og tilstanden det gjaldt kan ha blitt en annen mens vi ventet. To
+ting gjør et svar foreldet, og de er ikke det samme:
+
+| Hva som endret seg | Eksempel | Hva et gammelt svar ville gjort |
+|---|---|---|
+| **identiteten** | utlogging, kontobytte | et `revoked` fra forrige konto avlyser den NYE kontoens alarmer |
+| **viljen** | brukeren trykket «slå på» | et `revoked` utstedt før trykket river ned det hun nettopp slo på |
+
+Begge bumper den samme epoken (`notifEpoch`), som leses FØR kallet og
+sammenlignes når svaret lander. Den andre halvdelen er ikke en detalj: uten den
+holder det med et raskt AV/PÅ for at en gammel runde skal overstyre valget.
+Epoken bumpes derfor i det bryteren trykkes — før tillatelsesdialogen, som kan
+stå oppe en stund — og web push-fornyelsen leser den samme epoken.
+
+**Og innenfor én epoke: rekkefølgen.** To runder kan være i lufta samtidig (en
+tvungen runde fra doc-signalet og pulsen), og den eldste skal ikke få skrive
+markøren sist — den ville sagt at kanalen er meldt med en status som er
+overkjørt, og dempet den neste runden på et foreldet grunnlag. Hver runde får
+derfor et nummer, og bare et svar som er nyere enn det sist anvendte får skrive.
+Rekkefølgen svarene kommer i er dermed uten betydning: den ferskeste vinner.
 
 **En app som ikke har varsler på, får ingen rad.** Runden går fra hver
 innlogging på hver Android-enhet, også de som aldri slår varslene på; uten den
