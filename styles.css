@@ -703,16 +703,39 @@ body {
 
 /* ---------------- Ikoner (SVG, se icons.js/index.html) ----------------
    Fargelagt ikonsett: strekene er SVARTE (stroke="#111", hardkodet i SVG-ene,
-   ikke lenger currentColor) og flatene fylles med hvit + palettfarger der
-   motivet tilsier det (fargekart i icons.js / docs/design-system.md). Størrelse
-   arves fortsatt fra font-size på forelder. Unntak som beholder currentColor:
-   knappe-glyfene (.btn-glyph, hvite på massiv fargeknapp) og avkryssings-haken
-   (.item-check .icon), begge rene glyfer på massive fargeknapper. */
+   ikke lenger currentColor) og flatene fylles med hvit + egne motivfarger der
+   motivet tilsier det — kun et fåtall ikoner (globus, logo, kontoikon/kamera/
+   hånd-opp) beholder appens kortfarger med vilje (fargekart i icons.js /
+   docs/design-system.md). Størrelse arves fortsatt fra font-size på forelder.
+   Unntak som beholder currentColor: knappe-glyfene (.btn-glyph, hvite på
+   massiv fargeknapp) og avkryssings-haken (.item-check .icon), begge rene
+   glyfer på massive fargeknapper. */
 .icon {
   display: block;
   flex: 0 0 auto;
   width: 1em;
   height: 1em;
+}
+
+/* Pinner --icon-paper (og --icon-grey, ubrukt av kalenderen selv, men med for
+   å matche .btn-solid/.event-icon-mønsteret) til den LYSE verdien i BEGGE
+   drakter — samme grep som .btn-solid/.event-icon (docs/mork-drakt.md →
+   «Ikonene snur uten at en eneste SVG endres»), men her fordi MOTIVET selv er
+   fargekontrakten: et ikon som forestiller papir (kalenderen) skal ikke bli
+   en mørk klatt i mørk drakt — papir er hvitt uansett hvor mørkt rommet er.
+   --icon-ink pinnes IKKE her: i lys drakt er den allerede #111111 (samme
+   sluttresultat), men i mørk drakt overstyres den rett under til hvit, slik
+   at streken smelter sammen med det pinnede hvite papiret i stedet for å stå
+   som en mørk kant på det — kanten på selve platen mot den mørke bakgrunnen
+   er kontrasten som definerer formen der, ikke en indre strek. Custom
+   properties arver, så pinningen dekker hele ikonet fra denne ene klassen på
+   <svg>-elementet selv, ingen ekstra selektor per barn. */
+.icon-pin-light {
+  --icon-paper: #ffffff;
+  --icon-grey: #c0c4c9;
+}
+:root[data-theme="dark"] .icon-pin-light {
+  --icon-ink: #ffffff;
 }
 
 /* ---------------- Berøringsflate på ikonknappene ----------------

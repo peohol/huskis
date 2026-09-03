@@ -167,16 +167,37 @@ på de to mørke er den lyse streken en **forbedring** (blågrønt 3,90 →
 3,95/5,54, rødt 3,52 → 4,38/5,56), mens de fire lyse — gul, grønn, lilla, blå —
 pinnes mørke. Gult er det tydeligste tilfellet: 1,47:1 med lys strek mot
 10,48:1 med mørk. Samme regel som `.btn-yellow`: en lys flate bærer mørke
-merker. Streken og «papiret» pinnes **sammen**: kalender- og klokkeikonene har
-en hvit flate under strekene, og med bare streken pinnet ville mørk strek møtt
+merker. Streken og «papiret» pinnes **sammen** — ellers ville mørk strek møtt
 mørkt papir og ikonet blitt en ulesbar klatt.
 
-**Palettfyllene i ikonene** (globusens felter, mappene i logoen, bjellas gull,
-kalenderens røde topp, søkelinsa, sol/måne) står uendret i begge drakter. De er
-den lyse palettens sett (S=20 %, L=60 — sol/måne L=75) og leser godt mot mørk
-flate; skiftet til den mørke rekka ville gjort ikonene grumsete uten å vinne
-noe. Det gjelder også draktknappens eget ikon: skiven og halvmånen er lysegule
-i begge drakter, ikke «papir» som snur.
+**Kalenderikonet** (`calendar`/`calendarDue`) er et tredje slag pinning,
+`.icon-pin-light`: her er det MOTIVET, ikke en flate under det, som er
+kontraktsfargen — et papirark er hvitt uansett hvor mørkt rommet er, så
+kalenderens hvite flate skal IKKE snu med drakten, i motsetning til
+klokkeikonets (som følger drakten som alle andre ikoner uten denne klassen).
+Streken derimot går MED drakten, men ulikt: `.icon-pin-light` pinner kun
+`--icon-paper` (+ `--icon-grey`, ubrukt her) til hvit i begge drakter;
+`--icon-ink` pinnes IKKE i den regelen, så i lys drakt er den fortsatt det
+vanlige `#111111` (rammen/streken leser som en strektegning på hvitt papir),
+mens en egen `:root[data-theme="dark"] .icon-pin-light`-regel overstyrer den
+til hvit i mørk drakt. Resultatet: hvitt papir + svart strek i lys drakt
+(vanlig kalender), hvitt papir + hvit strek i mørk drakt — streken smelter
+sammen med det pinnede papiret, og formen leser i stedet mot den mørke
+bakgrunnen rundt, som en helhvit plate med rød/oransje topp. Custom
+properties arver, så pinningen dekker hele ikonet fra klassen på selve
+`<svg>`-elementet, ingen ekstra selektor per barn.
+
+**Ikonfyllene** — nå for det meste egne motivfarger (manila-tan mappe,
+blyantgul, messing-gult bjelle, terrakotta kalendertopp, søkeblå linse,
+sol-oransje/himmelblå sol/måne osv.) og for et par ikoner fortsatt palettens
+kortfarger (globusens felter, mappene i logoen, kontoikonet/kamera/hånd-opp —
+se `design-system.md` → «Fargekart» for hvilket som er hvilket — står ALLE
+uendret i begge drakter. Motivfargene er valgt til å lese godt mot mørk flate
+på egen hånd (ikke avledet fra et L-sett); palettfyllene er fortsatt den lyse
+palettens sett (S=20 %, L=60). Skiftet til den mørke rekka ville gjort
+ikonene grumsete uten å vinne noe. Draktknappens eget ikon er et eksempel på
+en motivfarge: sola er oransje, halvmånen himmelblå — to ulike, faste farger,
+ikke «papir» som snur.
 
 ## Palettfargene: samme tone, speilet lyshet
 
