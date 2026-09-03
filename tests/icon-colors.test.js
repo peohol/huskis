@@ -58,7 +58,7 @@ const PALETTE = ['#ad8585', '#adad85', '#85ad85', '#85adad', '#8585ad', '#ad85ad
 /* De nye, ikke-palettbundne motivfargene (docs/design-system.md → «Fargekart»). */
 const BJELLE = '#c99a3f';       // messing-gull
 const KALENDER_ROD = '#c96b45'; // kalenderens øverste felt, terrakotta
-const SOKELINSE = '#4f8fce';    // søkeblå
+const SOKELINSE = '#6fa8e0';    // søkeblå
 const SOL = '#f0a83a';          // sol-oransje
 const MAANE = '#9db3d9';        // himmelblå
 const MAPPE = '#c9a06a';        // manila-tan

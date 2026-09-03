@@ -193,7 +193,7 @@ menyprikker) er uendret, `#c0c4c9`. Ingen av fyllene inverteres mellom drakter
 | Mappe (`folder`, og mappa nedskalert inn i `groupCategory`) | varm manila-tan `#c9a06a` |
 | Liste | hvit flate, svarte punkter/linjer |
 | Listepunkt (item) | hvit plate, svart punkt + linje — samme motiv som lista, én rad i stedet for tre |
-| Forstørrelsesglass (søk) | linsen klar «søkeblå» `#4f8fce`, skaftet kun strek |
+| Forstørrelsesglass (søk) | linsen klar «søkeblå» `#6fa8e0`, skaftet kun strek |
 | Varseltrekant (alert) | trekanten hvit, utropstegnet svart |
 | Start/påbegynt (play) | urskive hvit, trekanten svart — bevisst IKKE en hake |
 | Øye (vis) | hornhinne hvit, pupill svart |
