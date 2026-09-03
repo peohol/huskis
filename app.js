@@ -18258,6 +18258,11 @@
     // — men ingenting av forrige brukers synk-tilstand skal ligge igjen i minnet
     // og bli lest som historikk for den neste som logger inn.
     resetLocalSync();
+    // Idélisten tegnes kun når modalen åpnes, så uten dette ville den utloggede
+    // kontoens idéer blitt liggende i DOM-en (skjult, men der) til noen åpnet
+    // modalen igjen. Board-et bygges av `render()` ved neste innlogging;
+    // idéene har ingen slik vei, og ryddes derfor her.
+    renderIdeas();
     document.body.classList.add('no-auth');
     authScreen.hidden = false;
     setAuthMode('login');
@@ -18274,7 +18279,16 @@
     // Lukk evt. åpne modaler — de tilhørte den utloggede sesjonen. Demoen
     // avsluttes uten å lagre noe: den hører til kontoen som nettopp logget ut.
     resetTourState();
-    closeNavModal(); closeAccount(); closeAvatarEditor();
+    /* HELE stigen, ikke en håndplukket liste. `body.no-auth` skjuler bare
+       toppmenyen, board-et og hjørneknappene — en modal er en overlay OVER
+       innloggingsskjermen, og en som ble stående igjen viste den utloggede
+       kontoens innhold til noen lukket den. Håndplukkingen tok nav-, konto- og
+       avatarmodalen; søk, hendelser, varsler og idéer sto igjen. Stigen kjenner
+       hvert lag som finnes (`closeTopLayer`), og et nytt lag blir dermed dekket
+       av å bli lagt inn DER — ikke av å bli husket her. Taket er ikke fordi
+       stigen kan være uendelig, men fordi ingen løkke over en tilstand andre
+       kan endre skal være det. */
+    for (let i = 0; i < 16 && closeTopLayer(false); i++) { /* tøm stigen */ }
   }
 
   // Dyplenke fra en delings-e-post til en UREGISTRERT mottaker: ?signup=<e-post>

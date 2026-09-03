@@ -22,6 +22,9 @@
         (kassen vises fram av draget, som på de andre nivåene).
      7. Idéene er KONTOENS: bytter man mappe eller område, står de samme idéene
         der. De skrives dessuten til `ideas`-tabellen, ikke til `items`.
+     8. Utloggingen etterlater INGEN åpen overlay og ingen av kontoens idéer i
+        DOM-en. `body.no-auth` skjuler bare toppmenyen, board-et og
+        hjørneknappene — en modal ligger OVER innloggingsskjermen.
 
   Kjøres i BEGGE viewportene: dra-og-slipp avhenger av pekertype (mus =
   avstand, touch = trykk-og-hold), og modalens bredde avgjør hvor teksten
@@ -312,6 +315,30 @@ async function run(label, viewport, touch) {
   });
   log(label + ': ingen idé havnet blant listepunktene',
     !itemsTekster.some((t) => t === 'Kjøpe blomster' || t === 'Bokser'), JSON.stringify(itemsTekster));
+
+  /* ---- 8. Utloggingen etterlater ingenting av kontoen på skjermen ----
+     `body.no-auth` skjuler bare toppmenyen, board-et og hjørneknappene. En
+     modal er en overlay OVER innloggingsskjermen, så en som ble stående igjen
+     viste den utloggede kontoens innhold til noen lukket den. Påstanden er
+     derfor generell — INGEN overlay overlever utloggingen — og ikke bare om
+     idémodalen: et nytt lag skal være dekket av å ligge i `closeTopLayer`.
+     Modalen står allerede åpen fra 7 — det er nettopp tilstanden som skal
+     rives ned. */
+  const synligeIdéer = await p.$$eval('#ideas-list .item-text', (els) => els.map((e) => e.textContent));
+  log(label + ': idémodalen står åpen med innhold før utloggingen',
+    synligeIdéer.length > 0, JSON.stringify(synligeIdéer));
+  await p.evaluate(() => window.__huskis.logout());
+  await p.waitForFunction(() => document.body.classList.contains('no-auth'), null, { timeout: 8000, polling: 100 });
+  await p.waitForTimeout(300);
+  const etterUtlogging = await p.evaluate(() => ({
+    åpne: [...document.querySelectorAll('.modal-overlay, .switcher-overlay')]
+      .filter((o) => !o.hidden).map((o) => o.id || o.className),
+    idéerIDom: [...document.querySelectorAll('#ideas-list .item-text')].map((e) => e.textContent),
+  }));
+  log(label + ': ingen overlay overlever utloggingen',
+    etterUtlogging.åpne.length === 0, JSON.stringify(etterUtlogging.åpne));
+  log(label + ': ingen av den utloggede kontoens idéer ligger igjen i DOM-en',
+    etterUtlogging.idéerIDom.length === 0, JSON.stringify(etterUtlogging.idéerIDom));
 
   log(label + ': ingen JS-feil under hele løpet', jsFeil.length === 0, jsFeil.join(' | '));
 

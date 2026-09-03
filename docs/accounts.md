@@ -481,6 +481,14 @@ og ved **innlogging** leses alle tre fra den nye brukerens egen cache-post (elle
 nullstilles hvis den ikke finnes) — ingen del av forrige brukers synk-tilstand
 kan leses som historikk for den neste.
 
+**Og SKJERMEN ryddes med.** `body.no-auth` skjuler bare toppmenyen, board-et og
+hjørneknappene; en modal er en overlay OVER innloggingsskjermen, og en som ble
+stående igjen viste den utloggede kontoens innhold til noen lukket den.
+`cloudStop()` tømmer derfor HELE lag-stigen (`closeTopLayer` i løkke), ikke en
+håndplukket liste modaler — et nytt lag er dekket av å ligge i stigen. Idélisten
+(`docs/ideer.md`) tegnes i tillegg tom, siden den ellers først bygges på nytt
+når modalen åpnes igjen.
+
 **Render-vakt (`viewSignature`/`lastViewSig`)**: `applyMyDoc` river ned og
 bygger hele board-DOM-en (`render()`). `cloudCycle` kaller den derfor KUN når
 visningen faktisk endrer seg — en signatur over (flettet innhold + server-
