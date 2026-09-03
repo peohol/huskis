@@ -173,11 +173,19 @@ mørkt papir og ikonet blitt en ulesbar klatt.
 **Kalenderikonet** (`calendar`/`calendarDue`) er et tredje slag pinning,
 `.icon-pin-light`: her er det MOTIVET, ikke en flate under det, som er
 kontraktsfargen — et papirark er hvitt uansett hvor mørkt rommet er, så
-kalenderens hvite flate og svarte strek skal IKKE snu med drakten, i
-motsetning til klokkeikonets (som følger drakten som alle andre ikoner uten
-denne klassen). Samme grep som over — `--icon-ink`/`--icon-paper`/
-`--icon-grey` pinnes til sine lyse verdier på selve `<svg>`-elementet, og
-arver til alle barn.
+kalenderens hvite flate skal IKKE snu med drakten, i motsetning til
+klokkeikonets (som følger drakten som alle andre ikoner uten denne klassen).
+Streken derimot går MED drakten, men ulikt: `.icon-pin-light` pinner kun
+`--icon-paper` (+ `--icon-grey`, ubrukt her) til hvit i begge drakter;
+`--icon-ink` pinnes IKKE i den regelen, så i lys drakt er den fortsatt det
+vanlige `#111111` (rammen/streken leser som en strektegning på hvitt papir),
+mens en egen `:root[data-theme="dark"] .icon-pin-light`-regel overstyrer den
+til hvit i mørk drakt. Resultatet: hvitt papir + svart strek i lys drakt
+(vanlig kalender), hvitt papir + hvit strek i mørk drakt — streken smelter
+sammen med det pinnede papiret, og formen leser i stedet mot den mørke
+bakgrunnen rundt, som en helhvit plate med rød/oransje topp. Custom
+properties arver, så pinningen dekker hele ikonet fra klassen på selve
+`<svg>`-elementet, ingen ekstra selektor per barn.
 
 **Ikonfyllene** — nå for det meste egne motivfarger (manila-tan mappe,
 blyantgul, messing-gult bjelle, terrakotta kalendertopp, søkeblå linse,

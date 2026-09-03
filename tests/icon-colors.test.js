@@ -127,16 +127,22 @@ const LOVLIGE = new Set([
     (icons.match(ramme) || []).length === 2);
   check('kalenderrammen strekes opp etter fyllet (index.html)',
     (html.match(ramme) || []).length >= 2);
-  // Kalenderen er PINNET lys i begge drakter (papir er hvitt uansett rom) —
-  // ulikt de fleste andre hvite ikonflatene, som følger drakten. Se
+  // Kalenderens PAPIR er pinnet hvitt i begge drakter (papir er hvitt uansett
+  // rom) — ulikt de fleste andre hvite ikonflatene, som følger drakten. I
+  // mørk drakt går STREKEN i tillegg hvit (smelter sammen med det pinnede
+  // papiret; formen leser mot den mørke bakgrunnen i stedet). Se
   // docs/mork-drakt.md → «Kalenderikonet er et tredje slag pinning».
   const pinnetSvg = /<svg class="icon icon-pin-light" viewBox="0 0 24 24"[^>]*>/g;
   check('kalender-SVG-en bærer .icon-pin-light i icons.js',
     (icons.match(pinnetSvg) || []).length === 2);
   check('kalender-SVG-en bærer .icon-pin-light i index.html',
     (html.match(pinnetSvg) || []).length >= 2);
-  check('.icon-pin-light pinner --icon-ink/--icon-paper/--icon-grey til de lyse verdiene',
-    /\.icon-pin-light\s*\{[^}]*--icon-ink:\s*#111111;[^}]*--icon-paper:\s*#ffffff;[^}]*--icon-grey:\s*#c0c4c9;[^}]*\}/.test(css));
+  check('.icon-pin-light pinner --icon-paper til hvit i begge drakter (ikke --icon-ink der)',
+    /(?<!dark"\] )\.icon-pin-light\s*\{[^}]*--icon-paper:\s*#ffffff;[^}]*\}/.test(css) &&
+    !/(?<!dark"\] )\.icon-pin-light\s*\{[^}]*--icon-ink:/.test(css));
+  check('mørk drakt overstyrer kalenderens strek til hvit, IKKE papiret på nytt',
+    /:root\[data-theme="dark"\]\s*\.icon-pin-light\s*\{[^}]*--icon-ink:\s*#ffffff;[^}]*\}/.test(css) &&
+    !/:root\[data-theme="dark"\]\s*\.icon-pin-light\s*\{[^}]*--icon-paper:/.test(css));
 }
 
 /* ---- 3. Søkelinsa ---- */
