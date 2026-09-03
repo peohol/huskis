@@ -162,41 +162,57 @@ opprinnelig 1.5), viewBox 0 0 24 24, avrundede linjer/hjørner. Alle ikoner har
 klassen `.icon` (`width/height: 1em` — skalerer med `font-size` på listepunktet de
 limes inn i).
 
-**Fargekart** (fyllene er hardkodet hex som speiler palettens seks første farger,
-HSL S=20 % L=60 %: farge 1–6 = `#ad8585 #adad85 #85ad85 #85adad #8585ad #ad85ad`;
-grå = `#c0c4c9`). Ett fyll bruker palettens LYSE tone av samme farge (L=75, den
-andre verdien i det lyse L-settet — [`mork-drakt.md`](mork-drakt.md)): sol/måne
-= `#ccccb3` (farge 2 på L=75). Palettfyll står stille i begge drakter; kun
-`#ffffff`/`#c0c4c9`/`#111` snur:
+**Fargekart.** Fyllene er hardkodet hex, valgt PER IKONMOTIV — ikke lenger låst
+til appens seks kortfarger (HSL S=20 % L=60 %, `#ad8585 #adad85 #85ad85 #85adad
+#8585ad #ad85ad`). To familier av ikoner beholder likevel en delt farge, med
+vilje:
+
+- **Globus (område), Del/tre personer (delte) og logoen** bruker fortsatt
+  (deler av) de seks kortfargene — de er allerede internt flerfargede motiver
+  (flere felt/personer i ÉN tegning), så de lider ikke av «alt ser likt ut»-
+  problemet de andre ikonene hadde, og globusen/logoen er dessuten appens mest
+  gjenkjennelige merkevareelementer.
+- **Kontoikonet (person/`profile`) og alt som bevisst speiler DET** — kamera-
+  linsa (samme «dette handler om en person»-motiv) og hånd-opp-personen
+  (`handRaise`) — beholder palettens blågrønne `#85adad`. Grunnen er at
+  `--accent`/`--grad-accent` i `styles.css` («Kontrast-kontrakt») er AVLEDET av
+  nettopp denne fargen (mørknet til den bærer hvit tekst) — endres den,
+  mister Lagre/Inviter-knappene, bryterne og statuschipene sin forankring.
+
+Resten av ikonene har egne, ikke-palettbundne motivfarger — valgt for å ligne
+det de faktisk forestiller (manilamappe, blyant, gull-bjelle osv.) og for at
+beslektede-men-ulike motiver ikke skal dele nøyaktig samme fyll. Grå (søppel/
+menyprikker) er uendret, `#c0c4c9`. Ingen av fyllene inverteres mellom drakter
+(kun `#ffffff`/`#c0c4c9`/`#111` snur):
 
 | Ikon | Fyll |
 |---|---|
 | Globus (område) | de seks globusfeltene = palettfarge 1–6 |
-| Del (share) | stor sirkel farge 1, de to små farge 2 og 3 |
+| Del (share) / tre personer (delte) | stor/senter-person farge 1, de to andre farge 2 og 3 |
 | Søppelkasse (trash/trashSwipe) | kroppen grå |
-| Mappe | farge 2 (gulaktig mappefarge) |
+| Mappe (`folder`, og mappa nedskalert inn i `groupCategory`) | varm manila-tan `#c9a06a` |
 | Liste | hvit flate, svarte punkter/linjer |
 | Listepunkt (item) | hvit plate, svart punkt + linje — samme motiv som lista, én rad i stedet for tre |
-| Forstørrelsesglass (søk) | linsen farge 4 (lyseblå), skaftet kun strek |
+| Forstørrelsesglass (søk) | linsen klar «søkeblå» `#4f8fce`, skaftet kun strek |
 | Varseltrekant (alert) | trekanten hvit, utropstegnet svart |
 | Start/påbegynt (play) | urskive hvit, trekanten svart — bevisst IKKE en hake |
 | Øye (vis) | hornhinne hvit, pupill svart |
-| Person (mine) | hode + kropp farge 4 |
-| Tre personer (delte) | hver person farge 1 / 2 / 3 |
+| Person (mine) | hode + kropp palettens blågrønne `#85adad` (se «Kontrast-kontrakt» over) |
+| Klode (språkvelgeren) | ensfarget blågrønn-teal `#4a94a3` — egen tone fra kontoikonet og globusen, bevisst ulik begge |
 | Brev (e-postvarsel) | hvit |
 | Objektmeny (menuDots) | tre grå prikker med svart kontur |
-| Blyant (endre navn) | skaftet farge 2 |
+| Blyant (endre navn) | skaftet skarp blyantgul `#e8bd3e` |
 | Flytt (moveArrows) | ingen fyllflate — kun svarte streker |
-| Mappekategori (groupCategory) | venstre klamme (svart) + mappa fra `folder` (farge 2), nedskalert inn i klammen |
 | Oppløs (bubbleBurst) | ingen fyllflate — kun svarte streker |
 | Dør inn (login) | dørfeltet hvitt |
-| Hengelås | låst = farge 1, åpen = farge 3 |
-| Kalender (alle: starttid, frist, «Kommende hendelser», toppkontrollen) | hovedflaten hvit + det øverste feltet over topplinja rødt (farge 1) |
+| Hengelås | låst = klart rødt `#c15c56`, åpen = klart grønt `#5da172` |
+| Kalender (alle: starttid, frist, «Kommende hendelser», toppkontrollen) | hovedflaten hvit + det øverste feltet over topplinja terrakotta-rødt `#c96b45` |
 | Klokke | flate hvit |
-| Bjelle (varsler: toppkontrollen og varselmodalens tittel) | klokkeflaten farge 2 (gull); kolv og kant kun strek |
-| Sol/måne (draktknappen) | skiven/halvmånen lysegul (`#ccccb3`) |
-| Hånd-opp (ansvarlig) | person farge 4 |
-| Lyspære (introduksjon, konto-modalen, idéknappen) | pæra farge 2, sokkelen kun streker |
+| Bjelle (varsler: toppkontrollen og varselmodalens tittel) | klokkeflaten messing-gull `#c99a3f`; kolv og kant kun strek |
+| Sol/måne (draktknappen) | sol-oransje `#f0a83a` / himmelblå `#9db3d9` — to egne toner, ikke lenger samme farge |
+| Hånd-opp (ansvarlig) | person palettens blågrønne `#85adad` (samme som kontoikonet, se over) |
+| Lyspære (introduksjon, konto-modalen, idéknappen) | pæra bleik glødegul `#f0d772`, sokkelen kun streker |
+| Enheter (kontomodalens «Enheter og økter») | skjermen slate-blå `#7a90ab`, telefonen varm grå-tan `#a8967a` |
 
 Unntak som beholder `currentColor` (rene glyfer på massive fargeknapper):
 `.btn-glyph` (dør-ut på «Logg ut» og «Forlat», søppelkasse på «Slett konto» og

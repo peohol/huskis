@@ -8,15 +8,19 @@
    ikonsettet fra design-handoffen.
 
    FARGELAGT IKONSETT: alle streker er SVARTE (`stroke="#111"`, konsekvent —
-   ikke lenger currentColor), og flater fylles med hvit + appens fargepalett
-   der motivet tilsier det (se docs/design-system.md → «Fargelagte ikoner» for
+   ikke lenger currentColor), og flater fylles med hvit + egne motivfarger der
+   motivet tilsier det (se docs/design-system.md → «Fargelagte ikoner» for
    fargekartet og reglene). Rene funksjons-glyfer på massive fargeknapper
    (avkryssing/utlogging) beholder currentColor. Fyllfargene er hardkodet hex
-   fordi de speiler palettens seks første farger (HSL S=20 %, L=60 %): farge 1–6
-   = #ad8585 #adad85 #85ad85 #85adad #8585ad #ad85ad; grå (søppel/menyprikker) =
-   #c0c4c9. Sol/måne bruker den LYSE tonen av farge 2 (samme palett, L=75) =
-   #ccccb3. Endrer du palett-konstantene i app.js, oppdater disse tilsvarende.
-   Størrelse styres av .icon-klassen i styles.css (width/height: 1em).
+   valgt PER MOTIV (manilamappe-tan, blyantgul, messing-bjelle, glødende
+   lyspære, lås-rødt/-grønt osv.) — IKKE lenger palettens seks kortfarger. To
+   unntak beholder en delt farge med vilje: kontoikonet (person) og alt som
+   speiler DET (kamera-linsa, hånd-opp-personen) bruker fortsatt palettens
+   blågrønne `#85adad`, fordi `--accent`/`--grad-accent` i styles.css er
+   avledet av nettopp den fargen (se «Kontrast-kontrakt» i styles.css) —
+   endres den, mister knappesystemet sin forankring. Grå (søppel/menyprikker)
+   = `#c0c4c9`, uendret. Størrelse styres av .icon-klassen i styles.css
+   (width/height: 1em).
 
    trashSwipe har to bevegelige deler: `.swipe-icon-lid` (lokk+hank) roteres
    separat av app.js sin sveip-for-å-tømme-motor (se attachTrashHold/
@@ -71,20 +75,23 @@ window.ICONS = {
     '</svg>',
 
   // Språk: en ENSFARGET klode med ekvator og meridian. Bevisst ulik `globe`
-  // (område), som har seks fargefelt — de to skal ikke kunne forveksles.
+  // (område), som har seks fargefelt — de to skal ikke kunne forveksles. Blå-
+  // grønn «verdenshav»-tone, egen fra kontoikonets blågrønne (se fargekartet
+  // i docs/design-system.md).
   language: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<circle cx="12" cy="12" r="8.5" fill="#85adad"></circle>' +
+    '<circle cx="12" cy="12" r="8.5" fill="#4a94a3"></circle>' +
     '<path d="M3.5 12h17"></path>' +
     '<path d="M12 3.5a13 13 0 0 1 3.6 8.5 13 13 0 0 1-3.6 8.5 13 13 0 0 1-3.6-8.5A13 13 0 0 1 12 3.5Z"></path>' +
     '</svg>',
 
   /* Draktknappen (`#theme-toggle-btn`): viser hvilken drakt som ER aktiv, ikke
-     hvilken man bytter TIL — sol i lys drakt, måne i mørk. Skiven og halvmånen
-     er LYSEGULE (#ccccb3 = palettfarge 2 på L=75) — en palettfarge, altså den
-     samme i begge drakter, som globusfeltene og mappa. paintThemeToggle() i
-     app.js velger hvilken av de to som vises. */
+     hvilken man bytter TIL — sol i lys drakt, måne i mørk. Skiven er varm
+     sol-oransje (#f0a83a), halvmånen kjølig himmelblå (#9db3d9) — to egne
+     motivfarger i stedet for samme palettone, så de to ikke kan forveksles på
+     et blikk. Begge står stille i begge drakter (kun én vises om gangen).
+     paintThemeToggle() i app.js velger hvilken av de to som vises. */
   sun: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<circle cx="12" cy="12" r="5" fill="#ccccb3"></circle>' +
+    '<circle cx="12" cy="12" r="5" fill="#f0a83a"></circle>' +
     '<path d="M12 1.5v2.2"></path>' +
     '<path d="M12 20.3v2.2"></path>' +
     '<path d="M4.22 4.22l1.56 1.56"></path>' +
@@ -95,7 +102,7 @@ window.ICONS = {
     '<path d="M18.22 5.78l1.56-1.56"></path>' +
     '</svg>',
   moon: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" fill="#ccccb3"></path>' +
+    '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" fill="#9db3d9"></path>' +
     '</svg>',
 
   // Øye (Vis): hornhinnen (mandelen) hvit, pupillen (indre sirkel) svart.
@@ -155,24 +162,28 @@ window.ICONS = {
     '<path d="M6.7 18.6a5.3 5.2 0 0 1 10.6 0" fill="#ad8585"></path>' +
     '</svg>',
 
-  // Hengelås: LÅST fylles med farge 1, ÅPEN med farge 3; bøyle + nøkkelhull svart.
+  // Hengelås: LÅST fylles med et klart rødt (restriksjon), ÅPEN med et klart
+  // grønt (fritt fram) — bøyle + nøkkelhull svart. Mer signalrent enn de
+  // desaturerte kortfargene, som passer bedre til flater enn til et
+  // sikkerhetssymbol.
   lock: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5" fill="#ad8585"></rect>' +
+    '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5" fill="#c15c56"></rect>' +
     '<path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"></path>' +
     '<circle cx="12" cy="14.6" r="1.2" fill="#111" stroke="none"></circle>' +
     '<path d="M12 15.8v1.9"></path>' +
     '</svg>',
 
   unlock: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5" fill="#85ad85"></rect>' +
+    '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5" fill="#5da172"></rect>' +
     '<path d="M8 10.5V7.5a4 4 0 0 1 7.6-1.9"></path>' +
     '<circle cx="12" cy="14.6" r="1.2" fill="#111" stroke="none"></circle>' +
     '<path d="M12 15.8v1.9"></path>' +
     '</svg>',
 
-  // Mappe: fylt med farge 2 (den typiske gulaktige mappefargen).
+  // Mappe: fylt med en varm manila-tan (#c9a06a) — den klassiske
+  // mappefargen, egen fra pengegul/bjelle/lyspære (se fargekartet).
   folder: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path>' +
+    '<path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#c9a06a"></path>' +
     '</svg>',
 
   // Liste: kortflaten hvit, punkter + linjer svarte.
@@ -210,13 +221,14 @@ window.ICONS = {
     '<path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg>',
 
   // Kalender (starttid): hovedflaten hvit, det øverste feltet (over topplinja)
-  // RØDT (farge 1) — som en veggkalenders røde topp. Flaten tegnes uten strek
-  // først, så det røde feltet, så rammen på nytt med strek: rekkefølgen er den
-  // samme som i `trash` (fyll uten strek → strek oppå), slik at det røde ikke
-  // spiser den indre halvdelen av rammestreken.
+  // en varm terrakotta-rød (#c96b45) — som en veggkalenders røde topp, egen
+  // tone fra hengelåsens rødt så de to ikke leser identisk. Flaten tegnes uten
+  // strek først, så det røde feltet, så rammen på nytt med strek: rekkefølgen
+  // er den samme som i `trash` (fyll uten strek → strek oppå), slik at det
+  // røde ikke spiser den indre halvdelen av rammestreken.
   calendar: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="#ffffff" stroke="none"></rect>' +
-    '<path d="M3.5 9.5V7.5a2.5 2.5 0 0 1 2.5-2.5h11a2.5 2.5 0 0 1 2.5 2.5V9.5Z" fill="#ad8585" stroke="none"></path>' +
+    '<path d="M3.5 9.5V7.5a2.5 2.5 0 0 1 2.5-2.5h11a2.5 2.5 0 0 1 2.5 2.5V9.5Z" fill="#c96b45" stroke="none"></path>' +
     '<rect x="3.5" y="5" width="17" height="16" rx="2.5"></rect>' +
     '<path d="M8 3v4"></path><path d="M16 3v4"></path>' +
     '<path d="M3.5 9.5h17"></path>' +
@@ -225,7 +237,7 @@ window.ICONS = {
   // Kalender med utropstegn (frist) — samme flate/rød topp som `calendar`.
   calendarDue: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="#ffffff" stroke="none"></rect>' +
-    '<path d="M3.5 9.5V7.5a2.5 2.5 0 0 1 2.5-2.5h11a2.5 2.5 0 0 1 2.5 2.5V9.5Z" fill="#ad8585" stroke="none"></path>' +
+    '<path d="M3.5 9.5V7.5a2.5 2.5 0 0 1 2.5-2.5h11a2.5 2.5 0 0 1 2.5 2.5V9.5Z" fill="#c96b45" stroke="none"></path>' +
     '<rect x="3.5" y="5" width="17" height="16" rx="2.5"></rect>' +
     '<path d="M8 3v4"></path><path d="M16 3v4"></path>' +
     '<path d="M3.5 9.5h17"></path>' +
@@ -285,7 +297,7 @@ window.ICONS = {
   groupCategory: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M8.5 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H8.5"></path>' +
     '<g transform="translate(8.5 5) scale(0.55)" stroke-width="1.909">' +
-    '<path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#adad85"></path>' +
+    '<path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#c9a06a"></path>' +
     '</g>' +
     '</svg>',
 
@@ -338,9 +350,11 @@ window.ICONS = {
   chevron: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M9.5 5.5 16 12l-6.5 6.5"></path></svg>',
 
-  // Blyant (endre navn) — skaft med fylt kropp og spiss ned mot venstre.
+  // Blyant (endre navn) — skaft med fylt kropp og spiss ned mot venstre, i den
+  // klassiske skarpe blyantgule (#e8bd3e) — mer mettet enn mappas tan og
+  // bjellas messing, så de tre gulnyansene ikke smelter sammen.
   pencil: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M15.6 4.4a2 2 0 0 1 2.8 0l1.2 1.2a2 2 0 0 1 0 2.8L9 19H5v-4Z" fill="#adad85"></path>' +
+    '<path d="M15.6 4.4a2 2 0 0 1 2.8 0l1.2 1.2a2 2 0 0 1 0 2.8L9 19H5v-4Z" fill="#e8bd3e"></path>' +
     '<path d="M14.2 5.8 18.2 9.8"></path>' +
     '<path d="M5 15 9 19"></path>' +
     '</svg>',
