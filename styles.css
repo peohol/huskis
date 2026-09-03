@@ -4035,8 +4035,15 @@ body.no-auth .corner-controls { display: none; }
    pakken: den dempede flaten, aksentstripen som bærer selve fargen, og
    konturen som skiller blokken fra flaten under. Uten de to siste er blokkene
    i mørk drakt nesten umulige å skille fra hverandre — tonetrinnet alene er
-   for lite. Nøyaktig det samme svaret som `.card` får. */
-:root[data-theme="dark"] .idea-cat {
+   for lite. Nøyaktig det samme svaret som `.card` får.
+
+   MEN BARE I HVILE. Regelen er like spesifikk som de delte dra-reglene og står
+   etter dem i fila, så uten unntaket her ville den slått dem begge: hullet ble
+   et lite kategorikort med aksentstripe i stedet for et hull (og et hull skal
+   se likt ut uansett hva som skal lande i det), og det løftede objektet mistet
+   den halvgjennomsiktige løfteflaten og den kompakte polstringen klonen måles
+   mot. Begge tilstandene eies av dra-blokken; hvileflaten er vår. */
+:root[data-theme="dark"] .idea-cat:not([data-dnd-placeholder]):not([data-dnd-dragging]) {
   background-color: var(--card-face);
   background-image: linear-gradient(90deg, var(--card-stripe) 0 4px, transparent 4px);
   padding-left: 12px;                 /* hold innholdet klar av stripen */

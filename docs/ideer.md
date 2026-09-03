@@ -38,6 +38,14 @@ synkes ikke — den utledes av rekkefølgen, og rekkefølgen synkes, så alle en
 kommer fram til den samme. Idébeholderen selv (`.ideas-card`) har ingen
 palettfarge: den er ikke et av kortene i board-ets rekke.
 
+Kategoriflaten gjelder **kun i hvile**. Regelen er like spesifikk som de delte
+dra-reglene og står etter dem i `styles.css`, så den er eksplisitt holdt utenfor
+`[data-dnd-placeholder]` og `[data-dnd-dragging]`. Ellers slo den dem: hullet
+ble et lite kategorikort med aksentstripe i stedet for et hull — og et hull skal
+se likt ut uansett om det er en idé eller en kategori som skal lande i det — og
+det løftede objektet mistet den halvgjennomsiktige løfteflaten og den kompakte
+polstringen klonen måles mot.
+
 **Knappene** står i modalens FOT (`.modal-foot.ideas-foot`), utenfor det
 rullende feltet: er listen lengre enn modalen, blir de stående. Kassen står i
 det samme feltet. Ellers er de listas — men med idéikonet i stedet for ＋:

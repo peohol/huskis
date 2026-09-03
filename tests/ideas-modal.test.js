@@ -368,6 +368,7 @@ async function run(label, viewport, touch) {
      uten en egen flate var objektet nesten gjennomsiktig, så det var ikke til
      å se hvilken posisjon det egentlig hadde. */
   const katId = await p.$eval('#ideas-list > .category', (el) => el.dataset.id);
+  const ideId = await p.$eval('#ideas-list > .item', (el) => el.dataset.id);
   await lift(p, await centre(p, sel(katId) + ' .cat-head'), touch);
   const løftet = await p.evaluate(() => {
     const el = document.querySelector('#ideas-list .category[data-dnd-dragging]');
@@ -383,6 +384,53 @@ async function run(label, viewport, touch) {
     !!løftet && løftet.alfa >= 0.5, JSON.stringify(løftet && løftet.flate));
   await drop(p, undefined, touch);
   await p.waitForTimeout(400);
+
+  /* ---- 7c. HULLET SER LIKT UT UANSETT HVA SOM SKAL LANDE I DET ----
+     Kategorien har en egen hvileflate (palettfarge, og i mørk drakt dessuten
+     aksentstripe og kontur), og den regelen er like spesifikk som de delte
+     dra-reglene. Uten et unntak for dra-tilstandene slo den dem: hullet ble et
+     lite kategorikort med stripe i stedet for et hull, og det løftede objektet
+     mistet løfteflaten. Måles i BEGGE draktene — det var bare den mørke som
+     hadde stripen. */
+  const hullFor = async (id, håndtak) => {
+    await lift(p, await centre(p, sel(id) + (håndtak || '')), touch);
+    const ut = await p.evaluate(() => {
+      const les = (el) => {
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        return { bg: cs.backgroundColor, img: cs.backgroundImage, kant: cs.outlineStyle };
+      };
+      return { ph: les(document.querySelector('#ideas-list [data-dnd-placeholder]')),
+        drag: les(document.querySelector('#ideas-list [data-dnd-dragging]')) };
+    });
+    await drop(p, undefined, touch);
+    await p.waitForTimeout(350);
+    return ut;
+  };
+  for (const drakt of ['lys', 'mørk']) {
+    if (drakt === 'mørk') {
+      await p.evaluate(() => window.HUSKIS_THEME.setMode('dark'));
+      await p.waitForTimeout(250);
+    }
+    const kat = await hullFor(katId, ' .cat-head');
+    const idé = await hullFor(ideId);
+    log(label + ' (' + drakt + ' drakt): hullet er det samme for en kategori og en idé',
+      !!kat.ph && !!idé.ph && kat.ph.bg === idé.ph.bg && kat.ph.img === idé.ph.img &&
+      kat.ph.kant === idé.ph.kant,
+      JSON.stringify(kat.ph) + ' vs ' + JSON.stringify(idé.ph));
+    /* Den løftede kategorien: ingen stripe, ingen kontur, og den delte
+       HALVGJENNOMSIKTIGE løfteflaten (docs/drag-and-drop.md — «alt som dras er
+       halvgjennomsiktig»). Fargen sammenlignes ikke mot idéens: en rad under
+       pekeren står midt i sin egen hover-overgang, så verdien er en
+       interpolasjon som ikke sier noe. Gjennomsikten gjør. */
+    const alfaAv = (s) => { const m = String(s).match(/([\d.]+)\s*\)$/); return m ? parseFloat(m[1]) : 1; };
+    log(label + ' (' + drakt + ' drakt): den løftede kategorien har den delte løfteflaten',
+      !!kat.drag && kat.drag.img === 'none' && kat.drag.kant === 'none' &&
+      alfaAv(kat.drag.bg) > 0.4 && alfaAv(kat.drag.bg) < 1,
+      JSON.stringify(kat.drag));
+  }
+  await p.evaluate(() => window.HUSKIS_THEME.setMode('light'));
+  await p.waitForTimeout(250);
 
   /* ---- 8. Kategorifargene følger POSISJONEN ----
      Samme regel som lister og områder: fargen deles ut etter indeks, ikke

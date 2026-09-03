@@ -100,6 +100,12 @@ idékategori inne i idébeholderen redefinerer tokenene fra sin egen `--card-bg`
 En ny flate med egen `--card-bg` som glemmer å bli med hit, arver den LYSE
 draktens hvite plater; `tests/a11y-contrast.test.js` sjekker selektorlisten.
 
+Idékategorien er den ene som i tillegg maler en FLATE her (dempet `--card-face`
++ aksentstripe + kontur, som et kort). Den regelen gjelder kun i hvile: den er
+like spesifikk som dra-blokken og står etter den, så
+`:not([data-dnd-placeholder]):not([data-dnd-dragging])` holder dra-tilstandene
+hos dra-blokken der de hører hjemme.
+
 Fire ting snur som ikke er flater:
 
 - **Fokusringen.** `--focus` er mørk i lys drakt (den må lese mot alle lyse
