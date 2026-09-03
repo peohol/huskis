@@ -225,19 +225,23 @@ window.ICONS = {
   // tone fra hengelåsens rødt så de to ikke leser identisk. Flaten tegnes uten
   // strek først, så det røde feltet, så rammen på nytt med strek: rekkefølgen
   // er den samme som i `trash` (fyll uten strek → strek oppå), slik at det
-  // røde ikke spiser den indre halvdelen av rammestreken.
-  calendar: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  // røde ikke spiser den indre halvdelen av rammestreken. `.icon-pin-light`
+  // (styles.css) holder papiret hvitt og streken svart i BEGGE drakter — papir
+  // er hvitt uansett hvor mørkt rommet er, så kalenderen skal ikke bli en mørk
+  // klatt i mørk drakt slik de andre hvite ikonflatene gjør.
+  calendar: '<svg class="icon icon-pin-light" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="#ffffff" stroke="none"></rect>' +
-    '<path d="M3.5 9.5V7.5a2.5 2.5 0 0 1 2.5-2.5h11a2.5 2.5 0 0 1 2.5 2.5V9.5Z" fill="#c96b45" stroke="none"></path>' +
+    '<path d="M3.5 9.5V7.5a2.5 2.5 0 0 1 2.5-2.5h12a2.5 2.5 0 0 1 2.5 2.5V9.5Z" fill="#c96b45" stroke="none"></path>' +
     '<rect x="3.5" y="5" width="17" height="16" rx="2.5"></rect>' +
     '<path d="M8 3v4"></path><path d="M16 3v4"></path>' +
     '<path d="M3.5 9.5h17"></path>' +
     '</svg>',
 
-  // Kalender med utropstegn (frist) — samme flate/rød topp som `calendar`.
-  calendarDue: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  // Kalender med utropstegn (frist) — samme flate/rød topp som `calendar`,
+  // samme `.icon-pin-light`-pinning.
+  calendarDue: '<svg class="icon icon-pin-light" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="#ffffff" stroke="none"></rect>' +
-    '<path d="M3.5 9.5V7.5a2.5 2.5 0 0 1 2.5-2.5h11a2.5 2.5 0 0 1 2.5 2.5V9.5Z" fill="#c96b45" stroke="none"></path>' +
+    '<path d="M3.5 9.5V7.5a2.5 2.5 0 0 1 2.5-2.5h12a2.5 2.5 0 0 1 2.5 2.5V9.5Z" fill="#c96b45" stroke="none"></path>' +
     '<rect x="3.5" y="5" width="17" height="16" rx="2.5"></rect>' +
     '<path d="M8 3v4"></path><path d="M16 3v4"></path>' +
     '<path d="M3.5 9.5h17"></path>' +

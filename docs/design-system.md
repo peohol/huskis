@@ -206,7 +206,7 @@ menyprikker) er uendret, `#c0c4c9`. Ingen av fyllene inverteres mellom drakter
 | Oppløs (bubbleBurst) | ingen fyllflate — kun svarte streker |
 | Dør inn (login) | dørfeltet hvitt |
 | Hengelås | låst = klart rødt `#c15c56`, åpen = klart grønt `#5da172` |
-| Kalender (alle: starttid, frist, «Kommende hendelser», toppkontrollen) | hovedflaten hvit + det øverste feltet over topplinja terrakotta-rødt `#c96b45` |
+| Kalender (alle: starttid, frist, «Kommende hendelser», toppkontrollen) | hovedflaten hvit + det øverste feltet over topplinja terrakotta-rødt `#c96b45` — `.icon-pin-light` (styles.css) holder papiret hvitt og streken svart i BEGGE drakter, se `mork-drakt.md` |
 | Klokke | flate hvit |
 | Bjelle (varsler: toppkontrollen og varselmodalens tittel) | klokkeflaten messing-gull `#c99a3f`; kolv og kant kun strek |
 | Sol/måne (draktknappen) | sol-oransje `#f0a83a` / himmelblå `#9db3d9` — to egne toner, ikke lenger samme farge |

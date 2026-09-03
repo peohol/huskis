@@ -97,17 +97,28 @@ const LOVLIGE = new Set([
 
 /* ---- 2. Kalenderen (alle: starttid, frist, hendelser, toppkontrollen) ---- */
 {
-  const BAND = '<path d="M3.5 9.5V7.5a2.5 2.5 0 0 1 2.5-2.5h11a2.5 2.5 0 0 1 2.5 2.5V9.5Z" fill="' + KALENDER_ROD + '" stroke="none">';
+  // Toppfeltets bane MÅ dekke rammens fulle toppseksjon: rect x=3.5 width=17
+  // rx=2.5 → høyre kant x=20.5, så det rette stykket øverst går fra x=6 (der
+  // venstre hjørnebue slutter) til x=18 (der høyre hjørnebue begynner) — en
+  // bredde på 12, altså "h12". Et "h11" (den gamle, feil verdien) stopper ett
+  // hakk for tidlig, og den påfølgende buen treffer da (19.5, 7.5) i stedet
+  // for hjørnet (20.5, 7.5) — et lite hvitt (upigmentert) hakk øverst til
+  // høyre i feltet, der «papiret» under skinner gjennom det røde.
+  const BAND = '<path d="M3.5 9.5V7.5a2.5 2.5 0 0 1 2.5-2.5h12a2.5 2.5 0 0 1 2.5 2.5V9.5Z" fill="' + KALENDER_ROD + '" stroke="none">';
   const iHtml = html.split(BAND).length - 1;
   const iIcons = icons.split(BAND).length - 1;
   check('kalenderens øverste felt er TERRAKOTTA i index.html', iHtml >= 2, iHtml + ' forekomster');
   check('kalenderens øverste felt er TERRAKOTTA i icons.js (calendar + calendarDue)',
     iIcons === 2, iIcons + ' forekomster');
-  // Hovedflaten er fortsatt «papir» — det er den som snur med drakten.
+  check('ingen kalenderkopi har den gamle, hakkete "h11"-banen igjen',
+    !icons.includes('h11a2.5 2.5 0 0 1 2.5 2.5V9.5Z') &&
+    !html.includes('h11a2.5 2.5 0 0 1 2.5 2.5V9.5Z'));
+  // Hovedflaten er fortsatt «papir» i markup — men se pinning-sjekken under:
+  // for KALENDEREN skal --icon-paper/--icon-ink ikke faktisk snu med drakten.
   const flate = /<rect x="3\.5" y="5" width="17" height="16" rx="2\.5" fill="#ffffff" stroke="none"><\/rect>/g;
-  check('kalenderens hovedflate er hvit (--icon-paper) i icons.js',
+  check('kalenderens hovedflate er hvit i markup, i icons.js',
     (icons.match(flate) || []).length === 2);
-  check('kalenderens hovedflate er hvit (--icon-paper) i index.html',
+  check('kalenderens hovedflate er hvit i markup, i index.html',
     (html.match(flate) || []).length >= 2);
   // Rammen tegnes PÅ NYTT etter fyllet, ellers spiser det fargede feltet den
   // indre halvdelen av rammestreken (samme mønster som `trash`).
@@ -116,6 +127,16 @@ const LOVLIGE = new Set([
     (icons.match(ramme) || []).length === 2);
   check('kalenderrammen strekes opp etter fyllet (index.html)',
     (html.match(ramme) || []).length >= 2);
+  // Kalenderen er PINNET lys i begge drakter (papir er hvitt uansett rom) —
+  // ulikt de fleste andre hvite ikonflatene, som følger drakten. Se
+  // docs/mork-drakt.md → «Kalenderikonet er et tredje slag pinning».
+  const pinnetSvg = /<svg class="icon icon-pin-light" viewBox="0 0 24 24"[^>]*>/g;
+  check('kalender-SVG-en bærer .icon-pin-light i icons.js',
+    (icons.match(pinnetSvg) || []).length === 2);
+  check('kalender-SVG-en bærer .icon-pin-light i index.html',
+    (html.match(pinnetSvg) || []).length >= 2);
+  check('.icon-pin-light pinner --icon-ink/--icon-paper/--icon-grey til de lyse verdiene',
+    /\.icon-pin-light\s*\{[^}]*--icon-ink:\s*#111111;[^}]*--icon-paper:\s*#ffffff;[^}]*--icon-grey:\s*#c0c4c9;[^}]*\}/.test(css));
 }
 
 /* ---- 3. Søkelinsa ---- */

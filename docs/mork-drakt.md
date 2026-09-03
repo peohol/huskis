@@ -167,9 +167,17 @@ på de to mørke er den lyse streken en **forbedring** (blågrønt 3,90 →
 3,95/5,54, rødt 3,52 → 4,38/5,56), mens de fire lyse — gul, grønn, lilla, blå —
 pinnes mørke. Gult er det tydeligste tilfellet: 1,47:1 med lys strek mot
 10,48:1 med mørk. Samme regel som `.btn-yellow`: en lys flate bærer mørke
-merker. Streken og «papiret» pinnes **sammen**: kalender- og klokkeikonene har
-en hvit flate under strekene, og med bare streken pinnet ville mørk strek møtt
+merker. Streken og «papiret» pinnes **sammen** — ellers ville mørk strek møtt
 mørkt papir og ikonet blitt en ulesbar klatt.
+
+**Kalenderikonet** (`calendar`/`calendarDue`) er et tredje slag pinning,
+`.icon-pin-light`: her er det MOTIVET, ikke en flate under det, som er
+kontraktsfargen — et papirark er hvitt uansett hvor mørkt rommet er, så
+kalenderens hvite flate og svarte strek skal IKKE snu med drakten, i
+motsetning til klokkeikonets (som følger drakten som alle andre ikoner uten
+denne klassen). Samme grep som over — `--icon-ink`/`--icon-paper`/
+`--icon-grey` pinnes til sine lyse verdier på selve `<svg>`-elementet, og
+arver til alle barn.
 
 **Ikonfyllene** — nå for det meste egne motivfarger (manila-tan mappe,
 blyantgul, messing-gult bjelle, terrakotta kalendertopp, søkeblå linse,

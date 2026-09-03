@@ -717,6 +717,19 @@ body {
   height: 1em;
 }
 
+/* Pinner --icon-ink/--icon-paper/--icon-grey til de LYSE verdiene, uansett
+   drakt — samme grep som .btn-solid/.event-icon (docs/mork-drakt.md →
+   «Ikonene snur uten at en eneste SVG endres»), men her fordi MOTIVET selv er
+   fargekontrakten: et ikon som forestiller papir (kalenderen) skal ikke bli
+   en mørk klatt i mørk drakt — papir er hvitt uansett hvor mørkt rommet er.
+   Custom properties arver, så pinningen dekker hele ikonet fra denne ene
+   klassen på <svg>-elementet selv, ingen ekstra selektor per barn. */
+.icon-pin-light {
+  --icon-ink: #111111;
+  --icon-paper: #ffffff;
+  --icon-grey: #c0c4c9;
+}
+
 /* ---------------- Berøringsflate på ikonknappene ----------------
    Ikonknappene TEGNES små (34–36 px) fordi listevisningen skal være kompakt —
    men en finger trenger 44 px (WCAG 2.5.5, og både Apple og Material sier det
