@@ -703,11 +703,13 @@ body {
 
 /* ---------------- Ikoner (SVG, se icons.js/index.html) ----------------
    Fargelagt ikonsett: strekene er SVARTE (stroke="#111", hardkodet i SVG-ene,
-   ikke lenger currentColor) og flatene fylles med hvit + palettfarger der
-   motivet tilsier det (fargekart i icons.js / docs/design-system.md). Størrelse
-   arves fortsatt fra font-size på forelder. Unntak som beholder currentColor:
-   knappe-glyfene (.btn-glyph, hvite på massiv fargeknapp) og avkryssings-haken
-   (.item-check .icon), begge rene glyfer på massive fargeknapper. */
+   ikke lenger currentColor) og flatene fylles med hvit + egne motivfarger der
+   motivet tilsier det — kun et fåtall ikoner (globus, logo, kontoikon/kamera/
+   hånd-opp) beholder appens kortfarger med vilje (fargekart i icons.js /
+   docs/design-system.md). Størrelse arves fortsatt fra font-size på forelder.
+   Unntak som beholder currentColor: knappe-glyfene (.btn-glyph, hvite på
+   massiv fargeknapp) og avkryssings-haken (.item-check .icon), begge rene
+   glyfer på massive fargeknapper. */
 .icon {
   display: block;
   flex: 0 0 auto;

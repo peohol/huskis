@@ -171,12 +171,17 @@ merker. Streken og «papiret» pinnes **sammen**: kalender- og klokkeikonene har
 en hvit flate under strekene, og med bare streken pinnet ville mørk strek møtt
 mørkt papir og ikonet blitt en ulesbar klatt.
 
-**Palettfyllene i ikonene** (globusens felter, mappene i logoen, bjellas gull,
-kalenderens røde topp, søkelinsa, sol/måne) står uendret i begge drakter. De er
-den lyse palettens sett (S=20 %, L=60 — sol/måne L=75) og leser godt mot mørk
-flate; skiftet til den mørke rekka ville gjort ikonene grumsete uten å vinne
-noe. Det gjelder også draktknappens eget ikon: skiven og halvmånen er lysegule
-i begge drakter, ikke «papir» som snur.
+**Ikonfyllene** — nå for det meste egne motivfarger (manila-tan mappe,
+blyantgul, messing-gult bjelle, terrakotta kalendertopp, søkeblå linse,
+sol-oransje/himmelblå sol/måne osv.) og for et par ikoner fortsatt palettens
+kortfarger (globusens felter, mappene i logoen, kontoikonet/kamera/hånd-opp —
+se `design-system.md` → «Fargekart» for hvilket som er hvilket — står ALLE
+uendret i begge drakter. Motivfargene er valgt til å lese godt mot mørk flate
+på egen hånd (ikke avledet fra et L-sett); palettfyllene er fortsatt den lyse
+palettens sett (S=20 %, L=60). Skiftet til den mørke rekka ville gjort
+ikonene grumsete uten å vinne noe. Draktknappens eget ikon er et eksempel på
+en motivfarge: sola er oransje, halvmånen himmelblå — to ulike, faste farger,
+ikke «papir» som snur.
 
 ## Palettfargene: samme tone, speilet lyshet
 
