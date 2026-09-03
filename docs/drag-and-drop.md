@@ -14,19 +14,20 @@ dokumentet:
   [`sikkerhetsheadere.md`](sikkerhetsheadere.md)).
 - **Betydningen er Huskis'.** Hva et slipp GJØR — ny `pos`, hvilken container
   raden havner i, hvem som får lov, hva som slettes, hva som opprettes — ligger
-  i `app.js`, i seksjonen «DELT DnD-POLITIKK». Den er DELT av alle fem nivåene:
-  en endring der treffer både hovedsiden og nav-modalen.
+  i `app.js`, i seksjonen «DELT DnD-POLITIKK». Den er DELT av alle nivåene: en
+  endring der treffer hovedsiden, nav-modalen OG idémodalen.
 
 Smett er ikke en motor, men et politikklag: hver regel Smett beholdt er en
 Huskis-regel, og standardverdiene ER Huskis' egne tall (`swapRatio` 0.2,
 `reverseRatio` 0.5, `reverseLockMs` 300, `mouseDistance` 5, `holdMs` 200,
 `holdTolerance` 10). Huskis sender derfor ingen av dem inn — de står i Smett.
 
-## De fire board-ene
+## De fem board-ene
 
 Områder og mapper har ingen egen kode: et område ER et kort, en mappe ER en rad,
-en mappekategori ER en kategori. Forskjellen er hvilket state-tre man slår opp i
-(`boardScope` / `navScope`) og hvor draget foregår.
+en mappekategori ER en kategori. Idéene og idékategoriene er de samme radene
+igjen ([`ideer.md`](ideer.md)). Forskjellen er hvilket state-tre man slår opp i
+(`boardScope` / `navScope` / `ideaScope`) og hvor draget foregår.
 
 | Board | Elementer | Containere | Dra-sone | Soner |
 |---|---|---|---|---|
@@ -34,12 +35,29 @@ en mappekategori ER en kategori. Forskjellen er hvilket state-tre man slår opp 
 | `navRowBoard` | `.item`, `.category` (mapper, mappekategorier) | `.items-container`, `.cat-items` | `.item`, `.cat-head` | `.group-trash-btn` |
 | `boardCardBoard` | `#board .card` (lister) | `#board .board-col` | `.card-head` | `#trash-btn`, `#nav-crumb` |
 | `boardRowBoard` | `.items-container > .item`, `.items-container > .category`, `.cat-items > .item` | `.items-container`, `.cat-items` | `.item`, `.cat-head` | `.item-trash-btn` |
+| `ideaRowBoard` | de samme radene, i idémodalen | `.items-container`, `.cat-items` | `.item`, `.cat-head` | `.item-trash-btn` |
+
+**Idé-scopet har ingen kortnivå-board**, og trenger ikke ett: det finnes
+nøyaktig ÉN beholder (`ideasCont`, id `__ideas__`), og den er ikke en `.card`.
+Et kort betyr en liste (eller et område), og den betydningen skal ikke utvannes
+av en beholder som ikke er noen av delene — hverken for koden som teller kort
+eller for et menneske som leser DOM-en. Den delte politikken spør derfor scopet
+om selektoren, `S.contSelector` (`.card` i de to andre, `.ideas-card` her), i
+stedet for å anta `.card`. Ekstrahering finnes ikke der (det er ingenting å
+ekstrahere TIL), og det eneste et slipp kan bety er ny plass i rekka, inn i
+eller ut av en kategori. **Ingen sletting**: idémodalen har ingen `zoneSelector`,
+og kassen der er bare veien tilbake (`ideer.md`). **Og bare én akse**: lista er
+én smal kolonne uten et eneste vannrett slippmål, så idé-boardet setter
+`Smett.RestrictToVerticalAxis` — sammen med `SafeViewport`, som ellers ville
+falt bort (modifikatorlisten erstattes, den utvides ikke).
 
 **Ett board per hierarkinivå, hver med sin egen manager.** dnd-kit stempler
 `pointerdown` med sensoren som tok den, så det INNERSTE board-et vinner et delt
 trykk: et trykk på en mapperad løfter mappen, ikke området den ligger i. Egne
 managere gir dessuten hvert nivå sine EGNE soner — område-kassen finnes ikke for
-et mappe-drag, og omvendt.
+et mappe-drag, og omvendt. Board-ene er dessuten scopet til hver sin ROT
+(`#board`, nav-modalens kropp, idémodalens kropp), så to board kan aldri
+registrere det samme elementet.
 
 **Roten følger sonene, ikke board-et.** `boardCardBoard` har `document.body` som
 rot, fordi liste-søppelkassen og 📁-breadcrumben ligger i toppmenyen, utenfor
@@ -48,6 +66,15 @@ scopet til `#board` selv, ellers ville nav-modalens kort havnet i det samme
 registeret — to board som registrerer det samme elementet kjemper om det.
 `boardRowBoard` har `board` som rot (element-kassene ligger inne i kortene), og
 nav-board-ene har modal-KROPPEN (område-kassen ligger utenfor `#nav-board`).
+
+**Dra-tilstandene males på `.dnd-surface`.** Hver dra-rot — nøyaktig de
+elementene `scope.root` peker på (`#board`, `#nav-board`, `#ideas-body`) — bærer
+markørklassen `.dnd-surface`, og HELE dra-blokken i `styles.css` er scopet til
+den (det løftede objektet, hullet, søppel-vasken, kategoriens kompakte
+løfteform). Reglene sto tidligere på `.board`, og da fantes de bare der et board
+fantes: idémodalen er ingen board, så et drag der hadde hverken et malt hull
+eller en ugjennomsiktig løftet kategori — bare dnd-kits egne standarder. Får
+appen en fjerde dra-flate, er markørklassen det ene den må ha.
 
 **`.items-done` er ikke en container.** Selektorene er barn-selektorer, så
 «Utført»-radene registreres aldri: de deltar ikke i rekkefølgen, og et trykk på
@@ -1168,7 +1195,7 @@ fra JS som en EGEN `rotate`-egenskap, aldri via `transform`: geometrien er
 dnd-kits og skrives med `!important` (`position`, `top`, `left`, `width`,
 `height`, `transform`, `translate`). Skalaen ligger i CSS av samme grunn.
 
-**Og en regel uten virkning er ingen regel.** `.board [data-dnd-placeholder] {
+**Og en regel uten virkning er ingen regel.** `.dnd-surface [data-dnd-placeholder] {
 rotate: none }` gjorde ingenting — klonen bærer rotasjonen som en INLINE-stil, og
 en inline-stil slår enhver klasseregel, så en bred, lav rad fikk et hull dobbelt
 så høyt som seg selv. Med `!important` står den.

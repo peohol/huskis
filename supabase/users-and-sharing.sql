@@ -292,6 +292,43 @@ do $$ begin
   alter table public.groups    add constraint groups_invite_policy_chk    check (invite_policy in ('inherit','allow','deny'));
 exception when duplicate_object then null; end $$;
 
+-- ------------------------------------------------------------
+-- 2b. IDÉER — kontoens egen hurtigblokk (docs/ideer.md)
+--
+--    En idé hører til KONTOEN, ikke til et område eller en mappe: den samme
+--    listen vises uansett hvor i hierarkiet man står. Derfor ingen `card_id`,
+--    ingen medlemskap, ingen capabilities — eierskapet ER autorisasjonen, og
+--    RLS er `owner_id = auth.uid()` på alle fire operasjonene.
+--
+--    Formen er ellers listepunktets: to nivåer i én tabell (`is_cat` markerer
+--    en kategori, `cat_id` peker fra en idé til kategorien sin), samme to
+--    registre (innhold `ts/org`, posisjon `pos_ts/pos_org`) og samme
+--    gravstein-/insert-vakt. Det som IKKE finnes her er med vilje: ingen
+--    frister, ingen ansvarlig, ingen avkryssing — en idé skrives ned og
+--    slettes, den planlegges ikke.
+--
+--    `deferrable initially deferred` på `cat_id` av samme grunn som på items:
+--    doc-rekkefølgen er vilkårlig, så en idé kan settes inn før kategorien den
+--    peker på.
+-- ------------------------------------------------------------
+
+create table if not exists public.ideas (
+  id         uuid primary key default gen_random_uuid(),
+  owner_id   uuid not null references public.profiles (id) on delete cascade,
+  cat_id     uuid references public.ideas (id) on delete set null deferrable initially deferred,
+  text       text not null default '',
+  is_cat     boolean not null default false,
+  collapsed  boolean not null default false,
+  trashed    boolean not null default false,
+  ts         bigint not null default 0,
+  org        text   not null default '',
+  pos        double precision not null default 0,
+  pos_ts     bigint not null default 0,
+  pos_org    text   not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists universes_owner_idx on public.universes (owner_id);
 create index if not exists groups_owner_idx    on public.groups (owner_id);
 create index if not exists groups_universe_idx on public.groups (universe_id);
@@ -299,11 +336,14 @@ create index if not exists cards_owner_idx     on public.cards (owner_id);
 create index if not exists cards_group_idx     on public.cards (group_id);
 create index if not exists items_owner_idx     on public.items (owner_id);
 create index if not exists items_card_idx      on public.items (card_id);
+create index if not exists ideas_owner_idx     on public.ideas (owner_id);
+create index if not exists ideas_cat_idx       on public.ideas (cat_id);
 
 alter table public.universes enable row level security;
 alter table public.groups    enable row level security;
 alter table public.cards     enable row level security;
 alter table public.items     enable row level security;
+alter table public.ideas     enable row level security;
 
 -- ------------------------------------------------------------
 -- 3. ROLLER/MEDLEMSKAP og INVITASJONER
@@ -398,12 +438,21 @@ alter table public.share_invites enable row level security;
 -- ------------------------------------------------------------
 
 create table if not exists public.tombstones (
-  resource_type text not null check (resource_type in ('universe', 'group', 'card', 'item')),
+  resource_type text not null check (resource_type in ('universe', 'group', 'card', 'item', 'idea')),
   resource_id   uuid not null,
   ts            bigint not null default 0,   -- HLC-tid for slettingen
   deleted_at    timestamptz not null default now(),
   primary key (resource_type, resource_id)
 );
+
+-- Idémptypen kom til etter at tabellen fantes: sjekk-vilkåret må utvides på
+-- en EKSISTERENDE database også, ikke bare i `create table`-formen over.
+-- Idempotent: constrainten droppes og settes tilbake med samme navn.
+do $$ begin
+  alter table public.tombstones drop constraint if exists tombstones_resource_type_check;
+  alter table public.tombstones add constraint tombstones_resource_type_check
+    check (resource_type in ('universe', 'group', 'card', 'item', 'idea'));
+exception when others then null; end $$;
 
 create index if not exists tombstones_resource_idx on public.tombstones (resource_id);
 
@@ -417,6 +466,7 @@ declare
                   when 'groups'    then 'group'
                   when 'cards'     then 'card'
                   when 'items'     then 'item'
+                  when 'ideas'     then 'idea'
                 end;
 begin
   insert into public.tombstones (resource_type, resource_id, ts)
@@ -439,6 +489,9 @@ create trigger cards_tombstone after delete on public.cards
 drop trigger if exists items_tombstone on public.items;
 create trigger items_tombstone after delete on public.items
   for each row execute function public.write_tombstone();
+drop trigger if exists ideas_tombstone on public.ideas;
+create trigger ideas_tombstone after delete on public.ideas
+  for each row execute function public.write_tombstone();
 
 -- BEFORE INSERT-vakt på de fire objekttabellene. To ting, og begge må ligge i
 -- DATABASEN for å være noe verdt — en klient kan byttes ut, databasen ikke:
@@ -457,6 +510,7 @@ declare
                   when 'groups'    then 'group'
                   when 'cards'     then 'card'
                   when 'items'     then 'item'
+                  when 'ideas'     then 'idea'
                 end;
 begin
   if exists (select 1 from public.tombstones t
@@ -486,6 +540,9 @@ create trigger cards_insert_guard before insert on public.cards
   for each row execute function public.guard_object_insert();
 drop trigger if exists items_insert_guard on public.items;
 create trigger items_insert_guard before insert on public.items
+  for each row execute function public.guard_object_insert();
+drop trigger if exists ideas_insert_guard on public.ideas;
+create trigger ideas_insert_guard before insert on public.ideas
   for each row execute function public.guard_object_insert();
 
 -- ------------------------------------------------------------
@@ -868,6 +925,10 @@ drop policy if exists items_select on public.items;
 drop policy if exists items_insert on public.items;
 drop policy if exists items_update on public.items;
 drop policy if exists items_delete on public.items;
+drop policy if exists ideas_select on public.ideas;
+drop policy if exists ideas_insert on public.ideas;
+drop policy if exists ideas_update on public.ideas;
+drop policy if exists ideas_delete on public.ideas;
 drop policy if exists memberships_select on public.memberships;
 drop policy if exists memberships_update on public.memberships;
 drop policy if exists memberships_delete on public.memberships;
@@ -1606,6 +1667,34 @@ drop trigger if exists items_guard on public.items;
 create trigger items_guard before update on public.items
   for each row execute function public.items_before_update();
 
+-- Idéer: samme felt-nivå-LWW som listepunkter, men uten capability-spørsmål —
+-- RLS har allerede avgjort at raden er MIN. Igjen står bare registrene: en
+-- eldre skriving skal aldri kunne overskrive en nyere fra en annen enhet.
+create or replace function public.ideas_before_update()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  -- Se universes_before_update: kun kontosletting arver oppretterfeltet.
+  if new.owner_id is distinct from old.owner_id and not public.in_privileged_op() then
+    raise exception 'owner_id (oppretter) kan ikke endres';
+  end if;
+  if not public.reg_newer(new.ts, new.org, old.ts, old.org) then
+    new.text := old.text; new.trashed := old.trashed;
+    new.is_cat := old.is_cat; new.collapsed := old.collapsed;
+    new.ts := old.ts; new.org := old.org;
+  end if;
+  if not public.reg_newer(new.pos_ts, new.pos_org, old.pos_ts, old.pos_org) then
+    new.cat_id := old.cat_id;
+    new.pos := old.pos; new.pos_ts := old.pos_ts; new.pos_org := old.pos_org;
+  end if;
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists ideas_guard on public.ideas;
+create trigger ideas_guard before update on public.ideas
+  for each row execute function public.ideas_before_update();
+
 -- ---- Medlemskaps-/rolle-vakter ----
 -- Rollen er MUTABEL, men kun gjennom set_member_role()/accept_share_invite()
 -- (som setter privilegert kontekst etter å ha kontrollert myndigheten). En rå
@@ -1726,6 +1815,19 @@ create policy items_update on public.items
                     or public.can_reorder_in_parent('item', id, auth.uid()));
 create policy items_delete on public.items
   for delete using (public.can_delete_object('item', id, auth.uid()));
+
+-- ideas: kontoens egne idéer og idékategorier. INGEN deling, ingen roller,
+-- ingen låser — eierskapet er hele autorisasjonen, og det samme vilkåret
+-- gjelder alle fire operasjonene. Skrivevakten (`ideas_before_update`) tar
+-- LWW-en; her holder eierskapet.
+create policy ideas_select on public.ideas
+  for select using (owner_id = auth.uid());
+create policy ideas_insert on public.ideas
+  for insert with check (owner_id = auth.uid());
+create policy ideas_update on public.ideas
+  for update using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+create policy ideas_delete on public.ideas
+  for delete using (owner_id = auth.uid());
 
 -- memberships: egen rad (personlig posisjon, forlate) + eiere som administrerer
 -- medlemslisten. Opprettelse skjer KUN via SECURITY DEFINER-veiene (aksept av
@@ -2686,6 +2788,11 @@ begin
   update public.items set responsible = null, ts = greatest(now_ms, ts + 1), org = 'server'
    where responsible = uid;
   delete from public.memberships where user_id = uid;
+  -- Idéene er MINE ALENE — de deles aldri, så det finnes ingen grense mot
+  -- andres innhold her: de skal bort, ikke arves. Kaskaden fra profilraden
+  -- ville tatt dem uansett, men ryddingen skal være lesbar. AFTER DELETE-
+  -- triggeren skriver gravstein per rad, som for alt annet innhold.
+  delete from public.ideas where owner_id = uid;
   -- Varselhistorikken og preferansene er mine alene. Kaskaden fra auth.users
   -- ville tatt dem uansett; de står her fordi ryddingen skal være lesbar.
   delete from public.notifications where user_id = uid;
@@ -4255,6 +4362,10 @@ begin
   ),
   my_items as (
     select i.* from public.items i where i.card_id in (select id from my_cards)
+  ),
+  -- Idéer henger på KONTOEN, ikke på hierarkiet: ingen join, bare eierskap.
+  my_ideas as (
+    select d.* from public.ideas d where d.owner_id = uid
   )
   select jsonb_build_object(
     'user', (select jsonb_build_object('id', pr.id, 'email', pr.email,
@@ -4308,6 +4419,12 @@ begin
         'start', i.start_at, 'due', i.due_at,
         'ts', i.ts, 'org', i.org,
         'pos', i.pos, 'posTs', i.pos_ts, 'posOrg', i.pos_org)) from my_items i), '[]'::jsonb),
+    'ideas', coalesce((select jsonb_agg(jsonb_build_object(
+        'id', d.id, 'creator', d.owner_id, 'createdByMe', true,
+        'cat', d.cat_id, 'isCat', d.is_cat, 'collapsed', d.collapsed,
+        'text', d.text, 'trashed', d.trashed,
+        'ts', d.ts, 'org', d.org,
+        'pos', d.pos, 'posTs', d.pos_ts, 'posOrg', d.pos_org)) from my_ideas d), '[]'::jsonb),
     'invites_in', coalesce((select jsonb_agg(jsonb_build_object(
         'id', s.id,
         'type', case when s.universe_id is not null then 'universe' else 'group' end,
@@ -4919,7 +5036,7 @@ drop index if exists public.share_invites_card_pending_key;
 -- ------------------------------------------------------------
 
 revoke all on public.profiles, public.universes, public.groups, public.cards,
-              public.items, public.memberships, public.share_invites,
+              public.items, public.ideas, public.memberships, public.share_invites,
               public.tombstones, public.notifications,
               public.notification_prefs, public.push_subscriptions,
               public.device_sessions, public.native_notif_devices from anon;
@@ -4932,7 +5049,8 @@ grant select on public.profiles to authenticated;
 revoke update on public.profiles from authenticated;
 grant update (display_name, avatar) on public.profiles to authenticated;
 grant select, insert, update, delete on public.universes, public.groups,
-                                        public.cards, public.items to authenticated;
+                                        public.cards, public.items,
+                                        public.ideas to authenticated;
 -- Å UTELATE en grant er ikke nok i Supabase: prosjektet har
 -- `alter default privileges in schema public grant all on tables to anon,
 -- authenticated`, så en ny tabell får ALL — inkludert INSERT — i det den
@@ -4946,7 +5064,7 @@ grant select, insert, update, delete on public.universes, public.groups,
 --   tabell         | S | I | U | D | hvem som ellers skriver
 --   ---------------+---+---+---+---+---------------------------------------
 --   universes …    | ✓ | ✓ | ✓ | ✓ | rad-CRUD i synk-motoren (opQueue)
---   items          |   |   |   |   |
+--   items, ideas   |   |   |   |   |
 --   profiles       | ✓ | – | ✓*| – | *kun display_name/avatar; e-post speiles
 --                  |   |   |   |   |  fra auth.users av triggerne
 --   memberships    | ✓ | – | ✓*| – | *kun `pos` (personlig rekkefølge).
@@ -5103,7 +5221,7 @@ do $$
 declare t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['universes', 'groups', 'cards', 'items',
+    foreach t in array array['universes', 'groups', 'cards', 'items', 'ideas',
                              'memberships', 'share_invites'] loop
       if not exists (
         select 1 from pg_publication_tables

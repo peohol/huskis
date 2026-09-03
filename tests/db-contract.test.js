@@ -65,7 +65,9 @@ check('fant TABLE-mappingen i app.js', !!tableMatch);
 const tabeller = tableMatch
   ? [...tableMatch[1].matchAll(/:\s*'([a-z_]+)'/g)].map((m) => m[1])
   : [];
-check('TABLE-mappingen har fire nivåer', tabeller.length === 4, tabeller.join(', '));
+// Fem radtyper: de fire hierarkinivåene + idéene, som henger på kontoen
+// (docs/ideer.md).
+check('TABLE-mappingen har fem radtyper', tabeller.length === 5, tabeller.join(', '));
 for (const t of tabeller) {
   check("smoke-testen sjekker tabellen «" + t + "»",
     new RegExp("'" + t + "'").test(smoke));
@@ -75,7 +77,7 @@ for (const t of tabeller) {
 const rtMatch = app.match(/\[([^\]]*)\]\.forEach\(\(t\) => \{\s*cloudChan\.on\('postgres_changes'/);
 check('fant realtime-tabellisten i app.js', !!rtMatch);
 const rtTabeller = rtMatch ? [...rtMatch[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]) : [];
-check('realtime-listen har seks tabeller', rtTabeller.length === 6, rtTabeller.join(', '));
+check('realtime-listen har sju tabeller', rtTabeller.length === 7, rtTabeller.join(', '));
 
 const rtSeksjon = smoke.slice(smoke.indexOf('8. Realtime-publikasjon'),
                               smoke.indexOf('9. Virker det?'));
@@ -93,8 +95,8 @@ for (const t of rtTabeller) {
 // på alle fire, og en smoke-test som bare nevner «universes:collapsed» ville
 // ellers se komplett ut mens cards.collapsed sto usjekket — som er akkurat den
 // kolonnen som stoppet synken sist.
-const NIVA_TABELL = { universe: 'universes', group: 'groups', card: 'cards', item: 'items' };
-const kontrakt = { universes: new Set(), groups: new Set(), cards: new Set(), items: new Set() };
+const NIVA_TABELL = { universe: 'universes', group: 'groups', card: 'cards', idea: 'ideas', item: 'items' };
+const kontrakt = { universes: new Set(), groups: new Set(), cards: new Set(), ideas: new Set(), items: new Set() };
 
 for (const fn of ['insertPayload', 'updatePayload']) {
   const kropp = funksjonskropp(fn, app);
@@ -106,10 +108,10 @@ for (const fn of ['insertPayload', 'updatePayload']) {
   check(fn + '(): fant base-objektet', !!base);
   if (base) for (const t of Object.keys(kontrakt)) nøkler(base).forEach((k) => kontrakt[t].add(k));
 
-  // …og så én gren per nivå. Grenen uten `if` er listepunkt-grenen (fall-through).
+  // …og så én gren per radtype. Grenen uten `if` er listepunkt-grenen (fall-through).
   const grener = [...kropp.matchAll(
-    /(?:if \(t === '(universe|group|card|item)'\) )?return Object\.assign\(base, /g)];
-  check(fn + '(): fant fire grener (én per nivå)', grener.length === 4, grener.length + ' grener');
+    /(?:if \(t === '(universe|group|card|idea|item)'\) )?return Object\.assign\(base, /g)];
+  check(fn + '(): fant fem grener (én per radtype)', grener.length === 5, grener.length + ' grener');
   for (const g of grener) {
     const tabell = NIVA_TABELL[g[1] || 'item'];
     const objekt = balansert(kropp, g.index + g[0].length);

@@ -8,8 +8,9 @@ Farge utledes av **posisjon** i den synlige, sorterte lista (S=`COLOR_SAT` 20 %,
 L-sett `[60,75,90]` i lys drakt, tone-rekkefølge fra `buildHueOrder` (12 toner,
 60°-hopp)); re-fargelegges ved add/slett/omrokkering; ikke lagret/synket
 (`colorForId` er søppelkasse-modalens fargekilde — radene der utleder alltid fra id-en, aldri fra en hurtiglagret posisjonsfarge, se `mork-drakt.md`). Gjelder mappe-rader,
-listekort OG område-radene i menyen. Hvit skrift m/ `--text-shadow` på alle
-fargede flater og grønne knapper.
+listekort, område-radene i menyen OG idékategoriene ([`ideer.md`](ideer.md) —
+`reindexIdeaCatColors`, indeks blant kategoriene). Hvit skrift m/
+`--text-shadow` på alle fargede flater og grønne knapper.
 
 **Drakten snur L-settet, ikke tonene.** I mørk drakt er settet `[42,32,22]` —
 samme H, samme S. Korthodet og avkryssingskanten (`paintCardColor`) lysnes i

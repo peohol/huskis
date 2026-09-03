@@ -32,7 +32,8 @@ state = {
               collapsed,                              // rullgardin-kollaps av lista (innholds-register, se docs/design-system.md)
               items: [ { id, text, trashed, done, responsible, start, due, home, cat, isCat, lockTimes } ] } ] } ] } // done: avkrysset; responsible: ansvarlig bruker-id (delte lister); start/due: tidsplan; cat/isCat/lockTimes: kategorier (se under)
   ],
-  _tomb: { universes:{}, groups:{}, cards:{}, items:{} }, // gravsteiner: id → ts (permanent slettet)
+  ideas: [ { id, text, cat, isCat, collapsed, trashed } ],  // KONTOENS idéer, flatt — se docs/ideer.md
+  _tomb: { universes:{}, groups:{}, cards:{}, items:{}, ideas:{} }, // gravsteiner: id → ts (permanent slettet)
   _base: { universes:[], groups:[], cards:[], items:[] }, // synk-base: forrige serverkjente doc
   _baseV: 1,                                              // basens versjon (BASE_VERSION)
 }
@@ -46,6 +47,12 @@ fletteren lese basens rader som «slettet lokalt». Se «Gjenoppstandelse» i
 
 Forelder-peker på hvert nivå: `listepunkt.home → kort`, `kort.group → mappe`,
 `mappe.uni → område`.
+
+**`ideas` står UTENFOR hierarkiet.** Idéene hører til kontoen, ikke til et
+område eller en mappe, så de har ingen forelder-peker — bare `cat` innen sin
+egen liste. De er den femte radtypen i synk-doc'et og har sin egen tabell
+(`ideas`), sin egen gravsteinsbøtte og sin egen søppelkasse. Autoritativt:
+[`ideer.md`](ideer.md).
 
 **Rolle- og capability-metadata (kontomodus)** legges på objektene av
 `applyMyDoc`, utenfor synk-doc'et: `_type`, `_parent`, `_creator`,
@@ -118,7 +125,7 @@ Alt liste-/listepunkt-UI er fortsatt scopet til den AKTIVE mappen.
   **Områder og mappekategorier har det samme feltet** (`universe.collapsed` /
   `group.collapsed`, kolonnene `universes.collapsed`/`groups.collapsed`) — et
   kollapset område viser [mappe-ikon] + antall mapper i stedet for «(N)».
-- Søppelkasse på alle fire nivåer (`trashed`-flagg) — se `docs/trash.md`.
+- Søppelkasse på alle fire nivåer + idéene (`trashed`-flagg) — se `docs/trash.md`.
 - **Avkryssing av listepunkter** (`item.done`): rir på innholds-registeret (`ts`/`org`,
   som `text`/`trashed`) — LWW ved samtidig endring. Avkryssede listepunkter flyttes
   (med FLIP, se `toggleItemDone`) til en egen **«Utført»-seksjon** nederst i kortet

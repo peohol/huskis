@@ -87,11 +87,24 @@ Tokenene er delt i to familier etter hva de ligger på:
 **Unntaket:** `--plate*`, `--chip-bg` og de tilhørende kortflate-tokenene
 (`--card-face`, `--card-head-face`, `--cat-face`, `--card-stripe`) er OGSÅ
 «på-farge», men kan ikke være en flat `:root`-verdi — de skal bære et preg av
-NETTOPP kortets EGEN palettfarge (`--card-bg`, satt inline per kort av
+NETTOPP flatens EGEN palettfarge (`--card-bg`, satt inline av
 `paintCardColor()` i `app.js`), og blandes derfor med `color-mix()` i en egen
-`:root[data-theme="dark"] .card`-blokk rett under token-blokken i
-`styles.css`. Se kommentaren der, og «Kortflatene: palettpreg og aksentstripe»
-under.
+`:root[data-theme="dark"]`-blokk rett under token-blokken i `styles.css`. Se
+kommentaren der, og «Kortflatene: palettpreg og aksentstripe» under.
+
+**Blokken bor der `--card-bg` bor.** Verdiene er blandinger av flatens egen
+farge, så selektorlisten må dekke HVER node som setter den: `.card`,
+idébeholderen `.ideas-card` (nøytral flate) og idékategorien `.idea-cat`
+(palettfarget, se [`ideer.md`](ideer.md)). Nøstingen går opp av seg selv — en
+idékategori inne i idébeholderen redefinerer tokenene fra sin egen `--card-bg`.
+En ny flate med egen `--card-bg` som glemmer å bli med hit, arver den LYSE
+draktens hvite plater; `tests/a11y-contrast.test.js` sjekker selektorlisten.
+
+Idékategorien er den ene som i tillegg maler en FLATE her (dempet `--card-face`
++ aksentstripe + kontur, som et kort). Den regelen gjelder kun i hvile: den er
+like spesifikk som dra-blokken og står etter den, så
+`:not([data-dnd-placeholder]):not([data-dnd-dragging])` holder dra-tilstandene
+hos dra-blokken der de hører hjemme.
 
 Fire ting snur som ikke er flater:
 
@@ -158,10 +171,12 @@ merker. Streken og «papiret» pinnes **sammen**: kalender- og klokkeikonene har
 en hvit flate under strekene, og med bare streken pinnet ville mørk strek møtt
 mørkt papir og ikonet blitt en ulesbar klatt.
 
-**De seks palettfyllene i ikonene** (globusens felter, mappene i logoen) står
-uendret i begge drakter. De er den lyse palettens første sett (S=20 %, L=60 %)
-og leser godt mot mørk flate; skiftet til den mørke rekka ville gjort ikonene
-grumsete uten å vinne noe.
+**Palettfyllene i ikonene** (globusens felter, mappene i logoen, bjellas gull,
+kalenderens røde topp, søkelinsa, sol/måne) står uendret i begge drakter. De er
+den lyse palettens sett (S=20 %, L=60 — sol/måne L=75) og leser godt mot mørk
+flate; skiftet til den mørke rekka ville gjort ikonene grumsete uten å vinne
+noe. Det gjelder også draktknappens eget ikon: skiven og halvmånen er lysegule
+i begge drakter, ikke «papir» som snur.
 
 ## Palettfargene: samme tone, speilet lyshet
 
@@ -275,7 +290,7 @@ blokken:
   `static`.
 - **Ingen regel der må overdøve en tilstand fra resten av `styles.css`.**
   Selektorene er `(0,3,0)` og slår dermed `.card:hover`,
-  `.board .card[data-dnd-dragging]` og `.nav-board .card.active`. Flater som
+  `.dnd-surface .card[data-dnd-dragging]` og `.nav-board .card.active`. Flater som
   eies av en tilstand justeres derfor via tokens, ikke direkte; der en flate
   likevel settes direkte, står tilstanden eksplisitt utenfor (`:not(.active)`,
   `:not([data-dnd-dragging])`).

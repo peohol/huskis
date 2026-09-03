@@ -55,7 +55,8 @@
          b. --focus mot board-bakgrunnen, panelflaten og ALLE 36 mørke
             palettfargene — det er derfor ringen snur til hvit;
          c. ikonstreken (--icon-ink) mot de samme flatene, pluss platene;
-         d. KORTSUBTREET (`:root[data-theme="dark"] .card`): platene, korthodet,
+         d. KORTSUBTREET (`:root[data-theme="dark"]`-blokken som bærer
+            `--card-face` — `.card`, `.ideas-card`, `.idea-cat`): platene, korthodet,
             kategorifordypningen og meta-chipen er `color-mix()`-blandinger av
             kortets EGEN palettfarge og en nøytral reserve (ikke lenger en fast
             mørk verdi) — testen simulerer blandingen per palettfarge og
@@ -411,9 +412,21 @@ if (darkBlock) {
      Blokken parses her på samme måte som `:root[data-theme="dark"]`, og
      blandingen simuleres per palettfarge — nøyaktig det nettleseren selv
      regner ut. */
-  const cardDarkBlock = ((css.match(/:root\[data-theme="dark"\]\s*\.card\s*\{([\s\S]*?)\n\}/) || [])[1] || '')
-    .replace(/\/\*[\s\S]*?\*\//g, '') || null;
-  check('styles.css har en :root[data-theme="dark"] .card-blokk', !!cardDarkBlock);
+  /* Blokken bor IKKE bare på `.card`. Tokenene er blandinger av flatens EGEN
+     `--card-bg`, så de må stå på hver node som setter den: kortet,
+     idébeholderen og idékategorien (docs/mork-drakt.md). Regelen finnes derfor
+     på INNHOLDET — den som deklarerer `--card-face` — og selektorlisten
+     kontrolleres for seg. En ny flate med egen `--card-bg` som glemmer å bli
+     med hit, får platene fra den LYSE drakten. */
+  const cssRen = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const kortRegel = (cssRen.match(/[^{}]+\{[^{}]*\}/g) || [])
+    .find((r) => /--card-face\s*:\s*color-mix/.test(r) && /\[data-theme="dark"\]/.test(r.split('{')[0]));
+  const cardDarkSel = kortRegel ? kortRegel.split('{')[0] : '';
+  const cardDarkBlock = kortRegel ? kortRegel.slice(kortRegel.indexOf('{') + 1, -1) : null;
+  check('styles.css har en :root[data-theme="dark"]-blokk med kortsubtreets tokens', !!cardDarkBlock);
+  check('tokenene står på ALLE flatene som setter --card-bg (.card, .ideas-card, .idea-cat)',
+    /\.card\b/.test(cardDarkSel) && /\.ideas-card\b/.test(cardDarkSel) && /\.idea-cat\b/.test(cardDarkSel),
+    cardDarkSel.replace(/\s+/g, ' ').trim());
   // «X % av var(--card-bg) blandet med #hex» — leser den SISTE (vinnende)
   // deklarasjonen av tokenet: fallback-hexen står FØR color-mix()-utgaven på
   // samme token (for nettlesere uten color-mix), så regexen treffer bevisst

@@ -239,7 +239,9 @@ del-modalen gjør, så en rad som forsvinner et annet sted forsvinner her også.
 Kanonisk innhold ligger nå relasjonelt (ikke ett jsonb-doc). Klienten holder
 samme nested `state` som før; synken går slik (`cloudCycle`):
 
-1. **Pull**: `get_my_doc()` → ett flatt doc (universes/groups/cards/items), med
+1. **Pull**: `get_my_doc()` → ett flatt doc (universes/groups/cards/items —
+   pluss `ideas`, kontoens egne rader uten forelder i hierarkiet, se
+   [`ideer.md`](ideer.md)), med
    ekstra felt per rad: `creator`/`role`/`free`/`caps`/`locked`/`shared`/
    `personalPos`/`ownerKey`, samt
    `invites_in`/`invites_out`. Rader med en optimistisk forlatt deling
@@ -248,7 +250,8 @@ samme nested `state` som før; synken går slik (`cloudCycle`):
    lokalt eller pusher delete på eierens rader mens `leave_share` er underveis.
 2. **3-veis fletting** (`reconcile(base, local, remote, opts)`) mot en
    base-snapshot (forrige serverkjente doc): felt-nivå LWW (gjenbruker
-   `merge*Scalar`/`mergeItem` fra v1) for rader som finnes begge steder;
+   `merge*Scalar`/`mergeItem` fra v1, og `mergeIdea` for idéene) for rader som
+   finnes begge steder;
    eksistens avgjøres 3-veis (base skiller «lokalt slettet» fra
    «fjern-opprettet»). `opts` bærer de tre vaktene under (gravsteiner, kjent
    base, fremmede rader).
@@ -477,6 +480,14 @@ Ved **utlogging** tømmes innhold, gravsteiner og base sammen (`resetLocalSync`)
 og ved **innlogging** leses alle tre fra den nye brukerens egen cache-post (eller
 nullstilles hvis den ikke finnes) — ingen del av forrige brukers synk-tilstand
 kan leses som historikk for den neste.
+
+**Og SKJERMEN ryddes med.** `body.no-auth` skjuler bare toppmenyen, board-et og
+hjørneknappene; en modal er en overlay OVER innloggingsskjermen, og en som ble
+stående igjen viste den utloggede kontoens innhold til noen lukket den.
+`cloudStop()` tømmer derfor HELE lag-stigen (`closeTopLayer` i løkke), ikke en
+håndplukket liste modaler — et nytt lag er dekket av å ligge i stigen. Idélisten
+(`docs/ideer.md`) tegnes i tillegg tom, siden den ellers først bygges på nytt
+når modalen åpnes igjen.
 
 **Render-vakt (`viewSignature`/`lastViewSig`)**: `applyMyDoc` river ned og
 bygger hele board-DOM-en (`render()`). `cloudCycle` kaller den derfor KUN når

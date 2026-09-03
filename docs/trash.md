@@ -1,11 +1,12 @@
-# Søppelkasser (områder / mapper / lister / listepunkter)
+# Søppelkasser (områder / mapper / lister / listepunkter / idéer)
 
 Les denne når oppgaven berører sletting, gjenoppretting, eller tømming på et
-hvilket som helst av de fire nivåene.
+hvilket som helst av de fire nivåene — eller for idéene.
 
-Fire nivåer, samme knapp (`.trashcan`: hvit beholder, søppelkasse-SVG + antall i
+Fem kasser, samme knapp (`.trashcan`: hvit beholder, søppelkasse-SVG + antall i
 grå sirkel) og samme oppførsel; **alle vises kun når de har innhold** (`hidden`)
-— ELLER når et drag på det nivået pågår (se under):
+— ELLER, for de fire hierarkinivåene, når et drag på det nivået pågår (se
+under):
 
 - **Områder**: nederst i nav-modalen, ved siden av «＋ [område-ikon]».
 - **Mapper**: i hvert OMRÅDE-KORT i nav-modalen (`.group-trash-btn`) — akkurat
@@ -13,15 +14,21 @@ grå sirkel) og samme oppførsel; **alle vises kun når de har innhold** (`hidde
 - **Lister**: i toppmenyens listefunksjons-rad (per aktiv mappe).
 - **Listepunkter**: midtstilt nederst i hvert listekort (`ICONS.trash`, samme
   SVG som de statiske knappene — aldri emoji).
+- **Idéer**: i idémodalens fot (`#idea-trash-btn`) — én kasse for hele kontoen,
+  siden idéene ikke ligger i noe hierarki ([`ideer.md`](ideer.md)). Den er den
+  ene som **ikke er et slippmål**: idéer slettes med sletteknappen på raden, så
+  kassen er bare veien tilbake. Den vises derfor utelukkende når den har
+  innhold.
 
-Kassene på de to nederste nivåene (`.item-trash`-innpakningen i listekortet og i
-områdekortet) **bygges alltid**, men står `hidden` når de er tomme. Noden må
-finnes for at et drag skal kunne vise den fram — se under.
+Kassene som ligger INNE i en beholder (`.item-trash`-innpakningen i listekortet
+og i områdekortet) **bygges alltid**, men står `hidden` når de er tomme. Noden
+må finnes for at et drag skal kunne vise den fram — se under.
 
 ## Slett ved å DRA objektet i kassen
 
-**Dette er den ene slettegesten**, og den er lik på desktop og mobil for alle
-objekttypene som har en kasse:
+**Dette er den ene slettegesten** på de fire hierarkinivåene, og den er lik på
+desktop og mobil (idéene er unntaket — se over: der er sletteknappen på raden
+den ene veien):
 
 1. Løft objektet (trykk-og-hold på touch, dra på mus — samme motor som all annen
    flytting, `docs/drag-and-drop.md`). Kassen for NIVÅET dukker opp med én gang
@@ -175,7 +182,7 @@ Kort trykk → felles modal (`showTrashModal`: gjenopprett enkeltvis / tøm alt 
 ignorerer overlay-klikk de første ~450 ms).
 
 Tøm-knappen **navngir nivået den sletter** — `cfg.emptyLabel`: «Slett
-områdene / mappene / listene / listepunktene for godt». De fire kassene deler
+områdene / mappene / listene / listepunktene / idéene for godt». Kassene deler
 én knapp, så uten navnet sa den ingenting om hva som forsvant. Notatet og
 knappen stables i `.modal-foot` (`.modal-note` tar hele linjen): ved siden av
 hverandre ville den lengste knappeteksten presset notatet ned i en smal søyle.
@@ -183,7 +190,7 @@ Sveipefeltet har ikke plass til nivånavnet og sier «Slett alt».
 
 ### Radene: navnet har et gulv, resten bryter rundt det
 
-En rad (`.trash-row`, lik for alle fire nivåene) er `[prikk] [navn (+ metadata)]
+En rad (`.trash-row`, lik for alle kassene) er `[prikk] [navn (+ metadata)]
 [Gjenopprett]`. Prikken, metadataen og knappen har fast bredde; navnet er det
 eneste som kan gi etter — og på en smal skjerm var «resten» omtrent ingenting.
 Navnet fikk derfor ikke en fast bredde, men et **gulv**: navneblokka
@@ -244,7 +251,10 @@ tilsvarende.
 
 Tømming setter **gravsteiner** rekursivt (område → mapper → lister →
 listepunkter: `emptyUniversesTrash`/`emptyGroupsTrash`/`emptyCardsTrash`/
-`emptyItemsTrash`). Destruktivt er alltid reversibelt frem til tømming.
+`emptyItemsTrash`). Idéene har ingen rekursjon å gjøre — de er flate — men
+`emptyIdeasTrash` løsner idéer som pekte på en kategori som ble tømt bort, slik
+`on delete set null` gjør i databasen. Destruktivt er alltid reversibelt frem
+til tømming.
 
 ### Gravsteiner: hva de faktisk gjør
 

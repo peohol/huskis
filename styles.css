@@ -488,7 +488,7 @@
       på alle fem nivåer; `tests/dark-mode.test.js` slår fast at `.card` er
       `static`.
    2. INGEN regel her må overdøve en TILSTAND fra resten av fila. Selektorene
-      er `(0,3,0)` og slår dermed `.card:hover`, `.board .card[data-dnd-dragging]`
+      er `(0,3,0)` og slår dermed `.card:hover`, `.dnd-surface .card[data-dnd-dragging]`
       og `.nav-board .card.active`. Flate-egenskaper som EIES av en tilstand
       (box-shadow) settes derfor ikke direkte her, men via tokens, slik at
       hvile/hover/dra fortsatt velges av reglene lenger nede i fila. Der en
@@ -497,7 +497,14 @@
 
    Kontraster og tonale trinn (min–maks over alle 36 mørke palettfarger) er
    dokumentert i docs/mork-drakt.md og håndhevet av tests/a11y-contrast.test.js. */
-:root[data-theme="dark"] .card {
+/* PÅ-PALETTFARGE-FAMILIEN BOR DER `--card-bg` BOR. Verdiene er blandinger av
+   flatens EGEN farge, så de må defineres på hver node som setter `--card-bg` —
+   ikke bare på `.card`. Idébeholderen (nøytral) og idékategorien (palettfarget,
+   se `.idea-cat`) er de to andre. Nøstingen går opp av seg selv: en
+   idékategori inne i idébeholderen redefinerer dem fra sin egen `--card-bg`. */
+:root[data-theme="dark"] .card,
+:root[data-theme="dark"] .ideas-card,
+:root[data-theme="dark"] .idea-cat {
   /* Listepunkt-platene, den utførte platen og meta-chipen: 10 % av kortets
      egen farge blandet inn i en nøytral skifer-reserve. */
   --plate: #262c35;
@@ -535,10 +542,12 @@
      nytt gulv). `--card-accent` SELV er urørt av dette —
      den bærer 3:1-kontrakten rundt avkryssingsboksen og skal ikke flyttes. */
   --card-stripe: var(--card-accent);
+}
 
+:root[data-theme="dark"] .card {
   /* Kortets egne skygger: kortet skal løftes fra board-bakgrunnen av tone og
      kontur, ikke av en tung boks-skygge. Kun tokenene endres her — `.card`,
-     `.card:hover` og `.board .card[data-dnd-dragging]` lenger ned i fila velger
+     `.card:hover` og `.dnd-surface .card[data-dnd-dragging]` lenger ned i fila velger
      fortsatt hvilken som gjelder, så et løftet kort beholder draktens fulle
      `--shadow-lg`. Modaler og paneler er urørt: disse tokenene gjelder kun
      kort-subtreet. */
@@ -1701,7 +1710,7 @@ body {
 }
 .cat-head { display: flex; align-items: center; gap: 8px; padding: 0 6px; }
 /* Kategori-ikon: skjult i hvile, vist til venstre for tittelen KUN mens
-   kategorien dras (se `.board .category[data-dnd-dragging]`). Svarte streker
+   kategorien dras (se `.dnd-surface .category[data-dnd-dragging]`). Svarte streker
    (ICONS.category) mot den hvite dra-flaten. */
 .cat-drag-icon { display: none; flex: 0 0 auto; align-items: center; }
 .cat-drag-icon .icon { width: 1em; height: 1em; font-size: 23px; }
@@ -1780,7 +1789,7 @@ body {
    Den negative margen spiser det ene gapet, så en kollapset kategori er nøyaktig
    sin overskriftslinje med lik luft (16px) til skillelinja over og under — samme
    geometri som en kollapset liste, der headeren er hele kortet.
-   Ikke under draging: `.board .category[data-dnd-dragging]` har allerede gap:0,
+   Ikke under draging: `.dnd-surface .category[data-dnd-dragging]` har allerede gap:0,
    så der ville margen gjort det løftede objektet 4px lavere enn klonen som
    holder plassen. */
 .category.collapsed:not([data-dnd-dragging]) > .cat-items { margin-top: -4px; }
@@ -1885,6 +1894,21 @@ body {
    kanten feltet har i hvile. Nå bærer den den delte fokusringen, som ethvert
    annet fokusert element. */
 .edit-input:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 1px; }
+
+/* FLERLINJET redigering (listepunkter og idéer): feltet er et <textarea> som
+   vokser med teksten, slik at hele punktet kan LESES mens det redigeres — det
+   enlinjes feltet rullet resten ut av syne. Høyden settes av editText
+   (scrollHeight), så feltet må verken rulle eller kunne dras i:
+   `overflow: hidden` fjerner rullefeltet, `resize: none` håndtaket.
+   Skriftstørrelsen og linjehøyden settes av `editText` fra elementet som
+   byttes ut — de arves ikke fra raden, og et felt med en annen linjehøyde enn
+   teksten hadde ville brutt på et annet ord og hoppet i høyden. */
+.edit-input-multi {
+  display: block;
+  resize: none;
+  overflow: hidden;
+  min-height: 0;
+}
 
 /* Dialogflaten selv får fokus når en modal åpnes (se fokusfellen i app.js), slik
    at skjermleseren leser dialogens navn før innholdet. Den er ikke en kontroll
@@ -2183,10 +2207,18 @@ body.is-dragging * { cursor: grabbing !important; }
 .nav-board .hint-chip { background: var(--wash); }
 
 /* ---------------- dnd-kits dra-og-slipp ----------------
-   ALLE fem nivåene — nav-modalens tre og hovedsidens to — kjører på dnd-kit
-   gjennom Smett (se «NAV-SCOPET PÅ dnd-kit», «BOARD-SCOPETS KORTNIVÅ …» og
-   «BOARD-SCOPETS RADNIVÅ …» i app.js). Reglene står derfor på `.board`, som
-   begge board-rotene bærer. dnd-kit løfter selve objektet inn i TOP LAYER via
+   ALLE nivåene — nav-modalens tre, hovedsidens to og idémodalens ett — kjører på
+   dnd-kit gjennom Smett (se «NAV-SCOPET PÅ dnd-kit», «BOARD-SCOPETS KORTNIVÅ …»,
+   «BOARD-SCOPETS RADNIVÅ …» og «IDÉ-SCOPET PÅ dnd-kit» i app.js).
+
+   Reglene står på `.dnd-surface` — markørklassen HVER dra-rot bærer (`#board`,
+   `#nav-board`, `#ideas-body`), altså nøyaktig de elementene `scope.root` peker
+   på. De sto tidligere på `.board`, og da fantes de bare der et board fantes:
+   idémodalen er ingen board, så den fikk hverken malt hull eller en
+   ugjennomsiktig løftet kategori. Får appen en fjerde dra-flate, er
+   markørklassen det ene den må ha.
+
+   dnd-kit løfter selve objektet inn i TOP LAYER via
    `popover` og lar en KLONE holde plassen i layouten, så de to tilstandene har
    egne kroker:
 
@@ -2209,7 +2241,7 @@ body.is-dragging * { cursor: grabbing !important; }
 
    Dette er Huskis' politikk, ikke Smetts: Smett sier hvor et slipp lander, ikke
    hvordan det som dras ser ut. */
-.board .card[data-dnd-dragging] {
+.dnd-surface .card[data-dnd-dragging] {
   scale: 1.02;
   box-shadow: var(--shadow-lg);
   background: color-mix(in srgb, var(--card-bg) 58%, transparent);
@@ -2217,8 +2249,8 @@ body.is-dragging * { cursor: grabbing !important; }
   backdrop-filter: blur(2px);
   cursor: grabbing;
 }
-.board .item[data-dnd-dragging],
-.board .category[data-dnd-dragging] {
+.dnd-surface .item[data-dnd-dragging],
+.dnd-surface .category[data-dnd-dragging] {
   scale: 1.03;
   box-shadow: var(--shadow-lg);
   background: color-mix(in srgb, var(--surface) 58%, transparent);
@@ -2232,7 +2264,7 @@ body.is-dragging * { cursor: grabbing !important; }
    og radius, ingen gap mot den sammenfoldede hylla, og klipping så den ikke
    stikker ut; uten dem leser det løftede objektet som en beholder med luft i.
    Måles i `dnd-drop-animation` («6 kategori»), på det som faktisk står malt. */
-.board .category[data-dnd-dragging] {
+.dnd-surface .category[data-dnd-dragging] {
   gap: 0;
   padding: 6px;
   border-radius: 10px;
@@ -2240,30 +2272,30 @@ body.is-dragging * { cursor: grabbing !important; }
 }
 /* Skillelinjene hører til kategoriens plass på nivå 1 (mot nabo-radene) — de
    skal ikke males på det løftede objektet (ga ellers en «fantom-strek»). */
-.board .category[data-dnd-dragging]::before,
-.board .category[data-dnd-dragging]::after { content: none; }
+.dnd-surface .category[data-dnd-dragging]::before,
+.dnd-surface .category[data-dnd-dragging]::after { content: none; }
 /* ＋-knappen hører til kategoriens hvile-tilstand; hylla er alt foldet sammen
    ved løft (navCollapseCategory), og knappen skal ikke stikke ut av den. */
-.board .category[data-dnd-dragging] .cat-add { display: none; }
+.dnd-surface .category[data-dnd-dragging] .cat-add { display: none; }
 /* Menyknappen skjules HELT (ikke bare tonet ned) så overskriften leser som en
    kompakt rad, og tittelen males svart uten skygge: hvit-på-hvit var uleselig
    mot dra-flaten. Dra-ikonet er det som bærer «dette er løftet». */
-.board .category[data-dnd-dragging] .obj-menu-btn { display: none; }
-.board .category[data-dnd-dragging] .cat-title {
+.dnd-surface .category[data-dnd-dragging] .obj-menu-btn { display: none; }
+.dnd-surface .category[data-dnd-dragging] .cat-title {
   color: var(--ink);
   text-shadow: none;
   -webkit-text-stroke: none;
 }
-.board .category[data-dnd-dragging] .cat-drag-icon { display: inline-flex; }
+.dnd-surface .category[data-dnd-dragging] .cat-drag-icon { display: inline-flex; }
 /* Forhåndsvisnings-linja som skal males på HULLET settes på det LØFTEDE
    objektet, fordi klonen speiler klassene dens (se `addSep` i app.js). Objektet
    ligger i top layer og er ingen rad i lista: det skal hverken male linja eller
    ta imot marginen som gjør plass til den — dnd-kit setter `top`/`left` selv, og
    en `margin-top` på 25 px ville flyttet det løftede objektet vekk fra fingeren. */
-.board [data-dnd-dragging].sep-above,
-.board [data-dnd-dragging].sep-below { margin: 0 !important; }
-.board [data-dnd-dragging].sep-above::before,
-.board [data-dnd-dragging].sep-below::after { content: none; }
+.dnd-surface [data-dnd-dragging].sep-above,
+.dnd-surface [data-dnd-dragging].sep-below { margin: 0 !important; }
+.dnd-surface [data-dnd-dragging].sep-above::before,
+.dnd-surface [data-dnd-dragging].sep-below::after { content: none; }
 
 /* Sikter man på søppelkassen, skifter det løftede objektet BAKGRUNNSFARGE til
    rødt: et slipp her sletter. Gjennomsikten og sløret er allerede signalet for
@@ -2272,37 +2304,37 @@ body.is-dragging * { cursor: grabbing !important; }
    `background-color`, så flaten fortsatt slipper kassen (med sin
    `.drop-target`-markering) gjennom. `to-trash` settes fra JS
    (`setDragTrashTarget`). */
-.board [data-dnd-dragging].to-trash {
+.dnd-surface [data-dnd-dragging].to-trash {
   background-image: linear-gradient(var(--drag-danger), var(--drag-danger));
 }
 /* Lista sikter på 📁-breadcrumben (flytt til en annen mappe). Den ENESTE
    dra-tilstanden som fortsatt tones ut i stedet for å skifte farge: en flytting
    har ingen egen farge i paletten slik slettingen har rødt, og signalet den
    deler med er breadcrumbens egen `.drop-target`-markering. */
-.board [data-dnd-dragging].to-group { opacity: 0.45; }
+.dnd-surface [data-dnd-dragging].to-group { opacity: 0.45; }
 
 /* Klonen er «hullet» objektet kom fra: samme uttrykk som `.card-placeholder`
    lenger opp i fila — svakt mørknet flate med en subtil INNOVER-skygge. dnd-kit
    skjuler klonen som standard (`visibility: hidden`); vi viser boksen og skjuler
    INNHOLDET i stedet. */
-.board .card[data-dnd-placeholder],
-.board .item[data-dnd-placeholder],
-.board .category[data-dnd-placeholder] {
+.dnd-surface .card[data-dnd-placeholder],
+.dnd-surface .item[data-dnd-placeholder],
+.dnd-surface .category[data-dnd-placeholder] {
   visibility: visible;
   background: var(--scrim);
   box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.22);
   outline: none;
 }
-.board .card[data-dnd-placeholder] { border-radius: var(--radius); }
-.board .item[data-dnd-placeholder],
-.board .category[data-dnd-placeholder] { border-radius: 10px; }
+.dnd-surface .card[data-dnd-placeholder] { border-radius: var(--radius); }
+.dnd-surface .item[data-dnd-placeholder],
+.dnd-surface .category[data-dnd-placeholder] { border-radius: 10px; }
 /* Klonen er tatt av det løftede objektet ETTER at rotasjonen ble satt fra JS
    (dndPaintRotation), så den bærer den som en INLINE-stil — og en inline-stil
    slår enhver klasseregel. Hullet i lista skal stå rett, så her må det
    `!important` til; uten det er regelen en vakt som ikke vokter noe (en bred,
    lav rad fikk et hull dobbelt så høyt som seg selv). */
-.board [data-dnd-placeholder] { rotate: none !important; scale: none !important; }
-.board [data-dnd-placeholder] > * { visibility: hidden; }
+.dnd-surface [data-dnd-placeholder] { rotate: none !important; scale: none !important; }
+.dnd-surface [data-dnd-placeholder] > * { visibility: hidden; }
 /* HULLET SOM IKKE LOVER NOE: verken maling eller plass.
 
    Et malt hull sier «her lander raden». Tre ganger sier det ikke det:
@@ -2321,7 +2353,7 @@ body.is-dragging * { cursor: grabbing !important; }
    originalens `style`-attributt — det samme attributtet vi maler rotasjonen i
    (se regelen over). En inline `margin-bottom` ble vasket bort med den.
    Containeren er VÅR node, og klonen arver. Se `syncHoleSpace` i app.js. */
-body.is-hole-gone .board [data-dnd-placeholder] { visibility: hidden; }
+body.is-hole-gone .dnd-surface [data-dnd-placeholder] { visibility: hidden; }
 /* Marginene på et hull som ikke lover noe er VÅRE. `!important` av samme grunn
    som for det løftede objektet lenger opp: kategoriens skillemarger står i en
    regel med tre klasser (`.items-container.seps-managed > .sep-above`), og 25 px
@@ -2340,8 +2372,8 @@ body.is-over-trash .new-list-placeholder { visibility: hidden; }
    rad). Unntaket må derfor skrives på samme form som `seps-managed` bruker,
    ellers slår det — mer spesifikt — ut den forhåndsvisningen det ikke handler
    om. */
-.board .category[data-dnd-placeholder]:not(.sep-above)::before,
-.board .category[data-dnd-placeholder]:not(.sep-below)::after { content: none; }
+.dnd-surface .category[data-dnd-placeholder]:not(.sep-above)::before,
+.dnd-surface .category[data-dnd-placeholder]:not(.sep-below)::after { content: none; }
 
 /* Aktivt område / aktiv mappe: samme grønne brand-ring som resten av appen,
    trukket innover så den ikke kolliderer med nabokortet. */
@@ -3151,29 +3183,46 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
   height: 100%;
 }
 
-/* ---------------- Mobil ----------------
+/* ---------------- Smalt: stablet toppmeny, én kolonne, modal-popovere ----------------
    Samme toppmeny som desktop, men stablet i to rader; board-et endres til én
-   kolonne, og popover-skallet blir en sentrert modal. */
-@media (max-width: 560px) {
-  /* Kolonneantallet regnes ut i JS (`relayoutBoard`) og er uansett 1 så smalt —
-     her settes bare CSS-sidens flagg for den samme modusen. */
-  .board { --board-single-column: 1; }
+   kolonne, og popover-skallet blir en sentrert modal. De TO grensene er ulike
+   og skal være det — se under. */
 
-  /* Så smalt er det ikke plass til begge deler på én linje: listefunksjonene
-     legges på raden under. Panelet blir én kontrollhøyde høyere — det er byttet
-     mot at navnene ikke kappes bort. Telefonen i LANDSKAP er bredere enn dette
-     og beholder derfor én-linjes-panelet.
-     Klaringen holdes av BEGGE radene her: hjørnegruppen er også to rader så
-     smalt (drakt/konto over kalender/søk), og da ligger den ene gruppe-raden
-     ved siden av breadcrumben og den andre ved siden av listefunksjonene. Det
-     er nettopp derfor panelet slipper å skyves ned for gruppens andre rad —
-     se `--corner-btns-overflow` (syncTopChrome). */
+/* TOPPMENYEN STABLES FØR board-et gir opp den andre kolonnen (620 vs. 560).
+   De to grensene svarer på hver sin ting, og den ene fulgte den andre bare så
+   lenge tallene tilfeldigvis stemte:
+
+     • Board-ets grense (560) speiler hva `relayoutBoard` regner ut i JS. Den
+       må IKKE flyttes uten at utregningen flyttes med — flagget her er kun
+       CSS-sidens kopi av det samme svaret.
+     • Toppmenyens grense er ren plass på ÉN linje, og den avhenger av hvor
+       bred hjørnegruppen er. Gruppen har seks knapper (`docs/menus.md`), og
+       med den reserven (`--corner-btns-w`) tar breadcrumben, listefunksjonene
+       og gruppen mer enn 560 px til sammen: breadcrumben krympet til null og
+       listefunksjonene la seg OPPÅ den. En knapp til flytter grensen igjen —
+       tallet er en konsekvens av gruppens bredde, ikke et designvalg.
+
+   Under grensen legges listefunksjonene på raden under. Panelet blir én
+   kontrollhøyde høyere — det er byttet mot at navnene ikke kappes bort.
+   Telefonen i LANDSKAP er bredere enn dette og beholder derfor
+   én-linjes-panelet.
+   Klaringen holdes av BEGGE radene: er hjørnegruppen også to rader (under
+   560 px), ligger den ene gruppe-raden ved siden av breadcrumben og den andre
+   ved siden av listefunksjonene — og da slipper panelet å skyves ned for
+   gruppens andre rad (se `--corner-btns-overflow`, syncTopChrome). */
+@media (max-width: 620px) {
   .topbar { flex-direction: column; align-items: stretch; }
   .breadcrumb { padding-right: var(--corner-btns-w); }
   .toolbar { margin-right: var(--corner-btns-w); flex-wrap: wrap; }
 
-  /* Litt tettere breadcrumb så navnene får plass ved siden av kontoknappen. */
+  /* Litt tettere breadcrumb så navnene får plass ved siden av hjørnegruppen. */
   .crumb-btn { font-size: var(--fs-md); padding: 0 10px; gap: 6px; }
+}
+
+@media (max-width: 560px) {
+  /* Kolonneantallet regnes ut i JS (`relayoutBoard`) og er uansett 1 så smalt —
+     her settes bare CSS-sidens flagg for den samme modusen. */
+  .board { --board-single-column: 1; }
 
   /* Nav-modalens overskrift er lang (to nivåer med hvert sitt ikon) — mindre
      skrift så den får plass på én linje ved siden av lukkeknappen. */
@@ -3929,6 +3978,100 @@ body.no-auth .corner-controls { display: none; }
    en seksjonsoverskrift og gruppene under den — mens luften inne i en gruppe
    (8 px mellom radene) er en helt annen størrelsesorden. Da leses grupperingen
    uten en eneste strek; en skillelinje i tillegg ble bare støy. */
+/* ---------------- Idémodalen (docs/ideer.md) ----------------
+   Kroppen er ETT kort uten hode, så radene, kategoriene, skillelinjene og
+   dra-og-slipp-motoren er nøyaktig listas. Kortet skal likevel ikke LESE som
+   et kort inne i en modal: flaten er modalens egen, uten skygge og uten
+   palettfarge, så idéene ligger rett på arket. */
+.ideas-modal { min-height: min(320px, 100%); }
+.ideas-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+/* Idébeholderen er IKKE en `.card` (se index.html), men radene inni er listas,
+   og de leser de tre kortvariablene: `--card-bg` gir platene sin tone i mørk
+   drakt, `--card-accent` er kanten navnefeltet får. De settes derfor her, som
+   `.card` gjør for seg.
+
+   NØYTRAL flate, ingen palettfarge: idébeholderen er ikke en av kortene i
+   board-ets rekke, og en posisjonsfarge ville lovet en tilhørighet som ikke
+   finnes. Flaten må likevel være en TONE, ikke modalens egen hvite — radenes
+   plate er halvgjennomsiktig hvit, og på hvitt forsvinner den. */
+.ideas-card {
+  --card-bg: var(--surface-2);
+  --card-head: var(--surface-2);
+  --card-accent: var(--line);
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0;
+  border-radius: var(--radius);
+  background: var(--card-bg);
+}
+
+/* Tom-tilstand: ren CSS, slik at den ikke kan komme i utakt med listen —
+   heller ikke midt i et drag, der dnd-kits klone gjør listen «ikke tom». */
+.ideas-empty { display: none; margin: 0; font-size: var(--fs-sm); color: var(--ink-soft); font-weight: 500; }
+.items-container:empty + .ideas-empty { display: block; }
+
+/* KATEGORIENE ER MODALENS ENESTE FARGEDE FLATER, og de får fargen sin av
+   POSISJONEN — samme regel som lister og områder: den øverste er alltid den
+   første palettfargen, også etter en omrokkering (`reindexIdeaCatColors` deler
+   ut på nytt). Fargen lagres derfor ikke og synkes ikke; den utledes.
+
+   Den fargede flaten er samtidig svaret på hvorfor en idékategori er et BLOKK
+   og ikke bare en overskrift over en hylle: idébeholderen har ingen kort-hoder
+   å dele lista inn med, så bolken må bære grensen sin selv. */
+.idea-cat {
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--card-bg);
+}
+/* Mørk drakt maler kortflater som en DEMPET blanding av palettfargen (se
+   `--card-face`), aldri som den rå tonen — ellers ville de tre lyshetssettene
+   lyst opp mot en mørk bakgrunn. Kategoriblokken er en kortflate og får hele
+   pakken: den dempede flaten, aksentstripen som bærer selve fargen, og
+   konturen som skiller blokken fra flaten under. Uten de to siste er blokkene
+   i mørk drakt nesten umulige å skille fra hverandre — tonetrinnet alene er
+   for lite. Nøyaktig det samme svaret som `.card` får.
+
+   MEN BARE I HVILE. Regelen er like spesifikk som de delte dra-reglene og står
+   etter dem i fila, så uten unntaket her ville den slått dem begge: hullet ble
+   et lite kategorikort med aksentstripe i stedet for et hull (og et hull skal
+   se likt ut uansett hva som skal lande i det), og det løftede objektet mistet
+   den halvgjennomsiktige løfteflaten og den kompakte polstringen klonen måles
+   mot. Begge tilstandene eies av dra-blokken; hvileflaten er vår. */
+:root[data-theme="dark"] .idea-cat:not([data-dnd-placeholder]):not([data-dnd-dragging]) {
+  background-color: var(--card-face);
+  background-image: linear-gradient(90deg, var(--card-stripe) 0 4px, transparent 4px);
+  padding-left: 12px;                 /* hold innholdet klar av stripen */
+  outline: 1px solid rgba(255, 255, 255, 0.09);
+  outline-offset: -1px;
+}
+/* Hvile-hårstrekene rundt en kategori skiller hylla fra nabo-radene NÅR alle
+   ligger på den samme flaten. Her har kategorien sin egen farge, og da er
+   streken bare støy. Dra-forhåndsvisningen (`seps-managed`, lenger opp) er
+   urørt: DER er streken svaret på hvor raden lander. */
+.idea-cat:not(:last-child)::after,
+.item + .idea-cat::before { content: none; }
+
+/* Slett-knappen på en idé er den ENESTE knappen raden har. Den arver
+   `.item-cog` sin plass og berøringsflate; det eneste som skiller den er at
+   hover er rød (handlingen er destruktiv), ikke grønn. */
+.idea-del-btn:hover { color: var(--danger); }
+
+/* KONTROLLFELTET (se index.html): knappene og kassen stablet og midtstilte,
+   utenfor det rullende feltet. `.modal-foot` står som ellers — bare aksen
+   snus, for her er det ikke et notat og en knapp, men to rader av samme slag. */
+.ideas-foot {
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 20px;
+}
+
 .events-body {
   flex: 1 1 auto;
   min-height: 0;
