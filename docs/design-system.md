@@ -452,7 +452,7 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   mørkere flate (`rgba(0,0,0,.1)`) + innover-skygge (`inset box-shadow`) + stort
   venstre-innrykk, så listepunktene blir som «bøker» i en hylle som går inn i veggen
   (dette erstattet den tidligere grupperingsstreken). Den LØFTEDE kategorien
-  (`.board .category[data-dnd-dragging]`) er et hvitt chip med hylla foldet
+  (`.dnd-surface .category[data-dnd-dragging]`) er et hvitt chip med hylla foldet
   sammen (se `docs/drag-and-drop.md`) som skal lese som en **kompakt rad,
   ikke et felt**: kategori-ikonet (`.cat-drag-icon`, skjult i hvile) vises til
   venstre for tittelen, tittelen blir **svart uten skygge** (hvit-på-hvit var

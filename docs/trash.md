@@ -5,7 +5,8 @@ hvilket som helst av de fire nivåene — eller for idéene.
 
 Fem kasser, samme knapp (`.trashcan`: hvit beholder, søppelkasse-SVG + antall i
 grå sirkel) og samme oppførsel; **alle vises kun når de har innhold** (`hidden`)
-— ELLER når et drag på det nivået pågår (se under):
+— ELLER, for de fire hierarkinivåene, når et drag på det nivået pågår (se
+under):
 
 - **Områder**: nederst i nav-modalen, ved siden av «＋ [område-ikon]».
 - **Mapper**: i hvert OMRÅDE-KORT i nav-modalen (`.group-trash-btn`) — akkurat
@@ -13,18 +14,21 @@ grå sirkel) og samme oppførsel; **alle vises kun når de har innhold** (`hidde
 - **Lister**: i toppmenyens listefunksjons-rad (per aktiv mappe).
 - **Listepunkter**: midtstilt nederst i hvert listekort (`ICONS.trash`, samme
   SVG som de statiske knappene — aldri emoji).
-- **Idéer**: nederst i idémodalen (`#idea-trash-btn`) — én kasse for hele
-  kontoen, siden idéene ikke ligger i noe hierarki
-  ([`ideer.md`](ideer.md)).
+- **Idéer**: i idémodalens fot (`#idea-trash-btn`) — én kasse for hele kontoen,
+  siden idéene ikke ligger i noe hierarki ([`ideer.md`](ideer.md)). Den er den
+  ene som **ikke er et slippmål**: idéer slettes med sletteknappen på raden, så
+  kassen er bare veien tilbake. Den vises derfor utelukkende når den har
+  innhold.
 
-Kassene som ligger INNE i en beholder (`.item-trash`-innpakningen i listekortet,
-i områdekortet og i idémodalen) **bygges alltid**, men står `hidden` når de er
-tomme. Noden må finnes for at et drag skal kunne vise den fram — se under.
+Kassene som ligger INNE i en beholder (`.item-trash`-innpakningen i listekortet
+og i områdekortet) **bygges alltid**, men står `hidden` når de er tomme. Noden
+må finnes for at et drag skal kunne vise den fram — se under.
 
 ## Slett ved å DRA objektet i kassen
 
-**Dette er den ene slettegesten**, og den er lik på desktop og mobil for alle
-objekttypene som har en kasse:
+**Dette er den ene slettegesten** på de fire hierarkinivåene, og den er lik på
+desktop og mobil (idéene er unntaket — se over: der er sletteknappen på raden
+den ene veien):
 
 1. Løft objektet (trykk-og-hold på touch, dra på mus — samme motor som all annen
    flytting, `docs/drag-and-drop.md`). Kassen for NIVÅET dukker opp med én gang

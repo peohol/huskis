@@ -31,7 +31,16 @@ Derfor er det heller ikke skrevet noe eget her: radene, kategoriene,
 skillelinjene, kollaps-tellerne og hele dra-og-slipp-motoren er listenivåets,
 gjenbrukt gjennom `ideaScope` ([`drag-and-drop.md`](drag-and-drop.md)).
 
-**Knappene** står nederst, som i en liste — men med idéikonet i stedet for ＋:
+**Kategoriene bærer palettfarge etter POSISJON**, som listene og områdene: den
+øverste er alltid den første fargen, og en omrokkering deler ut på nytt
+(`reindexIdeaCatColors`, som `reindexContainerColors`). Fargen lagres ikke og
+synkes ikke — den utledes av rekkefølgen, og rekkefølgen synkes, så alle enheter
+kommer fram til den samme. Idébeholderen selv (`.ideas-card`) har ingen
+palettfarge: den er ikke et av kortene i board-ets rekke.
+
+**Knappene** står i modalens FOT (`.modal-foot.ideas-foot`), utenfor det
+rullende feltet: er listen lengre enn modalen, blir de stående. Kassen står i
+det samme feltet. Ellers er de listas — men med idéikonet i stedet for ＋:
 
 | Knapp | Gjør |
 |---|---|
@@ -63,14 +72,32 @@ som teksten gjorde, og raden hopper ikke i høyden i det redigeringen starter.
 Teksten er fortsatt ÉN linje som data: Enter avslutter redigeringen (det lager
 ikke et linjeskift), akkurat som i enlinjefeltet. Bryting er visuell.
 
+## Dra-og-slipp
+
+Gesten og politikken er delt med de andre nivåene
+([`drag-and-drop.md`](drag-and-drop.md)); to ting er idémodalens egne:
+
+- **Draget er låst til den vertikale aksen.** Lista er én smal kolonne uten et
+  eneste vannrett slippmål, så en vannrett komponent kunne bare bomme
+  (`Smett.RestrictToVerticalAxis` i `ensureIdeaRowBoard`). Modifikatorene
+  erstatter Smetts standardliste, så viewport-klemma (`SafeViewport`) skrives ut
+  igjen sammen med låsen.
+- **Kassen er ikke et slippmål.** Se under.
+
 ## Søppelkassen
 
-Idéene har sin **egen** kasse (`#idea-trash-btn`), nederst i modalen, og den
-virker som de fire andre ([`trash.md`](trash.md)): skjult når den er tom, vises
-fram som slippmål under et drag, kort trykk åpner søppel-modalen
-(gjenoppretting per rad), hold-og-sveip tømmer permanent. En slettet idé ligger
-der til kassen tømmes; tømming setter gravstein, og en idé som pekte på en
-kategori som ble tømt bort løsner til nivå 1.
+Idéene har sin **egen** kasse (`#idea-trash-btn`), i modalens fot, og den virker
+som de fire andre ([`trash.md`](trash.md)): skjult når den er tom, kort trykk
+åpner søppel-modalen (gjenoppretting per rad), hold-og-sveip tømmer permanent.
+En slettet idé ligger der til kassen tømmes; tømming setter gravstein, og en idé
+som pekte på en kategori som ble tømt bort løsner til nivå 1.
+
+**Men den er IKKE et slippmål.** De andre nivåene kan i tillegg slette ved å
+slippe i kassen; der er kassen ett sted per liste/mappe, og draget er uansett
+den eneste veien mellom containere. En idé har bare én container, og
+sletteknappen står på selve raden — å sikte den ned i en kasse er flere
+bevegelser for det samme utfallet. Boardet har derfor ingen `zoneSelector`, og
+kassen viser seg ikke fram for et drag.
 
 En idékategori havner aldri i kassen — den løses opp.
 
@@ -137,6 +164,9 @@ tabellene.
 
 `tests/ideas-modal.test.js` dekker knappen, opprettelsen, redigeringen (også at
 den er flerlinjet), omdøping og oppløsning av kategorier, sletting og
-gjenoppretting, dra-og-slipp på begge nivåene, og at idéene følger KONTOEN og
-skrives til `ideas`-tabellen. Flerlinjeredigering av LISTEPUNKTER dekkes av
+gjenoppretting, dra-og-slipp på begge nivåene (inkludert akselåsen, at kassen
+IKKE tar imot et slipp, at hullet males og at en løftet kategori er en
+ugjennomsiktig rad uten skillelinje), kategorifargene etter posisjon, at
+knappene står stille mens listen ruller, og at idéene følger KONTOEN og skrives
+til `ideas`-tabellen. Flerlinjeredigering av LISTEPUNKTER dekkes av
 `tests/item-creation.test.js` (7b).

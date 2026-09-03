@@ -4850,7 +4850,6 @@
       return !!c && !frozen(c);
     }
     if (drag.kind === 'item') {
-      if (S === ideaScope) return !!findIdeaById(id);   // idéene er mine alene
       if (S === navScope) {
         const g = findGroupAnywhere(id);
         return !!g && cap(g, 'delete', !frozen(g));
@@ -5043,13 +5042,6 @@
         const c = findCard(id);
         if (c) deleteCard(c);   // toppmenyens kasse står alltid i synsfeltet
       }
-      return;
-    }
-    if (S === ideaScope) {
-      const d = findIdeaById(id);
-      if (!d) return;
-      deleteIdea(d);
-      keepTrashInView(ideaTrashBtn);
       return;
     }
     if (S === navScope) {
@@ -13495,7 +13487,6 @@
      idékategori ÉN (oppløs) — målet er å få tanken ned, ikke å planlegge den.
      ============================================================ */
   const IDEAS_CONT_ID = '__ideas__';
-  const IDEA_TRASH_ZONE = 'idea-trash';
   const ideasModal = document.getElementById('ideas-modal');
   const ideasBtn = document.getElementById('ideas-btn');
   const ideasCloseBtn = document.getElementById('ideas-close');
@@ -13547,7 +13538,9 @@
     refreshContainer: () => renderIdeas(),
     render: () => renderIdeas(),
     afterDrop: () => { /* DOM-en er allerede riktig */ },
-    reindexColors: () => { /* idékortet har ingen palettfarge */ },
+    // Idébeholderen har ingen palettfarge — men KATEGORIENE i den har, og de
+    // deles ut på nøyaktig samme måte som containernes: etter posisjon.
+    reindexColors: () => reindexIdeaCatColors(),
     lockedTargetMsg: '',
     refusesRow: () => false,        // ingen låser her
   };
@@ -13563,6 +13556,7 @@
     // nivå 1, som et listepunkt i samme situasjon.
     const level1 = rows.filter((r) => r.isCat || !r.cat || !catIds.has(r.cat)).sort(posCmp);
     level1.forEach((d) => ideasList.appendChild(d.isCat ? buildIdeaCategory(d) : buildIdeaRow(d)));
+    reindexIdeaCatColors();
     paintIdeaTrash();
     applyFocusIntent();
     ensureIdeaRowBoard();
@@ -13574,6 +13568,26 @@
     if (!ideasModal || ideasModal.hidden || drag.active) return;
     renderIdeas();
   }
+  /* FARGENE ER POSISJONSBASERTE, som listenes og områdenes: den øverste
+     kategorien er alltid den første palettfargen, den neste den andre, og en
+     omrokkering deler ut på nytt. Fargen lagres ikke og synkes ikke — den
+     utledes av rekkefølgen, og rekkefølgen (`pos`) er det som synkes, så alle
+     enheter kommer fram til det samme.
+
+     Rekkefølgen leses fra TILSTANDEN, ikke fra DOM-en: midt i et drag ligger
+     dnd-kits klone i lista med den samme `data-id` som originalen, og en
+     DOM-telling ville gitt kategoriene under den én farge for mye. Noden slås
+     opp per kategori, og klonen holdes utenfor. Samme form som
+     `reindexContainerColors`. */
+  function reindexIdeaCatColors() {
+    if (!ideasList) return;
+    orderedRows(ideaScope, ideasCont, 'level1').filter((r) => r.isCat).forEach((c, i) => {
+      const el = ideasList.querySelector(
+        ':scope > .category[data-id="' + c.id + '"]:not([data-dnd-placeholder])');
+      if (el) paintCardColor(el, colorForIndex(i));
+    });
+  }
+
   function ideaSyncBoard() {
     if (!ideaRowBoard) return;
     if (ideaRowBoard.manager.dragOperation.status.idle) ideaRowBoard.sync();
@@ -13696,6 +13710,7 @@
     stampPos(obj);
     state.ideas.push(obj);
     ideasList.appendChild(rowEl);
+    if (obj.isCat) reindexIdeaCatColors();
     save();
     ideaSyncBoard();
     nameNewRow(obj, ideasCont, rowEl, displayEl, ideaScope, onNamed, opts);
@@ -13721,6 +13736,12 @@
     if (nb) return handleSelector(nb.isCat ? 'ideacat' : 'idea', nb.id);
     return '#add-idea-btn';
   }
+  /* SLETTEKNAPPEN ER DEN ENESTE VEIEN. De andre nivåene kan i tillegg slippes i
+     kassen, men der er kassen ETT sted per liste/mappe og draget uansett den
+     eneste veien mellom containere. En idé har bare én container, og knappen
+     står på selve raden: å sikte den ned i en kasse er flere bevegelser for det
+     samme utfallet. Kassen finnes fortsatt — den holder det slettede og gir det
+     tilbake — den er bare ikke et slippmål (ingen `zoneSelector`). */
   function deleteIdea(ideaData) {
     const d = findIdeaById(ideaData.id);
     if (!d) return;
@@ -13739,9 +13760,9 @@
     const n = trashedIdeas().length;
     const countEl = ideaTrashBtn.querySelector('.trashcan-count');
     if (countEl) countEl.textContent = n;
-    // Kassen finnes ALLTID i DOM-en (et drag viser den fram som slippmål), så
-    // tellingen styrer synligheten — men et drag som har avdekket den, beholder.
-    if (ideaTrashWrap && !ideaTrashWrap.dataset.dragRevealed) ideaTrashWrap.hidden = n === 0;
+    // Kassen er ikke et slippmål her, så den har bare én grunn til å vises:
+    // den har innhold.
+    if (ideaTrashWrap) ideaTrashWrap.hidden = n === 0;
     ideaTrashBtn.setAttribute('aria-label', tr('trash.ideasCount', { count: n }));
   }
   function restoreIdea(ideaData) {
@@ -13800,7 +13821,6 @@
   }
 
   if (ideaTrashBtn) {
-    ideaTrashBtn.dataset.dndZone = IDEA_TRASH_ZONE;
     ideaTrashBtn.title = tr('trash.ideasBtnTitle');
     const ideaTrashIcon = document.createElement('span');
     ideaTrashIcon.className = 'trashcan-icon';
@@ -13830,11 +13850,13 @@
      IDÉ-SCOPET PÅ dnd-kit (gjennom Smett)
      ------------------------------------------------------------
      Det TREDJE scopet, og det enkleste: ÉN container, ingen ekstrahering,
-     ingen låser, ingen kryss-beholder-flytting. Det eneste et slipp kan bety
-     er ny plass i rekka, inn i eller ut av en kategori — eller sletting, hvis
-     det traff kassen. Alt annet (skillelinjer, peek av en kollapset kategori,
-     kassen som sone, rotasjon under løft) er den DELTE politikken over, som
-     leser `drag.scope`.
+     ingen låser, ingen kryss-beholder-flytting, ingen sletting. Det eneste et
+     slipp kan bety er ny plass i rekka, inn i eller ut av en kategori. Alt
+     annet (skillelinjer, peek av en kollapset kategori, rotasjon under løft) er
+     den DELTE politikken over, som leser `drag.scope`.
+
+     DRAGET GÅR BARE OPP OG NED. Lista er én smal kolonne, så en vannrett
+     komponent har ingen betydning her — den er låst av i `ensureIdeaRowBoard`.
      ============================================================ */
   let ideaRowBoard = null;
 
@@ -13881,7 +13903,8 @@
       itemSelector: '.items-container > .item, .items-container > .category, .cat-items > .item',
       containerSelector: '.items-container, .cat-items',
       handleSelector: '.cat-head, .item',
-      zoneSelector: '.item-trash-btn',
+      // INGEN `zoneSelector`: idéene slettes ikke ved å dras i kassen. Se
+      // blokken om sletting over.
       idAttribute: 'data-id',
       axis: 'vertical',
       keyboard: false,               // tastaturet er Huskis' eget (attachKeyHandle)
@@ -13891,10 +13914,21 @@
       describeItem: ideaRowLabel,
       phrases: ideaRowPhrases(),
       onCommit: ideaCommitRow,
-      onZoneDrop: ideaRowZoneDrop,
-      onDropTarget: ideaRowDropTarget,
       onError: (err) => { if (window.console) console.error('[huskis] idea-row-dnd', err); },
     });
+    /* ÉN AKSE: idélista er én smal kolonne uten et eneste vannrett slippmål —
+       ingen nabo-liste, ingen breadcrumb, ingen ny-liste-stripe. En vannrett
+       komponent kunne derfor bare bomme: fingeren som glir litt sidelengs på
+       en telefon dro raden ut av kolonnen uten at det betydde noe.
+
+       Modifikatorene ERSTATTER Smetts standardliste, så viewport-klemma må
+       skrives ut igjen her — den er det `safeInsets` mates inn i, og uten den
+       kan det løftede objektet havne under en systemflate. Rekkefølgen er
+       virksom: klemma først, akselåsen sist (den nuller x til slutt). */
+    ideaRowBoard.manager.modifiers = [
+      Smett.SafeViewport.configure({ insets: safeInsets }),
+      Smett.RestrictToVerticalAxis,
+    ];
     ideaRowWire(ideaRowBoard);
     dndInstallClickGuard();
   }
@@ -13928,7 +13962,7 @@
     // Det finnes bare ETT kort her, så «hvilket kort er jeg over» er avgjort
     // før draget begynner.
     drag.overCard = ideasCardEl;
-    drag.trashHost = ideasCardEl;
+    drag.trashHost = null;          // kassen er ikke et slippmål her
     drag.crumbTarget = false;
     dndRowTargetCont = null;
     dndPeekPending = null;
@@ -13938,7 +13972,6 @@
     if (kind === 'category') dndCollapseCategory(el);
     dndTuneRowCollisions(ideaRowBoard);
     dndNoteLiftedBox(el);
-    armDragTrash();
   }
 
   function ideaRowDragStart(b) {
@@ -13970,31 +14003,13 @@
     finishDrag();
   }
 
-  function ideaRowDropTarget(target) {
-    const btn = dragTrashBtn();
-    setDragTrashTarget(!!(drag.trashArmed && btn && target &&
-      target.kind === 'zone' && target.element === btn));
-  }
-  function ideaRowZoneDrop(result) {
-    const btn = dragTrashBtn();
-    if (!drag.trashArmed || !btn || btn.getAttribute('data-dnd-zone') !== result.zoneId) return;
-    disarmDragTrash();
-    dropIntoTrash(ideaScope, 'item', result.itemId);
-  }
-
   /* Slippet: ny plass i rekka, og for en IDÉ dessuten hvilken kategori den
      havnet i. En KATEGORI leser aldri sin egen `.category`-forfar som mål —
-     den er sin egen — så `cat` er alltid null for den. */
+     den er sin egen — så `cat` er alltid null for den.
+
+     Et slipp kan ALDRI slette her: kassen er ingen sone i dette scopet, så det
+     er ingen sikte-ring å sjekke først. */
   function ideaCommitRow() {
-    // Ringen rundt kassen: et slipp som bommer med noen piksler skal fortsatt
-    // slette, ikke flytte (samme regel som i de to andre scopene).
-    if (dropReleasedOnTrash(ideaRowBoard)) {
-      const trashedId = drag.el && drag.el.dataset.id;
-      restoreDraggedToOrigin();
-      disarmDragTrash();
-      if (trashedId) dropIntoTrash(ideaScope, 'item', trashedId);
-      return;
-    }
     const S = ideaScope;
     const el = drag.el;
     if (!el || !el.isConnected) return;
@@ -14012,6 +14027,7 @@
       moved.pos = between(rowPos(prev), rowPos(next));
       stampPos(moved);
     }
+    S.reindexColors();       // kategorifargene følger posisjonen, ikke objektet
     refreshAllCollapseCounts();
     save();
   }
@@ -17053,6 +17069,7 @@
     paintTheme();
     reindexContainerColors(boardScope);
     reindexContainerColors(navScope);   // no-op når nav-modalen er tom
+    ideaScope.reindexColors();          // no-op når idémodalen aldri har vært åpen
     repaintAvatars();
   });
 

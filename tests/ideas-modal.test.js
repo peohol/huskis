@@ -18,11 +18,19 @@
      5. Idéens ene knapp SLETTER: idéen havner i idéenes EGEN søppelkasse, kan
         hentes tilbake derfra, og tømmes for godt derfra.
      6. Dra-og-slipp er det samme systemet som ellers: en idé omrokkeres på
-        nivå 1, kan dras INN i en kategori, og et slipp i kassen sletter den
-        (kassen vises fram av draget, som på de andre nivåene).
-     7. Idéene er KONTOENS: bytter man mappe eller område, står de samme idéene
+        nivå 1 og kan dras INN i en kategori. Kassen er IKKE et slippmål her —
+        sletting skjer med sletteknappen — og draget er låst til den vertikale
+        aksen.
+     7. Draget SIER hvor raden lander: klonen males som et hull, og radene under
+        viker for den — også når raden dras helt øverst. En løftet kategori er
+        en ugjennomsiktig, kortaktig rad uten skillelinje.
+     8. Kategoriene får palettfarge etter POSISJON, som lister og områder: den
+        øverste er alltid den første fargen, også etter en omrokkering.
+     9. Knappene står i modalens fot, utenfor det rullende feltet: de blir ikke
+        med på scrollingen når idélisten er lengre enn modalen.
+    10. Idéene er KONTOENS: bytter man mappe eller område, står de samme idéene
         der. De skrives dessuten til `ideas`-tabellen, ikke til `items`.
-     8. Utloggingen etterlater INGEN åpen overlay og ingen av kontoens idéer i
+    11. Utloggingen etterlater INGEN åpen overlay og ingen av kontoens idéer i
         DOM-en. `body.no-auth` skjuler bare toppmenyen, board-et og
         hjørneknappene — en modal ligger OVER innloggingsskjermen.
 
@@ -274,29 +282,187 @@ async function run(label, viewport, touch) {
   log(label + ': kategori-medlemskapet er skrevet til databasen',
     (await dbIdeer(p)).some((x) => x.iKat), JSON.stringify(await dbIdeer(p)));
 
-  /* ---- 6b. Slipp i kassen sletter, som på de andre nivåene ---- */
-  // Kassen er skjult når den er tom; et drag skal vise den fram som slippmål.
+  /* ---- 6b. Kassen er IKKE et slippmål, og draget er låst til én akse ----
+     Idéene slettes med sletteknappen på raden. Kassen finnes fortsatt (veien
+     tilbake), men den skal hverken vise seg fram for et drag eller ta imot
+     det: et slipp der er et slipp som bommer, ikke en sletting. */
   const førKassen = (await nivå1(p)).length;
   const idDrag = await idAv(1);
   await lift(p, await centre(p, sel(idDrag) + ' .item-text'), touch);
-  log(label + ': draget avdekker idé-kassen som slippmål',
-    await p.$eval('#idea-trash', (el) => !el.hidden));
-  await travel(p, () => centre(p, '#idea-trash-btn'), touch);
+  log(label + ': draget avdekker IKKE idé-kassen (den er ikke et slippmål)',
+    await p.$eval('#idea-trash', (el) => el.hidden));
+  /* Løftet objektet skal ikke følge pekeren sidelengs — lista er én kolonne.
+     SENTERET måles, ikke venstrekanten: objektet bærer en dynamisk rotasjon
+     under draget (`dndPaintRotation`), og en rotert boks har en aksejustert
+     `left` som vandrer et par piksler. Senteret står stille gjennom både
+     rotasjonen og løfte-skaleringen. */
+  const senterX = () => p.$eval('#ideas-list [data-dnd-dragging]',
+    (el) => { const r = el.getBoundingClientRect(); return Math.round((r.left + r.right) / 2); });
+  const xFørSide = await senterX();
+  const start = await centre(p, sel(idDrag));
+  await travel(p, { x: start.x + 140, y: start.y }, touch);
+  const xEtterSide = await senterX();
+  log(label + ': draget er låst til den vertikale aksen', Math.abs(xEtterSide - xFørSide) <= 1,
+    xFørSide + ' → ' + xEtterSide);
   await drop(p, undefined, touch);
-  await p.waitForTimeout(500);
-  log(label + ': slipp i kassen sletter idéen', (await nivå1(p)).length === førKassen - 1,
+  await p.waitForTimeout(400);
+  log(label + ': ingen idé forsvant av et sidelengs drag', (await nivå1(p)).length === førKassen,
     førKassen + ' → ' + (await nivå1(p)).length);
-  await p.click('#idea-trash-btn');
-  await p.waitForSelector('#trash-modal:not([hidden])');
-  const etterSlipp = await p.$$eval('#trash-list .trash-name', (els) => els.map((e) => e.textContent));
-  log(label + ': den slupne idéen ligger i idéenes egen kasse', etterSlipp.length === 1,
-    JSON.stringify(etterSlipp));
-  await p.click('#trash-list .trash-restore, #trash-list button');
-  await p.waitForTimeout(250);
-  await p.click('#trash-close');
+  log(label + ': idé-kassen er fortsatt tom', await p.$eval('#idea-trash', (el) => el.hidden));
+
+  /* ---- 7. Hullet lover en plassering: malt, og med plass under seg ----
+     Klonen dnd-kit legger igjen er skjult som standard; det er Huskis' egne
+     regler (`.dnd-surface [data-dnd-placeholder]`) som maler den som et hull.
+     De sto tidligere bare på `.board`, og idémodalen er ingen board — så det
+     var hverken hull å se eller rom som sa hvor raden skulle. */
+  // Tre frie idéer ØVERST i lista (negativ `pos`), så geometrien er kjent:
+  // en kategori ville kollapset ved løft og flyttet alt det som skal måles.
+  await p.evaluate(() => {
+    const H = window.__huskis;
+    const nå = Date.now();
+    ['a', 'b', 'c'].forEach((k, i) => H.state.ideas.push({ id: 'hull-' + k, text: 'Hull ' + k,
+      isCat: false, cat: null, pos: -3 + i, trashed: false, ts: nå, org: 'test', posTs: nå, posOrg: 'test' }));
+    H.openIdeasModal();
+  });
+  await p.waitForTimeout(200);
+  await lift(p, await centre(p, sel('hull-c')), touch);
+  // Målet måles ETTER løftet: raden over hullet står stille gjennom draget,
+  // men lista under den flyttet seg da hullet tok plassen til den løftede raden.
+  await travel(p, async () => {
+    const r = await p.$eval(sel('hull-a'), (el) => {
+      const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, top: b.top };
+    });
+    return { x: r.x, y: r.top - 8 };
+  }, touch);
+  const hull = await p.evaluate(() => {
+    const ph = document.querySelector('#ideas-list [data-dnd-placeholder]');
+    if (!ph) return null;
+    const cs = getComputedStyle(ph);
+    const r = ph.getBoundingClientRect();
+    return { synlig: cs.visibility === 'visible', malt: cs.backgroundColor,
+      høyde: Math.round(r.height), topp: Math.round(r.top),
+      // Det LØFTEDE objektet er tatt ut av flyten (top layer) og teller ikke
+      // som en rad; plassen i lista er plassen blant dem som fortsatt gjør det.
+      index: [...ph.parentNode.children]
+        .filter((el) => !el.hasAttribute('data-dnd-dragging')).indexOf(ph) };
+  });
+  log(label + ': hullet males som en synlig plassholder',
+    !!hull && hull.synlig && hull.høyde > 10 && hull.malt !== 'rgba(0, 0, 0, 0)',
+    JSON.stringify(hull));
+  const førsteEtter = await p.$eval(sel('hull-a'), (el) => Math.round(el.getBoundingClientRect().top));
+  log(label + ': hullet ligger ØVERST, og raden under har veket nedover',
+    !!hull && hull.index === 0 && hull.topp < førsteEtter,
+    hull ? ('hull@' + hull.index + ' ' + hull.topp + ' < rad ' + førsteEtter) : 'ingen plassholder');
+  await drop(p, undefined, touch);
+  await p.waitForTimeout(400);
+  await p.evaluate(() => {
+    const H = window.__huskis;
+    H.state.ideas = H.state.ideas.filter((x) => !/^hull-/.test(x.id));
+    H.openIdeasModal();
+  });
   await p.waitForTimeout(200);
 
-  /* ---- 7. Idéene hører til KONTOEN, ikke til mappen ---- */
+  /* ---- 7b. En løftet KATEGORI er en kortaktig rad uten skillelinje ----
+     Skillelinjene rundt en kategori hører til plassen den forlot. Fulgte de
+     med opp, sto det en «fantom-strek» tvers over det løftede objektet — og
+     uten en egen flate var objektet nesten gjennomsiktig, så det var ikke til
+     å se hvilken posisjon det egentlig hadde. */
+  const katId = await p.$eval('#ideas-list > .category', (el) => el.dataset.id);
+  await lift(p, await centre(p, sel(katId) + ' .cat-head'), touch);
+  const løftet = await p.evaluate(() => {
+    const el = document.querySelector('#ideas-list .category[data-dnd-dragging]');
+    if (!el) return null;
+    const cs = getComputedStyle(el);
+    const alfa = (cs.backgroundColor.match(/[\d.]+\)$/) || [])[0];
+    return { før: getComputedStyle(el, '::before').content, etter: getComputedStyle(el, '::after').content,
+      flate: cs.backgroundColor, alfa: alfa ? parseFloat(alfa) : 1 };
+  });
+  log(label + ': skillelinjen følger ikke med den løftede kategorien',
+    !!løftet && løftet.før === 'none' && løftet.etter === 'none', JSON.stringify(løftet));
+  log(label + ': den løftede kategorien har sin egen flate å leses mot',
+    !!løftet && løftet.alfa >= 0.5, JSON.stringify(løftet && løftet.flate));
+  await drop(p, undefined, touch);
+  await p.waitForTimeout(400);
+
+  /* ---- 8. Kategorifargene følger POSISJONEN ----
+     Samme regel som lister og områder: fargen deles ut etter indeks, ikke
+     etter objekt. Den øverste kategorien er alltid den første palettfargen
+     (#ad8585), og en omrokkering flytter fargene, ikke objektene. */
+  await p.evaluate(() => {
+    // To kategorier å bytte om på, uten å gå veien om navnefeltet.
+    const H = window.__huskis;
+    const nå = Date.now();
+    const rad = (id, text, pos) => ({ id, text, isCat: true, cat: null, pos, collapsed: false,
+      trashed: false, ts: nå, org: 'test', posTs: nå, posOrg: 'test' });
+    H.state.ideas.push(rad('kat-a', 'Farge A', 900), rad('kat-b', 'Farge B', 901));
+    H.openIdeasModal();
+  });
+  await p.waitForTimeout(200);
+  const fargeAv = () => p.$$eval('#ideas-list > .category',
+    (els) => els.map((e) => ({ id: e.dataset.id, bg: e.style.getPropertyValue('--card-bg').trim() })));
+  const fargerFør = await fargeAv();
+  log(label + ': den øverste kategorien har den første palettfargen',
+    fargerFør.length >= 2 && fargerFør[0].bg === '#ad8585', JSON.stringify(fargerFør));
+  log(label + ': hver kategori har sin egen farge',
+    new Set(fargerFør.map((f) => f.bg)).size === fargerFør.length, JSON.stringify(fargerFør));
+  // Bytt om på de to nederste og se at fargene BLIR STÅENDE i rekkefølgen.
+  const målKat = await past(p, sel(fargerFør[fargerFør.length - 1].id), 0.9);
+  await lift(p, await centre(p, sel(fargerFør[fargerFør.length - 2].id) + ' .cat-head'), touch);
+  await travel(p, målKat, touch);
+  await drop(p, undefined, touch);
+  await p.waitForTimeout(450);
+  const fargerEtter = await fargeAv();
+  log(label + ': fargene følger posisjonen, ikke kategorien',
+    JSON.stringify(fargerFør.map((f) => f.bg)) === JSON.stringify(fargerEtter.map((f) => f.bg)),
+    JSON.stringify(fargerFør) + ' → ' + JSON.stringify(fargerEtter));
+  log(label + ': kategoriene byttet faktisk plass',
+    fargerFør[fargerFør.length - 1].id === fargerEtter[fargerEtter.length - 2].id,
+    JSON.stringify(fargerEtter.map((f) => f.id)));
+
+  /* ---- 9. Knappene står stille når listen ruller ----
+     Idéknappene er hele poenget med modalen. Lå de nederst i det rullende
+     feltet, forsvant de ut av skjermen så snart listen ble lang nok. */
+  log(label + ': knappene ligger utenfor det rullende feltet',
+    await p.evaluate(() => {
+      const body = document.getElementById('ideas-body');
+      return !body.contains(document.getElementById('add-idea-btn')) &&
+             !body.contains(document.getElementById('add-idea-cat-btn'));
+    }));
+  // Fyll opp til modalen får overflow. Målingen tas ETTER fyllet: modalen
+  // vokser med innholdet til den treffer taket, og det er RULLINGEN som skal
+  // la knappen stå — ikke veksten.
+  await p.evaluate(() => {
+    const H = window.__huskis;
+    const nå = Date.now();
+    for (let i = 0; i < 30; i++) {
+      H.state.ideas.push({ id: 'fyll-' + i, text: 'Fyllidé ' + i, isCat: false, cat: null,
+        pos: 1000 + i, trashed: false, ts: nå, org: 'test', posTs: nå, posOrg: 'test' });
+    }
+    H.openIdeasModal();
+  });
+  await p.waitForTimeout(250);
+  const knappFør = await p.$eval('#add-idea-btn', (el) => Math.round(el.getBoundingClientRect().top));
+  const rullet = await p.evaluate(() => {
+    const body = document.getElementById('ideas-body');
+    body.scrollTop = body.scrollHeight;
+    return { rullbar: body.scrollHeight > body.clientHeight + 20, scrollTop: Math.round(body.scrollTop) };
+  });
+  await p.waitForTimeout(200);
+  const knappEtter = await p.$eval('#add-idea-btn', (el) => Math.round(el.getBoundingClientRect().top));
+  log(label + ': listen ruller faktisk med 30 idéer i seg', rullet.rullbar && rullet.scrollTop > 0,
+    JSON.stringify(rullet));
+  log(label + ': idéknappen står stille mens listen ruller', knappFør === knappEtter,
+    knappFør + ' → ' + knappEtter);
+  // Rydd bort fyllet og de to farge-kategoriene igjen; ingenting av det er
+  // lagret (`openIdeasModal` rendrer uten å skrive), så tilstanden er som før.
+  await p.evaluate(() => {
+    const H = window.__huskis;
+    H.state.ideas = H.state.ideas.filter((x) => !/^(fyll-|kat-)/.test(x.id));
+    H.openIdeasModal();
+  });
+  await p.waitForTimeout(200);
+
+  /* ---- 10. Idéene hører til KONTOEN, ikke til mappen ---- */
   const fasit = JSON.stringify(await nivå1(p));
   await p.click('#ideas-close');
   await p.waitForTimeout(150);
@@ -316,13 +482,13 @@ async function run(label, viewport, touch) {
   log(label + ': ingen idé havnet blant listepunktene',
     !itemsTekster.some((t) => t === 'Kjøpe blomster' || t === 'Bokser'), JSON.stringify(itemsTekster));
 
-  /* ---- 8. Utloggingen etterlater ingenting av kontoen på skjermen ----
+  /* ---- 11. Utloggingen etterlater ingenting av kontoen på skjermen ----
      `body.no-auth` skjuler bare toppmenyen, board-et og hjørneknappene. En
      modal er en overlay OVER innloggingsskjermen, så en som ble stående igjen
      viste den utloggede kontoens innhold til noen lukket den. Påstanden er
      derfor generell — INGEN overlay overlever utloggingen — og ikke bare om
      idémodalen: et nytt lag skal være dekket av å ligge i `closeTopLayer`.
-     Modalen står allerede åpen fra 7 — det er nettopp tilstanden som skal
+     Modalen står allerede åpen fra 10 — det er nettopp tilstanden som skal
      rives ned. */
   const synligeIdéer = await p.$$eval('#ideas-list .item-text', (els) => els.map((e) => e.textContent));
   log(label + ': idémodalen står åpen med innhold før utloggingen',
