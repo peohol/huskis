@@ -8,6 +8,10 @@
   objektet igjen. Når et listepunkt får navn, opprettes neste blanke punkt
   automatisk. Samme regel gjelder ＋-knappen inne i en kategori.
 
+  Filen dekker også at selve REDIGERINGEN er flerlinjet (7b): et langt
+  listepunkt skal kunne leses mens det redigeres, ikke rulles vekk i et
+  enlinjes felt.
+
   Kjør:
     python3 -m http.server 8000                     # fra repo-roten, i egen terminal
     NODE_PATH=$(npm root -g) node tests/item-creation.test.js
@@ -112,10 +116,14 @@ async function run(label, vp, mobile) {
   await card.locator('.add-item-btn').click(); await p.waitForTimeout(250);
   const opened = await p.evaluate(() => {
     const ae = document.activeElement;
-    return { cls: ae ? ae.className : '', val: ae ? ae.value : null, items: document.querySelectorAll('.card[data-id="card-A"] .item').length };
+    return { cls: ae ? ae.className : '', tag: ae ? ae.tagName : '', val: ae ? ae.value : null, items: document.querySelectorAll('.card[data-id="card-A"] .item').length };
   });
-  log(label + ' 2: navnefeltet er åpent, blankt og fokusert',
-    opened.cls === 'edit-input' && opened.val === '', JSON.stringify(opened));
+  // Feltet er et FLERLINJET navnefelt (`.edit-input-multi`, se 7b) — et
+  // listepunkt kan bli langt, og skal kunne leses mens det skrives.
+  log(label + ' 2: navnefeltet er åpent, blankt, fokusert og flerlinjet',
+    opened.cls.split(' ').includes('edit-input') &&
+    opened.cls.split(' ').includes('edit-input-multi') &&
+    opened.tag === 'TEXTAREA' && opened.val === '', JSON.stringify(opened));
   log(label + ' 2: raden er allerede lagt inn i lista', opened.items === 2, 'items=' + opened.items);
 
   await p.keyboard.type('Nytt punkt'); await p.keyboard.press('Enter'); await p.waitForTimeout(250);
@@ -201,6 +209,38 @@ async function run(label, vp, mobile) {
   st = await rows(p);
   log(label + ' 7: Escape ved omdøping av et eksisterende listepunkt sletter det IKKE',
     st.length === 6 && st[0].text === 'Finnes fra før', JSON.stringify(st));
+  // Escape avbryter redigeringen; den skal ikke ha lukket noe annet lag.
+  await p.waitForTimeout(100);
+
+  /* ---------- 7b) Redigeringen er FLERLINJET ----------
+     Et langt listepunkt bryter over flere linjer i hvile. Feltet man redigerer
+     i skal gjøre det samme: hele teksten leselig mens man skriver, ingen rad
+     som hopper i høyden. Det gjelder listepunkter (og idéer, som deler
+     `editText` — se ideas-modal.test.js). */
+  const LANGT = 'Et listepunkt som er langt nok til å bryte over flere linjer i en smal liste, og som derfor ikke kan leses i et enlinjes felt';
+  await card.locator('.item .item-text').first().click(); await p.waitForTimeout(200);
+  await p.keyboard.press('Control+a');
+  await p.keyboard.type(LANGT);
+  await p.keyboard.press('Enter'); await p.waitForTimeout(300);
+  // Det automatiske neste punktet skal ikke bli liggende igjen.
+  await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+  const hvile = await p.evaluate(() => {
+    const el = document.querySelector('#board .item .item-text');
+    const rng = document.createRange();
+    rng.selectNodeContents(el);
+    return { h: el.getBoundingClientRect().height, linjer: rng.getClientRects().length };
+  });
+  await card.locator('.item .item-text').first().click();
+  await p.waitForSelector('#board .item .edit-input');
+  const felt = await p.$eval('#board .item .edit-input', (el) => ({
+    tag: el.tagName, h: el.getBoundingClientRect().height, skjult: el.scrollHeight - el.clientHeight,
+  }));
+  log(label + ' 7b: teksten brøt over flere linjer i hvile', hvile.linjer >= 2, hvile.linjer + ' linjer');
+  log(label + ' 7b: redigeringsfeltet er flerlinjet (<textarea>)', felt.tag === 'TEXTAREA', felt.tag);
+  log(label + ' 7b: hele teksten er synlig mens den redigeres, og raden hopper ikke',
+    felt.skjult <= 1 && Math.abs(felt.h - hvile.h) <= 2,
+    'hvile ' + Math.round(hvile.h) + 'px → felt ' + Math.round(felt.h) + 'px, skjult ' + felt.skjult + 'px');
+  await p.keyboard.press('Escape'); await p.waitForTimeout(200);
 
   /* ---------- 8) Overlever reload (de slettede kommer ikke tilbake) ---------- */
   await p.reload();
@@ -211,7 +251,8 @@ async function run(label, vp, mobile) {
   st = await rows(p);
   const texts = st.map((r) => r.text).sort();
   log(label + ' 8: etter reload står nøyaktig de navngitte igjen',
-    st.length === 6 && JSON.stringify(texts) === JSON.stringify(['Finnes fra før', 'I kategorien', 'Min kategori', 'Nytt med klikk', 'Nytt punkt', 'Punkt to']),
+    st.length === 6 && JSON.stringify(texts) === JSON.stringify(
+      [LANGT, 'I kategorien', 'Min kategori', 'Nytt med klikk', 'Nytt punkt', 'Punkt to'].sort()),
     JSON.stringify(texts));
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.join(' | '));

@@ -63,6 +63,8 @@
     'kind.item':        ['Listepunkt', 'Item'],
     'kind.category':    ['Kategori', 'Category'],
     'kind.groupcat':    ['Mappekategori', 'Folder category'],
+    'kind.idea':        ['Idé', 'Idea'],
+    'kind.ideacat':     ['Idékategori', 'Idea category'],
     // Samme seks typene i bestemt form, slik de leses inne i en setning.
     'kindDef.universe': ['området', 'the workspace'],
     'kindDef.group':    ['mappen', 'the folder'],
@@ -70,6 +72,8 @@
     'kindDef.item':     ['listepunktet', 'the item'],
     'kindDef.category': ['kategorien', 'the category'],
     'kindDef.groupcat': ['mappekategorien', 'the folder category'],
+    'kindDef.idea':     ['idéen', 'the idea'],
+    'kindDef.ideacat':  ['idékategorien', 'the idea category'],
 
     /* ---- Toppmeny og breadcrumb ---- */
     'crumb.youAreHere': ['Du er her', 'You are here'],
@@ -86,6 +90,9 @@
     'add.item':       ['Legg til listepunkt', 'Add item'],
     'add.cat':        ['Legg til kategori', 'Add category'],
     'add.itemInCat':  ['Legg til listepunkt i kategorien', 'Add item to the category'],
+    'add.idea':       ['Legg til idé', 'Add idea'],
+    'add.ideaCat':    ['Legg til idékategori', 'Add idea category'],
+    'add.ideaInCat':  ['Legg til idé i kategorien', 'Add idea to the category'],
     'menu.menu':         ['Meny', 'Menu'],
     'menu.forUniverse':  ['Meny for området', 'Menu for the workspace'],
     'menu.forGroup':     ['Meny for mappen', 'Menu for the folder'],
@@ -100,6 +107,14 @@
     'card.done':          ['Utført', 'Done'],
     'card.restoreAllDone': ['Gjenopprett alle utførte listepunkter', 'Restore all completed items'],
     'card.deleteAllDone': ['Slett alle utførte listepunkter', 'Delete all completed items'],
+
+    /* ---- Idéer (docs/ideer.md) ---- */
+    'ideas.title':      ['Idéer', 'Ideas'],
+    'ideas.open':       ['Åpne idéene', 'Open the ideas'],
+    'ideas.empty':      ['Ingen idéer ennå. Trykk på den grønne knappen for å skrive ned den første.',
+                         'No ideas yet. Tap the green button to write down the first one.'],
+    'idea.delete':      ['Slett idéen', 'Delete the idea'],
+    'ideaCat.dissolve': ['Løs opp kategorien', 'Dissolve the category'],
 
     /* ---- Søppelkasse ---- */
     'trash.title':             ['Søppelkasse', 'Trash'],
@@ -540,6 +555,10 @@
     'label.addCatIn':       ['Legg til kategori i {name}', 'Add category to {name}'],
     'label.addGroupInCat':  ['Legg til mappe i kategorien {name}', 'Add folder to the category {name}'],
     'label.addItemInCat':   ['Legg til listepunkt i kategorien {name}', 'Add item to the category {name}'],
+    'label.ideacat':        ['Idékategorien {name}', 'The idea category {name}'],
+    'label.deleteIdea':     ['Slett idéen {name}', 'Delete the idea {name}'],
+    'label.dissolveIdeaCat': ['Løs opp idékategorien {name}', 'Dissolve the idea category {name}'],
+    'label.addIdeaInCat':   ['Legg til idé i kategorien {name}', 'Add idea to the category {name}'],
     'label.restoreDoneIn':  ['Gjenopprett alle utførte listepunkter i {name}',
                              'Restore all completed items in {name}'],
     'label.deleteDoneIn':   ['Slett alle utførte listepunkter i {name}',
@@ -562,6 +581,9 @@
     'trash.itemsBtnTitle':  ['Slettede listepunkter – trykk for å åpne, hold og sveip for å slette dem for godt',
                              'Deleted items – tap to open, press and swipe to delete them for good'],
     'trash.itemsCountIn':   ['{count} slettede listepunkter i {name}', '{count} deleted items in {name}'],
+    'trash.ideasBtnTitle':  ['Slettede idéer – trykk for å åpne, hold og sveip for å slette dem for godt',
+                             'Deleted ideas – tap to open, press and swipe to delete them for good'],
+    'trash.ideasCount':     ['{count} slettede idéer', '{count} deleted ideas'],
 
     /* ---- Forlat en deling ---- */
     'common.theObject': ['objektet', 'the object'],
@@ -616,6 +638,8 @@
     'count.card.other':     ['{n} lister', '{n} lists'],
     'count.item.one':       ['{n} listepunkt', '{n} item'],
     'count.item.other':     ['{n} listepunkter', '{n} items'],
+    'count.idea.one':       ['{n} idé', '{n} idea'],
+    'count.idea.other':     ['{n} idéer', '{n} ideas'],
 
     'trash.movedOne':  ['Lagt i søppelkassen: {name}', 'Moved to the trash: {name}'],
     'trash.movedMany': ['Lagt i søppelkassen: {what}', 'Moved to the trash: {what}'],
@@ -652,6 +676,9 @@
     'trash.itemsIn':        ['Slettede listepunkter – {name}', 'Deleted items – {name}'],
     'trash.purgeItems':     ['Slett listepunktene for godt', 'Delete the items for good'],
     'trash.noItems':        ['Ingen slettede listepunkter.', 'No deleted items.'],
+    'trash.ideas':          ['Slettede idéer', 'Deleted ideas'],
+    'trash.purgeIdeas':     ['Slett idéene for godt', 'Delete the ideas for good'],
+    'trash.noIdeas':        ['Ingen slettede idéer.', 'No deleted ideas.'],
     'trash.swipeDeleteAll': ['Slett alt', 'Delete all'],
     'resp.none':             ['Ingen ansvarlig', 'No assignee'],
     'share.noMembers':       ['Ingen medlemmer ennå.', 'No members yet.'],

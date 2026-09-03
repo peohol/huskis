@@ -281,6 +281,27 @@
     return c;
   }
 
+  /* ---- Idéer (docs/ideer.md) ----
+     En idé hører til KONTOEN, ikke til et område/en mappe: `state.ideas` er en
+     FLAT liste med nøyaktig samme to-nivå-form som en listes `items`
+     (`isCat` markerer en kategori, `cat` peker fra en idé til kategorien sin),
+     og den rir dermed på hele rad-maskineriet — dra-og-slipp, søppelkasse,
+     felt-LWW. Det som mangler er med vilje: ingen `home` (det finnes bare én
+     beholder), ingen `done`, ingen `responsible`, ingen `start`/`due`. */
+  function makeIdea(text) {
+    return {
+      id: uid(), text: text || '', cat: null, trashed: false,
+      ts: 0, org: deviceId,               // innholdsregister (tekst/trashed/isCat/collapsed)
+      pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge + cat)
+    };
+  }
+  function makeIdeaCategory(name) {
+    const c = makeIdea(name);
+    c.isCat = true;
+    c.collapsed = false;
+    return c;
+  }
+
   function card(title, items, groupId) {
     const id = uid();
     const c = {
@@ -366,7 +387,8 @@
       activeGroup: firstGroups.length ? firstGroups[0].id : null, // per enhet, synkes ikke
       activeGroups: {}, // uniId → sist aktive mappe der (per enhet, synkes ikke)
       universes,
-      _tomb: { universes: {}, groups: {}, cards: {}, items: {} }, // gravsteiner: id → tidsstempel
+      ideas: [],        // kontoens idéer og idékategorier, flatt (docs/ideer.md)
+      _tomb: { universes: {}, groups: {}, cards: {}, items: {}, ideas: {} }, // gravsteiner: id → tidsstempel
       _hlc: 0,
     };
   }
@@ -615,11 +637,13 @@
     migrateTabsToGroups(s);
     migrateGroupsToUniverses(s);
     if (!Array.isArray(s.universes)) s.universes = [];
-    if (!s._tomb || typeof s._tomb !== 'object') s._tomb = { universes: {}, groups: {}, cards: {}, items: {} };
+    if (!Array.isArray(s.ideas)) s.ideas = [];
+    if (!s._tomb || typeof s._tomb !== 'object') s._tomb = { universes: {}, groups: {}, cards: {}, items: {}, ideas: {} };
     if (!s._tomb.universes) s._tomb.universes = {};
     if (!s._tomb.groups) s._tomb.groups = {};
     if (!s._tomb.cards) s._tomb.cards = {};
     if (!s._tomb.items) s._tomb.items = {};
+    if (!s._tomb.ideas) s._tomb.ideas = {};
     if (typeof s._hlc !== 'number') s._hlc = 0;
     s.universes.forEach((u, i) => normalizeUniverse(u, i));
     validateActive(s);
@@ -719,6 +743,13 @@
     }
     return null;
   }
+  /* Idéene: én flat liste på kontoen, ingen forelder å slå opp gjennom
+     (docs/ideer.md). Hjelperne speiler kortets (`allCards`/`findItemById`/
+     `trashedItemsOf`) så rad-maskineriet kan brukes uendret. */
+  const allIdeas = () => state.ideas || [];
+  const findIdeaById = (id) => allIdeas().find((x) => x.id === id) || null;
+  const trashedIdeas = () => allIdeas().filter((x) => !live(x));
+
   // Kategorier og ukategoriserte elementer deler nivå-1-posisjonsrommet (begge
   // har `cat` falsy); en ny nivå-1-rad legges bakerst der.
   function level1MaxPos(rows) { return maxPos(rows.filter((it) => !it.cat)); }
@@ -981,6 +1012,8 @@
     if (kind === 'card') return '.card:not(.uni-card)' + q + ' > .card-head';
     if (kind === 'group') return '.item.group-row' + q;
     if (kind === 'universe') return '.uni-card' + q + ' > .card-head';
+    if (kind === 'idea') return '.item.idea-row' + q;
+    if (kind === 'ideacat') return '.category.idea-cat' + q + ' > .cat-head';
     return null;
   }
 
@@ -997,6 +1030,7 @@
     const q = (o) => '[data-id="' + String(o.id).replace(/["\\]/g, '\\$&') + '"]';
     if ((kind === 'item' || kind === 'category') && cont) return '.card' + q(cont) + ' .add-item-btn';
     if ((kind === 'group' || kind === 'groupcat') && cont) return '.uni-card' + q(cont) + ' .add-item-btn';
+    if (kind === 'idea' || kind === 'ideacat') return '#add-idea-btn';
     if (kind === 'card') return '#nav-crumb';
     if (kind === 'universe') return '.nav-add-uni button';
     return null;
@@ -1059,6 +1093,7 @@
       return cap(obj, 'reorderInParent', !frozen(obj)) || cap(obj, 'move', false);
     }
     if (kind === 'universe') return true;                 // områderekkefølgen er alltid min egen
+    if (kind === 'idea' || kind === 'ideacat') return true; // idéene er mine alene
     return false;
   }
 
@@ -1070,6 +1105,12 @@
       if (!obj || !cont) return null;
       return { obj, cont, S: boardScope, name: obj.text,
         rows: orderedRows(boardScope, cont, kind === 'item' ? 'leaf' : 'level1') };
+    }
+    if (kind === 'idea' || kind === 'ideacat') {
+      const obj = findIdeaById(id);
+      if (!obj) return null;
+      return { obj, cont: ideasCont, S: ideaScope, name: obj.text,
+        rows: orderedRows(ideaScope, ideasCont, kind === 'idea' ? 'leaf' : 'level1') };
     }
     if (kind === 'card') {
       const obj = findCard(id);
@@ -1127,6 +1168,7 @@
     // rendring; rader trenger bare sin egen container bygget om.
     if (kind === 'card' || kind === 'universe') render();
     else if (kind === 'group' || kind === 'groupcat') renderNav();
+    else if (kind === 'idea' || kind === 'ideacat') { renderIdeas(); applyFocusIntent(); }
     else { refreshCard(ctx.cont); applyFocusIntent(); }
     announce(tr(step < 0 ? 'a11y.movedUp' : 'a11y.movedDown',
       { name: quoted(ctx.name), pos: i + step + 1, total: ctx.rows.length }));
@@ -1201,6 +1243,31 @@
         keepFocus(handleSelector('item', it.id)); applyFocusIntent();
         announce(tr(what === 'cat' ? 'a11y.movedIntoCategory' : 'a11y.movedOutOfCategory',
           { name: quoted(it.text) }));
+      });
+      return;
+    }
+    if (kind === 'idea') {
+      const d = findIdeaById(id);
+      if (!d || d.isCat) return;
+      // Det finnes bare én beholder, så målene er kategoriene — og «ut av
+      // kategorien» når idéen ligger i en.
+      const opts = [];
+      if (d.cat) opts.push({ id: 'lvl1', label: tr('move.outOfCategory', { list: tr('ideas.title') }) });
+      orderedRows(ideaScope, ideasCont, 'level1')
+        .filter((r) => r.isCat && r.id !== d.cat)
+        .forEach((r) => opts.push({ id: 'cat:' + r.id, label: tr('move.toCategory', { name: r.text }) }));
+      if (!opts.length) { announce(tr('a11y.noOtherListOrCategory')); return; }
+      openPicker(tr('move.itemPrompt', { name: quoted(d.text) }), opts, '', (choice) => {
+        const target = choice.indexOf('cat:') === 0 ? choice.slice(4) : null;
+        d.cat = target;
+        commitPos(d, 'idea', target
+          ? catMemberMaxPos(allIdeas(), target) + 1
+          : level1MaxPos(allIdeas()) + 1);
+        save();
+        renderIdeas();
+        keepFocus(handleSelector('idea', d.id)); applyFocusIntent();
+        announce(tr(target ? 'a11y.movedIntoCategory' : 'a11y.movedOutOfCategory',
+          { name: quoted(d.text) }));
       });
       return;
     }
@@ -1322,6 +1389,10 @@
   const boardScope = {
     key: 'board',
     contKind: 'card', rowKind: 'item',
+    // Hvilket ELEMENT som er en container i dette scopet. Den delte politikken
+    // spør scopet i stedet for å anta `.card`: idé-scopet har sin egen
+    // beholder, og et kort skal fortsette å bety en liste.
+    contSelector: '.card',
     get root() { return board; },
     containers: () => activeCards(),
     findContainer: (id) => findCard(id) || null,
@@ -1362,6 +1433,7 @@
   const navScope = {
     key: 'nav',
     contKind: 'universe', rowKind: 'group',
+    contSelector: '.card',
     get root() { return navBoard; },
     singleColumn: true,               // nav-modalen har alltid én kolonne
     containers: () => visibleUniverses(),
@@ -1634,6 +1706,7 @@
   function render() {
     renderNav();
     renderBoard();
+    refreshIdeasModal();   // står idémodalen åpen, skal den følge synken
     // Nav-modalen kan være lukket (renderNav() returnerer da tidlig), og board-et
     // kan ha vært tomt — siste sjanse til å innfri ønsket før det forkastes.
     applyFocusIntent();
@@ -1900,6 +1973,7 @@
       syncOwed = false;
       navSyncBoards();
       boardSyncBoards();
+      ideaSyncBoard();
       if (syncOwed) { requestAnimationFrame(tick); return; }
       syncPumping = false;
     };
@@ -2564,7 +2638,10 @@
       cardData.items.push(obj);
       list.appendChild(rowEl);
       save();
-      nameNewRow(obj, cardData, rowEl, rowEl.querySelector(titleSel), boardScope, onNamed);
+      // Kun listepunkter (`.item-text`) navngis flerlinjet; kategorioverskriften
+      // er én linje, som resten av navnene.
+      nameNewRow(obj, cardData, rowEl, rowEl.querySelector(titleSel), boardScope, onNamed,
+        { multiline: titleSel === '.item-text' });
     };
     const addItemNow = () => {
       if (!canEdit) return;
@@ -2729,18 +2806,23 @@
     if (frozen(cont)) return;
     if (catEl.classList.contains('collapsed')) { expandCatBody(catEl); catData.collapsed = false; }
     const rows = S.rowsOf(cont);
-    const row = S === navScope ? makeGroup('', null, cont.id) : makeItem('', cont.id);
+    const row = S === navScope ? makeGroup('', null, cont.id)
+      : S === ideaScope ? makeIdea('') : makeItem('', cont.id);
     row.cat = catData.id;
     row.pos = catMemberMaxPos(rows, catData.id) + 1;
     stampContent(row);
     stampPos(row);
     rows.push(row);
-    const rowEl = S === navScope ? buildGroupRow(row, cont) : buildItem(row, cont);
+    const rowEl = S === navScope ? buildGroupRow(row, cont)
+      : S === ideaScope ? buildIdeaRow(row) : buildItem(row, cont);
     appendToItemsEnd(catEl.querySelector('.cat-items'), rowEl);
     save();
     // Åpne navneredigereren straks (blank felt, fokusert).
+    // Både listepunkter og idéer kjeder seg selv (Enter gir neste rad i
+    // kategorien) og redigeres flerlinjet; mapperader gjør ingen av delene.
     nameNewRow(row, cont, rowEl, rowEl.querySelector('.item-text'), S,
-      S === boardScope ? () => addRowToCategory(catData, cont, catEl, S) : null);
+      S === navScope ? null : () => addRowToCategory(catData, cont, catEl, S),
+      { multiline: S !== navScope });
   }
   // Største pos blant en kategoris aktive medlemmer (for å legge et nytt bakerst).
   function catMemberMaxPos(rows, catId) {
@@ -3335,7 +3417,7 @@
         stampContent(itemData);
         save();
         labelItemControls(); // knappenavnene bærer teksten — de må følge med
-      });
+      }, { multiline: true });
     };
     textEl.addEventListener('click', renameItem);
     setRenameHook(textEl, canEdit ? renameItem : null);
@@ -3772,8 +3854,8 @@
      aldri inn, og ligger den fortsatt på serveren, fullføres slettingen.
      Gravsteiner utløper aldri — en klient som har ligget i skuffen i et år må
      fortsatt møte dem. */
-  function emptyTomb() { return { universes: {}, groups: {}, cards: {}, items: {} }; }
-  const TOMB_BUCKET = { universe: 'universes', group: 'groups', card: 'cards', item: 'items' };
+  function emptyTomb() { return { universes: {}, groups: {}, cards: {}, items: {}, ideas: {} }; }
+  const TOMB_BUCKET = { universe: 'universes', group: 'groups', card: 'cards', item: 'items', idea: 'ideas' };
   // Alle gravlagte id-er som ett flatt oppslag (id-ene er UUID-er, altså unike
   // på tvers av nivåene).
   function tombIds() {
@@ -3789,7 +3871,11 @@
   // sammen med forelderen, så de er like døde.
   function tombFromServer(type, id) {
     const f = findAnyById(id);
-    if (f) { tombSubtree(f.obj, f.kind === 'category' ? 'item' : f.kind); return; }
+    if (f) {
+      const k = f.kind === 'category' ? 'item' : f.kind === 'ideacat' ? 'idea' : f.kind;
+      tombSubtree(f.obj, k);
+      return;
+    }
     const bucket = TOMB_BUCKET[type];
     if (bucket) state._tomb[bucket][id] = tick();
   }
@@ -3848,6 +3934,10 @@
         }
       }
     }
+    // Idéene henger utenfor hierarkiet (docs/ideer.md), men de deltar i den
+    // samme slette-bufferen og de samme gravsteinene — så oppslaget må nå dem.
+    const d = findIdeaById(id);
+    if (d) return { kind: d.isCat ? 'ideacat' : 'idea', obj: d };
     return null;
   }
   // Buffrer sletting (skjuler + registrerer), men starter INGEN egen timer —
@@ -3936,6 +4026,7 @@
     });
     if (kinds.has('universe')) updateUniversesTrash();
     if (kinds.has('card')) updateTrashCount();
+    if (kinds.has('idea') || kinds.has('ideacat')) paintIdeaTrash();
     cards.forEach(updateItemsTrashBadge);
     unis.forEach(updateGroupsTrashBadge);
   }
@@ -3986,7 +4077,8 @@
   // nedover i toasten, ikke poenget.
   function deleteMsg(kind, ids, lastName) {
     if (ids.length === 1) return tr('trash.movedOne', { name: quoted(lastName || '') });
-    const w = kind === 'item' ? itemWord : kind === 'card' ? listWord : kind === 'group' ? groupWord : uniWord;
+    const w = kind === 'item' ? itemWord : kind === 'idea' ? ideaWord
+      : kind === 'card' ? listWord : kind === 'group' ? groupWord : uniWord;
     return tr('trash.movedMany', { what: w(ids.length) });
   }
   // Committer bunken i toasten nå (angre-vinduet er over — timeren utløp, en ny
@@ -4050,23 +4142,52 @@
   // (brukes til mappenavn i headeren, som ikke skal ta full bredde).
   // opts.onCancel: kalles ved Escape (avbrutt redigering) — brukes av nameNewRow
   // for å fjerne et nyopprettet objekt som aldri fikk noe navn.
+  // opts.multiline: feltet er et <textarea> som VOKSER med teksten i stedet for
+  // et enlinjes <input> som ruller den vekk. Brukt på listepunkter og idéer —
+  // de eneste objektene hvis tekst rutinemessig er lengre enn én linje, og som
+  // derfor må kunne LESES mens de redigeres. Teksten er fortsatt én linje som
+  // data: Enter avslutter redigeringen (den lager ikke linjeskift), akkurat som
+  // i enlinjefeltet, og bryter kun visuelt.
   function editText(displayEl, current, onSave, opts) {
     opts = opts || {};
     if (displayEl.dataset.editing === '1') return;
     displayEl.dataset.editing = '1';
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'edit-input' + (opts.cls ? ' ' + opts.cls : '');
+    const multiline = !!opts.multiline;
+    const input = document.createElement(multiline ? 'textarea' : 'input');
+    if (multiline) input.rows = 1; else input.type = 'text';
+    input.className = 'edit-input' + (multiline ? ' edit-input-multi' : '') + (opts.cls ? ' ' + opts.cls : '');
     // Navnefeltet ligger midt i dra-sonen (korthodet, raden, kategorioverskriften),
     // og et hold der ville blokkert caret-plassering og markering. `data-dnd-ignore`
     // holder dnd-kits sensor unna.
     input.dataset.dndIgnore = '';
     input.value = current;
+    /* Flerlinjefeltet må BRYTE nøyaktig der teksten brøt i hvile, ellers
+       hopper raden i høyden i det redigeringen starter. `font-size`/
+       `line-height` arves fra FORELDEREN (raden), ikke fra tekst-elementet
+       som byttes ut — og `.item-text` har sin egen, større brødtekst. Les dem
+       av elementet som faktisk står der, FØR det er borte. */
+    // LES VERDIENE UT nå, ikke en referanse til dem: `getComputedStyle` gir et
+    // LEVENDE objekt, og etter `replaceWith` er elementet ute av dokumentet —
+    // da svarer det tomt.
+    const fontKilde = multiline
+      ? (() => { const cs = getComputedStyle(displayEl); return { size: cs.fontSize, line: cs.lineHeight }; })()
+      : null;
     displayEl.replaceWith(input);
+    if (fontKilde) {
+      input.style.fontSize = fontKilde.size;
+      input.style.lineHeight = fontKilde.line;
+    }
     if (opts.autosize) {
       const resize = () => { input.style.width = Math.max(4, input.value.length + 1) + 'ch'; };
       input.addEventListener('input', resize);
       resize();
+    }
+    if (multiline) {
+      // Høyden måles på innholdet, ikke på et antall rader: nullstill først, så
+      // scrollHeight blir feltets ØNSKEDE høyde og ikke den forrige.
+      const grow = () => { input.style.height = 'auto'; input.style.height = input.scrollHeight + 'px'; };
+      input.addEventListener('input', grow);
+      grow();
     }
     input.focus();
     input.setSelectionRange(0, input.value.length);
@@ -4093,7 +4214,7 @@
   // Enter på et tomt felt, klikk ut, eller Escape — fjernes raden igjen
   // (gravstein + ut av state), for et navnløst objekt er ingenting verdt og skal
   // ikke bli liggende igjen. Brukes av ＋-knappene i lista og i en kategori.
-  function nameNewRow(obj, cont, rowEl, displayEl, scope, onNamed) {
+  function nameNewRow(obj, cont, rowEl, displayEl, scope, onNamed, opts) {
     const S = scope || boardScope;
     const rows = S.rowsOf(cont);
     const discard = () => {
@@ -4114,7 +4235,7 @@
       // demonstrere ＋-knappen. Uten unntaket ville den automatiske raden både
       // hoppet over steget og blitt liggende navnløs idet drag-steget begynner.
       if (onNamed && !demoRunning) onNamed();
-    }, { onCancel: discard });
+    }, Object.assign({ onCancel: discard }, opts));
   }
 
   /* ============================================================
@@ -4306,7 +4427,7 @@
   // `card.collapsed`.
   function restoreCardsAfterDrag() {
     const S = dragScope();
-    S.root.querySelectorAll('.card:not([data-dnd-placeholder])').forEach((cEl) => {
+    S.root.querySelectorAll(S.contSelector + ':not([data-dnd-placeholder])').forEach((cEl) => {
       const cd = S.findContainer(cEl.dataset.id);
       const want = cd ? !!cd.collapsed : false;
       const isCollapsed = cEl.classList.contains('collapsed');
@@ -4729,6 +4850,7 @@
       return !!c && !frozen(c);
     }
     if (drag.kind === 'item') {
+      if (S === ideaScope) return !!findIdeaById(id);   // idéene er mine alene
       if (S === navScope) {
         const g = findGroupAnywhere(id);
         return !!g && cap(g, 'delete', !frozen(g));
@@ -4923,6 +5045,13 @@
       }
       return;
     }
+    if (S === ideaScope) {
+      const d = findIdeaById(id);
+      if (!d) return;
+      deleteIdea(d);
+      keepTrashInView(ideaTrashBtn);
+      return;
+    }
     if (S === navScope) {
       const g = findGroupAnywhere(id);
       if (!g) return;
@@ -5034,7 +5163,7 @@
            område etter den fått en annen farge enn rendringen ga dem. */
     S.containers().filter((c) => !c._virtual).forEach((c, i) => {
       c.color = colorForIndex(i);
-      const el = S.root.querySelector('.card[data-id="' + c.id + '"]');
+      const el = S.root.querySelector(S.contSelector + '[data-id="' + c.id + '"]');
       if (!el) return;
       paintCardColor(el, c.color);
     });
@@ -5311,7 +5440,7 @@
   function reconcileRows(S, contId, pool) {
     const cardData = S.findContainer(contId);
     if (!cardData) return;
-    const cardEl = S.root.querySelector('.card[data-id="' + contId + '"]');
+    const cardEl = S.root.querySelector(S.contSelector + '[data-id="' + contId + '"]');
     if (!cardEl) return;
     pool = pool || S.rowPool();
     const level1 = cardEl.querySelector('.items-container');
@@ -5426,7 +5555,7 @@
     // er sjelden aktuelt — men det er også det billigste svaret å prøve først.
     const cur = drag.overCard;
     if (cur && cur.isConnected && inCard(cur)) return cur;
-    for (const c of dragScope().root.querySelectorAll('.card')) {
+    for (const c of dragScope().root.querySelectorAll(dragScope().contSelector)) {
       if (inCard(c)) { drag.overCard = c; return c; }
     }
     drag.overCard = null;
@@ -5544,7 +5673,7 @@
       if (cur.timer) clearTimeout(cur.timer);
       if (cur.expanded && cur.el === landedEl && cur.el.isConnected) {
         const S = dragScope();
-        const cardEl = kind === 'category' ? cur.el.closest('.card') : cur.el;
+        const cardEl = kind === 'category' ? cur.el.closest(S.contSelector) : cur.el;
         const cardData = cardEl && S.findContainer(cardEl.dataset.id);
         const obj = kind === 'category' ? S.findRow(cur.el.dataset.id) : cardData;
         if (obj) { obj.collapsed = false; if (cardData && !frozen(cardData)) stampContent(obj); }
@@ -5560,12 +5689,12 @@
   // ha endret seg av et slipp inn i en kollapset liste man ikke peek-åpnet).
   function refreshAllCollapseCounts() {
     const S = dragScope();
-    S.root.querySelectorAll('.card.collapsed').forEach((cardEl) => {
+    S.root.querySelectorAll(S.contSelector + '.collapsed').forEach((cardEl) => {
       const cd = S.findContainer(cardEl.dataset.id);
       if (cd) setCollapseCount(cardEl.querySelector('.card-head'), leafCount(S.rowsOf(cd)), true, S.countIcon);
     });
     S.root.querySelectorAll('.category.collapsed').forEach((catEl) => {
-      const cardEl = catEl.closest('.card');
+      const cardEl = catEl.closest(S.contSelector);
       const cd = cardEl && S.findContainer(cardEl.dataset.id);
       if (cd) setCollapseCount(catEl.querySelector('.cat-head'), catMemberCount(S.rowsOf(cd), catEl.dataset.id), true);
     });
@@ -6254,7 +6383,7 @@
   function dndInCollapsedTarget(cont) {
     const cat = cont.closest('.category');
     if (cat && cat.classList.contains('collapsed')) return true;
-    const card = cont.closest('.card');
+    const card = cont.closest(dragScope().contSelector);
     return !!(card && card.classList.contains('collapsed'));
   }
   /* Kategori-RADENS detektor: Smetts hysterese, med to vakter foran.
@@ -6321,8 +6450,13 @@
      eller en peek som nettopp foldet målet ut — må be om en, og om en ny
      kollisjonsrunde, siden pekeren kan stå stille. DELT av begge scopenes
      radnivå. */
+  // Radboardet scopet som drar hører til (tre scope, tre radboard).
+  function activeRowBoard() {
+    const S = dragScope();
+    return S === navScope ? navRowBoard : S === ideaScope ? ideaRowBoard : boardRowBoard;
+  }
   function dndRefreshRowAccepts() {
-    const b = dragScope() === navScope ? navRowBoard : boardRowBoard;
+    const b = activeRowBoard();
     if (!b) return;
     b.sync();
     dndTuneRowCollisions(b);
@@ -6336,7 +6470,7 @@
   function dndSetRowTarget(cont) {
     if (dndRowTargetCont === (cont || null)) return;
     dndRowTargetCont = cont || null;
-    const b = dragScope() === navScope ? navRowBoard : boardRowBoard;
+    const b = activeRowBoard();
     if (b) b.manager.collisionObserver.forceUpdate();
   }
   /* Slippet i et mål peek ikke rakk å åpne: legg raden sist i det. Målet er
@@ -7802,7 +7936,7 @@
       // lander. `dragOverCard` er allerede regnet ut denne runden.
       const hull = dragScope().root.querySelector('[data-dnd-placeholder]');
       const iMål = dragOverCard();
-      setHoleAstray(!!hull && !!iMål && hull.closest('.card') !== iMål);
+      setHoleAstray(!!hull && !!iMål && hull.closest(dragScope().contSelector) !== iMål);
       /* Svaret er en funksjon av PEKERPOSISJONEN. Står pekeren stille, skal
          svaret stå stille — selv om layouten flyttet seg. Det er nettopp der
          tilbakekoblingen bor: VÅR egen plassering flytter radene, og en ny runde
@@ -8149,10 +8283,12 @@
     const searchEl = document.getElementById('search-modal');
     const eventsEl = document.getElementById('events-modal');
     const notifEl = document.getElementById('notif-modal');
+    const ideasEl = document.getElementById('ideas-modal');
     document.body.classList.toggle('modal-open',
       !trashModal.hidden || !navModal.hidden ||
       !accountModal.hidden || (searchEl && !searchEl.hidden) ||
       (eventsEl && !eventsEl.hidden) || (notifEl && !notifEl.hidden) ||
+      (ideasEl && !ideasEl.hidden) ||
       (share && !share.hidden) || (place && !place.hidden) ||
       (confirmEl && !confirmEl.hidden) || (objMenu && !objMenu.hidden) ||
       (timeSw && !timeSw.hidden) || (snoozeSw && !snoozeSw.hidden) ||
@@ -8304,6 +8440,7 @@
   const groupWord = (n) => countWord('group', n);
   const listWord = (n) => countWord('card', n);
   const itemWord = (n) => countWord('item', n);
+  const ideaWord = (n) => countWord('idea', n);
   const uniWord = (n) => countWord('universe', n);
 
   /* ---------- De fire søppelkassene ----------
@@ -8725,6 +8862,8 @@
     if (objMenuCtx) { closeObjMenu(); return true; }
     const searchEl = document.getElementById('search-modal');
     if (searchEl && !searchEl.hidden) { closeSearchModal(); return true; }
+    const ideasEl = document.getElementById('ideas-modal');
+    if (ideasEl && !ideasEl.hidden) { closeIdeasModal(); return true; }
     const eventsEl = document.getElementById('events-modal');
     if (eventsEl && !eventsEl.hidden) { closeEventsModal(); return true; }
     const notifEl = document.getElementById('notif-modal');
@@ -13332,6 +13471,552 @@
   }
 
   /* ============================================================
+     IDÉER — kontoens egen hurtigblokk
+     ------------------------------------------------------------
+     Autoritativt: docs/ideer.md.
+
+     En idé hører til KONTOEN, ikke til et område eller en mappe: den samme
+     listen står i idémodalen uansett hvor i hierarkiet man er. Derfor er
+     `state.ideas` en FLAT liste, ikke en gren i `state.universes`, og den har
+     ingen roller, capabilities eller låser — eierskapet ER autorisasjonen
+     (RLS: `owner_id = auth.uid()`).
+
+     FORMEN ER LISTAS. Idéene har nøyaktig samme to nivåer som en liste
+     (`isCat` markerer en kategori, `cat` peker fra en idé til kategorien sin),
+     de rendres med de samme klassene (`.items-container`, `.item`,
+     `.category`, `.cat-items`), og de kjøres av et TREDJE dnd-kit-board med
+     den samme delte politikken som de fire andre. Det er nettopp derfor det
+     ikke er skrevet en egen dra-motor her: alt Huskis-eid — skillelinjer,
+     peek, kassen som sone, `reconcileRows` — leser `drag.scope`, og
+     `ideaScope` under er det tredje svaret.
+
+     DET SOM MANGLER ER MED VILJE: ingen frister, ingen ansvarlig, ingen
+     avkryssing, ingen objektmeny. En idé har ÉN knapp (slett) og en
+     idékategori ÉN (oppløs) — målet er å få tanken ned, ikke å planlegge den.
+     ============================================================ */
+  const IDEAS_CONT_ID = '__ideas__';
+  const IDEA_TRASH_ZONE = 'idea-trash';
+  const ideasModal = document.getElementById('ideas-modal');
+  const ideasBtn = document.getElementById('ideas-btn');
+  const ideasCloseBtn = document.getElementById('ideas-close');
+  const ideasBody = document.getElementById('ideas-body');
+  const ideasCardEl = document.getElementById('ideas-card');
+  const ideasList = document.getElementById('ideas-list');
+  const ideaTrashWrap = document.getElementById('idea-trash');
+  const ideaTrashBtn = document.getElementById('idea-trash-btn');
+  const ideaRowTpl = document.getElementById('idea-row-template');
+  const ideaCatTpl = document.getElementById('idea-cat-template');
+
+  /* Den ENE containeren. Rad-maskineriet spør alltid en container om radene
+     sine (`S.rowsOf(cont)`), og idéene har ingen — så her er en syntetisk én
+     som ER `state.ideas`. `_virtual` holder den utenfor fargeutdelingen og
+     låse-arven, nøyaktig som fri-beholderen i nav-scopet. Egenskapen er en
+     accessor og ikke en kopi: `applyMyDoc` bytter ut hele arrayen ved hver
+     synk-runde, og containeren må da peke på den nye. */
+  const ideasCont = { id: IDEAS_CONT_ID, _virtual: true, _type: 'ideas' };
+  Object.defineProperty(ideasCont, 'items', {
+    get: () => state.ideas,
+    set: (v) => { state.ideas = v; },
+  });
+
+  const ideaScope = {
+    key: 'idea',
+    contKind: 'card', rowKind: 'idea',
+    contSelector: '.ideas-card',
+    get root() { return ideasBody; },
+    singleColumn: true,
+    containers: () => [ideasCont],
+    findContainer: (id) => (id === IDEAS_CONT_ID ? ideasCont : null),
+    findRow: (id) => findIdeaById(id),
+    rowsOf: () => state.ideas,
+    setRows: (c, rows) => { state.ideas = rows; },
+    // Det finnes bare én container, så forelderen er en konstant og kan ikke
+    // settes: en idé kan bytte KATEGORI, aldri beholder.
+    rowParent: () => IDEAS_CONT_ID,
+    setRowParent: () => {},
+    rowName: (r) => r.text,
+    setRowName: (r, v) => { r.text = v; },
+    rowPool: () => {
+      const p = {};
+      allIdeas().forEach((d) => { p[d.id] = d; });
+      return p;
+    },
+    canExtract: () => false,        // ingen «ny beholder» å ekstrahere til
+    createContainer: () => null,
+    countIcon: null,
+    refreshContainer: () => renderIdeas(),
+    render: () => renderIdeas(),
+    afterDrop: () => { /* DOM-en er allerede riktig */ },
+    reindexColors: () => { /* idékortet har ingen palettfarge */ },
+    lockedTargetMsg: '',
+    refusesRow: () => false,        // ingen låser her
+  };
+
+  /* ---------------- Rendring ---------------- */
+  function renderIdeas() {
+    if (!ideasList) return;
+    captureFocusIn(ideasBody);
+    ideasList.textContent = '';
+    const rows = allIdeas().filter(live);
+    const catIds = new Set(rows.filter((r) => r.isCat).map((r) => r.id));
+    // En idé hvis kategori ikke finnes (oppløst på en annen enhet) rendres på
+    // nivå 1, som et listepunkt i samme situasjon.
+    const level1 = rows.filter((r) => r.isCat || !r.cat || !catIds.has(r.cat)).sort(posCmp);
+    level1.forEach((d) => ideasList.appendChild(d.isCat ? buildIdeaCategory(d) : buildIdeaRow(d)));
+    paintIdeaTrash();
+    applyFocusIntent();
+    ensureIdeaRowBoard();
+    ideaSyncBoard();
+  }
+  // Synk-runden bygger `state` på nytt; står modalen åpen, må den følge med.
+  // Aldri midt i et drag — da er DOM-en dnd-kits.
+  function refreshIdeasModal() {
+    if (!ideasModal || ideasModal.hidden || drag.active) return;
+    renderIdeas();
+  }
+  function ideaSyncBoard() {
+    if (!ideaRowBoard) return;
+    if (ideaRowBoard.manager.dragOperation.status.idle) ideaRowBoard.sync();
+    else noteSyncOwed();
+  }
+
+  function buildIdeaRow(ideaData) {
+    const el = fromTemplate(ideaRowTpl);
+    el.dataset.id = ideaData.id;
+    const textEl = el.querySelector('.item-text');
+    textEl.textContent = ideaData.text;
+    // Klikk på TEKSTEN redigerer (flerlinjet, så hele idéen kan leses mens man
+    // skriver); klikk-og-dra på raden løfter den. Samme deling som et listepunkt.
+    const rename = () => {
+      editText(textEl, ideaData.text, (val) => {
+        if (!val) return;                 // tom redigering = ingen endring
+        ideaData.text = val;
+        textEl.textContent = val;
+        stampContent(ideaData);
+        save();
+        labelIdeaControls();
+      }, { multiline: true });
+    };
+    textEl.addEventListener('click', rename);
+    setRenameHook(textEl, rename);
+    attachKeyHandle(el, 'idea', () => ideaData.id, { rename, enterRenames: true });
+
+    const delBtn = el.querySelector('.idea-del-btn');
+    delBtn.innerHTML = ICONS.trash;
+    delBtn.addEventListener('click', () => deleteIdea(ideaData));
+
+    function labelIdeaControls() {
+      labelBtn(delBtn, tr('label.deleteIdea', { name: quoted(ideaData.text) }));
+    }
+    labelIdeaControls();
+    return el;
+  }
+
+  function buildIdeaCategory(catData) {
+    const el = fromTemplate(ideaCatTpl);
+    el.dataset.id = catData.id;
+    el.querySelector('.cat-drag-icon').innerHTML = ICONS.category;
+
+    const titleEl = el.querySelector('.cat-title');
+    titleEl.textContent = catData.text || tr('kind.ideacat');
+    const rename = () => {
+      editText(titleEl, catData.text, (val) => {
+        catData.text = val || tr('kind.ideacat');
+        titleEl.textContent = catData.text;
+        stampContent(catData);
+        save();
+        labelCatControls();
+      });
+    };
+    titleEl.addEventListener('click', rename);
+    setRenameHook(titleEl, rename);
+
+    const catHead = el.querySelector('.cat-head');
+    catHead.addEventListener('click', (ev) => {
+      if (ev.target.closest('.cat-title, .idea-dissolve-btn, .edit-input')) return;
+      toggleCatCollapsed(el, catData, ideasCont, ideaScope);
+    });
+    catHead.setAttribute('role', 'button');
+    catHead.setAttribute('aria-expanded', catData.collapsed ? 'false' : 'true');
+    attachKeyHandle(catHead, 'ideacat', () => catData.id, { rename });
+    catHead.addEventListener('keydown', (ev) => {
+      if (ev.target !== catHead) return;
+      if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+      ev.preventDefault();
+      toggleCatCollapsed(el, catData, ideasCont, ideaScope);
+    });
+
+    // Oppløs: idéene blir stående som ukategoriserte på samme plass. Dette ER
+    // kategoriens «sletting» — den har ingen egen søppelkasse-rad.
+    const dissolveBtn = el.querySelector('.idea-dissolve-btn');
+    dissolveBtn.innerHTML = ICONS.bubbleBurst;
+    dissolveBtn.addEventListener('click', () => {
+      const liveCat = findIdeaById(catData.id);
+      if (!liveCat) return;
+      keepFocus(ideaFocusAfterRemoval(liveCat.id));
+      dissolveCategory(liveCat, ideasCont, ideaScope);
+      applyFocusIntent();
+    });
+
+    const inner = el.querySelector('.cat-items');
+    inner.dataset.dndContainer = catData.id;   // nivå-2-containeren i idé-boardet
+    const addWrap = el.querySelector('.cat-add');
+    addWrap.dataset.dndIgnore = '';
+    const members = allIdeas()
+      .filter((d) => live(d) && !d.isCat && d.cat === catData.id).sort(posCmp);
+    members.forEach((d) => inner.appendChild(buildIdeaRow(d)));
+    inner.appendChild(addWrap); // idéknappen sist, under den siste idéen
+
+    const addBtn = el.querySelector('.cat-add-btn');
+    addBtn.addEventListener('click', () => addRowToCategory(catData, ideasCont, el, ideaScope));
+
+    function labelCatControls() {
+      const n = quoted(catData.text);
+      labelBtn(dissolveBtn, tr('label.dissolveIdeaCat', { name: n }));
+      labelBtn(addBtn, tr('label.addIdeaInCat', { name: n }));
+      catHead.setAttribute('aria-label', tr('label.ideacat', { name: n }));
+    }
+    labelCatControls();
+
+    if (catData.collapsed) {
+      collapseCatBody(el);
+      setCollapseCount(el.querySelector('.cat-head'), members.length, true);
+    }
+    return el;
+  }
+
+  /* ---------------- Opprettelse ----------------
+     Begge knappene oppretter objektet med én gang og åpner navneredigereren på
+     det (samme mønster som i en liste): skriver man ingenting, fjernes det
+     igjen. Idéknappen kjeder seg selv — Enter gir neste idé, uten et eneste
+     ekstra trykk. */
+  function addIdeaRow(obj, rowEl, displayEl, onNamed, opts) {
+    obj.pos = level1MaxPos(allIdeas()) + 1;
+    stampContent(obj);
+    stampPos(obj);
+    state.ideas.push(obj);
+    ideasList.appendChild(rowEl);
+    save();
+    ideaSyncBoard();
+    nameNewRow(obj, ideasCont, rowEl, displayEl, ideaScope, onNamed, opts);
+  }
+  function addIdea() {
+    const d = makeIdea('');
+    const rowEl = buildIdeaRow(d);
+    addIdeaRow(d, rowEl, rowEl.querySelector('.item-text'), addIdea, { multiline: true });
+  }
+  function addIdeaCategory() {
+    const c = makeIdeaCategory('');
+    const el = buildIdeaCategory(c);
+    addIdeaRow(c, el, el.querySelector('.cat-title'), null, null);
+  }
+
+  /* ---------------- Sletting ---------------- */
+  // Hvor fokus skal lande når en idé/kategori forsvinner: naboen i DOM-en,
+  // ellers den grønne idéknappen (som er der man uansett skal videre).
+  function ideaFocusAfterRemoval(id) {
+    const rows = orderedRows(ideaScope, ideasCont, 'level1');
+    const i = rows.findIndex((r) => r.id === id);
+    const nb = i < 0 ? null : (rows[i + 1] || rows[i - 1]);
+    if (nb) return handleSelector(nb.isCat ? 'ideacat' : 'idea', nb.id);
+    return '#add-idea-btn';
+  }
+  function deleteIdea(ideaData) {
+    const d = findIdeaById(ideaData.id);
+    if (!d) return;
+    keepFocus(ideaFocusAfterRemoval(d.id));
+    const ghost = ghostFrom(ideasBody.querySelector('.item[data-id="' + d.id + '"]'));
+    bufferDelete(d, 'idea', (x) => setTrashed(x, 'idea', true));
+    renderIdeas();               // kassen dukker opp FØR animasjonen
+    applyFocusIntent();
+    flyGhost(ghost, ideaTrashBtn);
+    pushDeleteToast('idea', d.id, d.text);
+  }
+
+  /* ---------------- Søppelkassen ---------------- */
+  function paintIdeaTrash() {
+    if (!ideaTrashBtn) return;
+    const n = trashedIdeas().length;
+    const countEl = ideaTrashBtn.querySelector('.trashcan-count');
+    if (countEl) countEl.textContent = n;
+    // Kassen finnes ALLTID i DOM-en (et drag viser den fram som slippmål), så
+    // tellingen styrer synligheten — men et drag som har avdekket den, beholder.
+    if (ideaTrashWrap && !ideaTrashWrap.dataset.dragRevealed) ideaTrashWrap.hidden = n === 0;
+    ideaTrashBtn.setAttribute('aria-label', tr('trash.ideasCount', { count: n }));
+  }
+  function restoreIdea(ideaData) {
+    const d = findIdeaById(ideaData.id);
+    if (!d) return;
+    setTrashed(d, 'idea', false);
+    save();
+    renderIdeas();
+  }
+  function openIdeasTrash() {
+    showTrashModal({
+      title: tr('trash.ideas'),
+      note: TRASH_NOTE,
+      emptyLabel: tr('trash.purgeIdeas'),
+      emptyMsg: tr('trash.noIdeas'),
+      // Leses ferskt ved hvert kall: en synk-rebuild bytter ut objektene.
+      rows: () => trashedIdeas().sort(posCmp).map((d) => ({
+        id: d.id,
+        name: d.text,
+        meta: tr(d.isCat ? 'kind.ideacat' : 'kind.idea'),
+        pending: !!d._pendingDelete,
+        manage: true,          // idéene er mine alene — ingen lås å ta hensyn til
+        restore: () => restoreIdea(d),
+      })),
+      empty: emptyIdeasTrash,
+    });
+  }
+  // Tøm permanent: gravstein per idé, og medlemmer som pekte på en slettet
+  // kategori løsner (som `on delete set null` i databasen).
+  function emptyIdeasTrash() {
+    commitBufferedFor(trashedIdeas().map((d) => d.id));
+    const trash = trashedIdeas();
+    if (!trash.length) return;
+    trash.forEach((d) => {
+      const i = state.ideas.indexOf(d);
+      tombSubtree(d, 'idea');
+      if (i > -1) state.ideas.splice(i, 1);
+    });
+    const catIds = new Set(allIdeas().filter((x) => x.isCat).map((x) => x.id));
+    allIdeas().forEach((x) => { if (x.cat && !catIds.has(x.cat)) { x.cat = null; stampPos(x); } });
+    renderIdeas();
+    save();
+  }
+
+  /* ---------------- Modalen ---------------- */
+  function openIdeasModal() {
+    if (!ideasModal) return;
+    ideasModal.hidden = false;
+    renderIdeas();
+    updateModalOpenClass();
+  }
+  function closeIdeasModal() {
+    if (!ideasModal || ideasModal.hidden) return;
+    ideasModal.hidden = true;
+    updateModalOpenClass();
+  }
+
+  if (ideaTrashBtn) {
+    ideaTrashBtn.dataset.dndZone = IDEA_TRASH_ZONE;
+    ideaTrashBtn.title = tr('trash.ideasBtnTitle');
+    const ideaTrashIcon = document.createElement('span');
+    ideaTrashIcon.className = 'trashcan-icon';
+    ideaTrashIcon.setAttribute('aria-hidden', 'true');
+    ideaTrashIcon.innerHTML = ICONS.trash;
+    const ideaTrashCount = document.createElement('span');
+    ideaTrashCount.className = 'trashcan-count';
+    ideaTrashCount.textContent = '0';
+    ideaTrashBtn.append(ideaTrashIcon, ideaTrashCount);
+    attachTrashHold(ideaTrashBtn, {
+      count: () => trashedIdeas().length,
+      open: openIdeasTrash,
+      empty: emptyIdeasTrash,
+    });
+  }
+  if (ideasBtn) ideasBtn.addEventListener('click', openIdeasModal);
+  if (ideasCloseBtn) ideasCloseBtn.addEventListener('click', closeIdeasModal);
+  if (ideasModal) {
+    ideasModal.addEventListener('click', (ev) => { if (ev.target === ideasModal) closeIdeasModal(); });
+  }
+  const addIdeaBtn = document.getElementById('add-idea-btn');
+  const addIdeaCatBtn = document.getElementById('add-idea-cat-btn');
+  if (addIdeaBtn) addIdeaBtn.addEventListener('click', addIdea);
+  if (addIdeaCatBtn) addIdeaCatBtn.addEventListener('click', addIdeaCategory);
+
+  /* ============================================================
+     IDÉ-SCOPET PÅ dnd-kit (gjennom Smett)
+     ------------------------------------------------------------
+     Det TREDJE scopet, og det enkleste: ÉN container, ingen ekstrahering,
+     ingen låser, ingen kryss-beholder-flytting. Det eneste et slipp kan bety
+     er ny plass i rekka, inn i eller ut av en kategori — eller sletting, hvis
+     det traff kassen. Alt annet (skillelinjer, peek av en kollapset kategori,
+     kassen som sone, rotasjon under løft) er den DELTE politikken over, som
+     leser `drag.scope`.
+     ============================================================ */
+  let ideaRowBoard = null;
+
+  function ideaRowContainerName(id) {
+    if (id === IDEAS_CONT_ID) return tr('ideas.title');
+    const d = findIdeaById(id);
+    return d ? (d.text || tr('kind.ideacat')) : id;
+  }
+  function ideaRowLabel(el) {
+    if (!el || !el.dataset) return '';
+    const d = findIdeaById(el.dataset.id);
+    if (!d) return '';
+    return d.text || (d.isCat ? tr('kind.ideacat') : '');
+  }
+  function ideaRowPhrases() {
+    return {
+      pickedUp: (name, position) => tr('dnd.a11yPickedUp', { name: quoted(name), position }),
+      moving: (name, position) => tr('dnd.a11yMoving', { name: quoted(name), position }),
+      dropped: (name, position) => tr('dnd.a11yDropped', { name: quoted(name), position }),
+      moved: (name, position) => tr('dnd.a11yMoved', { name: quoted(name), position }),
+      cancelled: (name) => tr('dnd.a11yCancelled', { name: quoted(name) }),
+      failed: (name) => tr('dnd.a11yFailed', { name: quoted(name) }),
+      inContainer: (index, total, containerId) => tr('dnd.a11yPositionIn',
+        { pos: index + 1, total, name: quoted(ideaRowContainerName(containerId)) }),
+      overZone: () => tr('dnd.a11yOverTrash'),
+      offBoard: () => tr('dnd.a11yOffBoard'),
+    };
+  }
+  // Hylla tar bare idéer: en kategori nøstes ALDRI i en annen. Et kollapset
+  // mål tar ingenting før peek har foldet det ut.
+  function ideaRowAccept(cont) {
+    if (dndInCollapsedTarget(cont)) return [];
+    if (cont.classList.contains('cat-items')) return ['item'];
+    return ['item', 'category'];
+  }
+
+  function ensureIdeaRowBoard() {
+    if (ideaRowBoard || !ideasBody || typeof Smett === 'undefined' || !Smett.SortableBoard) return;
+    ideaRowBoard = new Smett.SortableBoard({
+      // Roten er modalkroppen, ikke kortet: kassen ligger inne i kortet, men
+      // sonene registreres under roten, og kortet må selv kunne måles av
+      // `dragOverCard`.
+      root: ideasBody,
+      itemSelector: '.items-container > .item, .items-container > .category, .cat-items > .item',
+      containerSelector: '.items-container, .cat-items',
+      handleSelector: '.cat-head, .item',
+      zoneSelector: '.item-trash-btn',
+      idAttribute: 'data-id',
+      axis: 'vertical',
+      keyboard: false,               // tastaturet er Huskis' eget (attachKeyHandle)
+      safeInsets: safeInsets,
+      itemType: (el) => (el.classList.contains('category') ? 'category' : 'item'),
+      containerAccept: ideaRowAccept,
+      describeItem: ideaRowLabel,
+      phrases: ideaRowPhrases(),
+      onCommit: ideaCommitRow,
+      onZoneDrop: ideaRowZoneDrop,
+      onDropTarget: ideaRowDropTarget,
+      onError: (err) => { if (window.console) console.error('[huskis] idea-row-dnd', err); },
+    });
+    ideaRowWire(ideaRowBoard);
+    dndInstallClickGuard();
+  }
+
+  function ideaRowWire(b) {
+    b.manager.registry.plugins.unregister(Smett.Cursor);
+    b.manager.registry.plugins.unregister(Smett.PreventSelection);
+    const monitor = b.manager.monitor;
+    monitor.addEventListener('beforedragstart', () => ideaRowDragBegin(b));
+    monitor.addEventListener('dragstart', () => ideaRowDragStart(b));
+    monitor.addEventListener('dragmove', () => ideaRowDragMove(b));
+    monitor.addEventListener('dragover', () => ideaRowDragOver(b));
+    monitor.addEventListener('dragend', (event) => ideaRowDragEnd(event));
+  }
+
+  function ideaRowDragBegin(b) {
+    const el = boardSource(b);
+    if (!el) return;
+    const kind = el.classList.contains('category') ? 'category' : 'item';
+    drag.scope = ideaScope;
+    drag.kind = kind;
+    drag.el = el;
+    drag.active = true;
+    drag.ph = null;
+    drag.phMode = 'reorder';
+    drag.origParent = el.parentNode;
+    drag.origNext = el.nextSibling;
+    drag.card = kind === 'category' ? ideasCardEl : null;
+    drag.peekCard = null;
+    drag.peekCat = null;
+    // Det finnes bare ETT kort her, så «hvilket kort er jeg over» er avgjort
+    // før draget begynner.
+    drag.overCard = ideasCardEl;
+    drag.trashHost = ideasCardEl;
+    drag.crumbTarget = false;
+    dndRowTargetCont = null;
+    dndPeekPending = null;
+    dndPolicyX = dndPolicyY = null;
+    document.body.classList.add('is-dragging');
+    document.documentElement.style.overflowAnchor = 'none';
+    if (kind === 'category') dndCollapseCategory(el);
+    dndTuneRowCollisions(ideaRowBoard);
+    dndNoteLiftedBox(el);
+    armDragTrash();
+  }
+
+  function ideaRowDragStart(b) {
+    dndSyncIntent(b.manager.dragOperation);
+    dndPaintRotation();
+    dndRowTargetCont = dndPickRowContainer(ideasCardEl);
+    applyDragSeparators();
+  }
+  // Ingen ekstraheringsmodus å veksle: det eneste som kan endre seg er hvilken
+  // container (nivå 1 eller en kategorihylle) pekeren står i.
+  function ideaUpdateTargetCont() {
+    dndPeekPending = dndPeekTarget(ideasCardEl);
+    dndSetRowTarget(dndPickRowContainer(ideasCardEl));
+  }
+  function ideaRowDragMove(b) { dndRowPolicy(b, ideaUpdateTargetCont); }
+  function ideaRowDragOver(b) {
+    dndRowPolicy(b, ideaUpdateTargetCont);
+    dndKeepCatAddLast();
+    applyDragSeparatorsSoon();
+  }
+  function ideaRowDragEnd(event) {
+    if (drag.el && drag.el.isConnected) drag.el.style.rotate = '';
+    dndSwallowClick = true;
+    dndRowTargetCont = null;
+    dndPeekPending = null;
+    if (!drag.active) return;
+    if (drag.kind === 'category' && drag.el && drag.el.isConnected) dndSettleCategory(drag.el);
+    dndNoteCanceled(event);
+    finishDrag();
+  }
+
+  function ideaRowDropTarget(target) {
+    const btn = dragTrashBtn();
+    setDragTrashTarget(!!(drag.trashArmed && btn && target &&
+      target.kind === 'zone' && target.element === btn));
+  }
+  function ideaRowZoneDrop(result) {
+    const btn = dragTrashBtn();
+    if (!drag.trashArmed || !btn || btn.getAttribute('data-dnd-zone') !== result.zoneId) return;
+    disarmDragTrash();
+    dropIntoTrash(ideaScope, 'item', result.itemId);
+  }
+
+  /* Slippet: ny plass i rekka, og for en IDÉ dessuten hvilken kategori den
+     havnet i. En KATEGORI leser aldri sin egen `.category`-forfar som mål —
+     den er sin egen — så `cat` er alltid null for den. */
+  function ideaCommitRow() {
+    // Ringen rundt kassen: et slipp som bommer med noen piksler skal fortsatt
+    // slette, ikke flytte (samme regel som i de to andre scopene).
+    if (dropReleasedOnTrash(ideaRowBoard)) {
+      const trashedId = drag.el && drag.el.dataset.id;
+      restoreDraggedToOrigin();
+      disarmDragTrash();
+      if (trashedId) dropIntoTrash(ideaScope, 'item', trashedId);
+      return;
+    }
+    const S = ideaScope;
+    const el = drag.el;
+    if (!el || !el.isConnected) return;
+    dndLandInPeekTarget();
+    clearAllDragSeparators();
+    const catEl = drag.kind === 'category' ? null : el.closest('.category');
+    resolvePeekOnDrop(ideasCardEl, catEl);
+    dndKeepCatAddLast();
+    const prev = dndRowSibling(el, -1);
+    const next = dndRowSibling(el, 1);
+    reconcileRows(S, IDEAS_CONT_ID, S.rowPool());
+    const moved = S.findRow(el.dataset.id);
+    if (moved) {
+      moved.cat = catEl ? catEl.dataset.id : null;
+      moved.pos = between(rowPos(prev), rowPos(next));
+      stampPos(moved);
+    }
+    refreshAllCollapseCounts();
+    save();
+  }
+
+  /* ============================================================
      SANNTIDS-SYNK (Supabase Auth + relasjonelle tabeller)
      ------------------------------------------------------------
      Brukeren logger inn med e-post/passord. Data ligger relasjonelt
@@ -13393,6 +14078,16 @@
       pos: it.pos || 0, posTs: it.posTs || 0, posOrg: it.posOrg || '',
     };
   }
+  // Idéraden: samme to registre som et listepunkt, uten forelder, frister,
+  // ansvarlig og avkryssing (docs/ideer.md).
+  function cleanIdea(d) {
+    return {
+      id: d.id, text: d.text, cat: d.cat || null,
+      isCat: !!d.isCat, collapsed: !!d.collapsed, trashed: !!d.trashed,
+      ts: d.ts || 0, org: d.org || '',
+      pos: d.pos || 0, posTs: d.posTs || 0, posOrg: d.posOrg || '',
+    };
+  }
   function cleanCard(c) {
     return {
       // Farge synkes ikke: den utledes av posisjon på hver enhet (colorForIndex).
@@ -13432,6 +14127,8 @@
   // så `it.home || parent.id` gir samme resultat begge veier.
   function flattenNested(s, rowFn) {
     const universes = [], groups = [], cards = [], items = [];
+    // Idéene er allerede flate og har ingen forelder — de går rett gjennom.
+    const ideas = (s.ideas || []).map((d) => rowFn(d, 'idea', null));
     (s.universes || []).forEach((u) => {
       // «Mapper delt med meg» er en VIRTUELL beholder — den finnes ikke i
       // databasen og skal aldri pushes. Mappene i den skrives som vanlig
@@ -13445,12 +14142,13 @@
         });
       });
     });
-    return { universes, groups, cards, items };
+    return { universes, groups, cards, items, ideas };
   }
   function cleanRow(o, type, parent) {
     if (type === 'universe') return cleanUniverse(o);
     if (type === 'group') return cleanGroup(Object.assign({}, o, { uni: o.uni || parent.id }));
     if (type === 'card') return cleanCard(Object.assign({}, o, { group: o.group || parent.id }));
+    if (type === 'idea') return cleanIdea(o);
     return cleanItem(o, o.home || parent.id);
   }
   /* ---------- Felt-nivå LWW-fletting (per register) ----------
@@ -13468,6 +14166,19 @@
       ts: content.ts || 0, org: content.org || '',
       // `cat` (kategori-medlemskap) er en forelder-endring → følger posisjonsregisteret, som `home`.
       home: posw.home, cat: posw.cat || null, pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
+    };
+  }
+  // Idé: innholdsregisteret bærer tekst/kategori-markør/kollaps/trashed,
+  // posisjonsregisteret rekkefølgen OG kategori-medlemskapet (som `home` på et
+  // listepunkt).
+  function mergeIdea(a, b) {
+    const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
+    const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
+    return {
+      id: a.id, text: content.text, trashed: !!content.trashed,
+      isCat: !!content.isCat, collapsed: !!content.collapsed,
+      ts: content.ts || 0, org: content.org || '',
+      cat: posw.cat || null, pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
     };
   }
   function mergeCardScalar(a, b) {
@@ -14699,7 +15410,9 @@
     const groups = (my.groups || []).filter((g) => !supG.has(g.id)).map((g) => { const r = cleanGroup(g); bump(r); return r; });
     const cards = (my.cards || []).filter((c) => !supC.has(c.id)).map((c) => { const r = cleanCard(c); bump(r); return r; });
     const items = (my.items || []).filter((it) => !supC.has(it.home)).map((it) => { const r = cleanItem(it, it.home); bump(r); return r; });
-    return { universes, groups, cards, items, hlc: maxTs };
+    // Idéene deles aldri, så ingen forlatt-deling kan undertrykke dem.
+    const ideas = (my.ideas || []).map((d) => { const r = cleanIdea(d); bump(r); return r; });
+    return { universes, groups, cards, items, ideas, hlc: maxTs };
   }
   function metaFromMy(my) {
     const meta = new Map();
@@ -14716,6 +15429,7 @@
     add(my.groups, 'group');
     add(my.cards, 'card');
     add(my.items, 'item');
+    add(my.ideas, 'idea');
     return meta;
   }
 
@@ -14749,6 +15463,7 @@
       return r;
     }
     if (type === 'card') return cleanCard(o);
+    if (type === 'idea') return cleanIdea(o);
     return cleanItem(o, o.home);
   }
   function docFromMyState() {
@@ -14809,13 +15524,13 @@
                         oppretter av andres innhold. Hvem som havner i settet
                         bestemmes av kalleren (cloudCycle) — se der. */
   const NO_IDS = new Set();
-  function emptyDoc() { return { universes: [], groups: [], cards: [], items: [] }; }
+  function emptyDoc() { return { universes: [], groups: [], cards: [], items: [], ideas: [] }; }
   function reconcile(base, local, remote, opts) {
     opts = opts || {};
     const tombs = opts.tombs || NO_IDS;
     const foreign = opts.foreign || NO_IDS;
     const unknown = opts.unknown || NO_IDS;
-    const merged = { universes: [], groups: [], cards: [], items: [] };
+    const merged = { universes: [], groups: [], cards: [], items: [], ideas: [] };
     const ops = [];
     const unverified = [];
     const TYPES = [
@@ -14823,6 +15538,7 @@
       { key: 'groups', t: 'group', merge: mergeGroupScalar },
       { key: 'cards', t: 'card', merge: mergeCardScalar },
       { key: 'items', t: 'item', merge: mergeItem },
+      { key: 'ideas', t: 'idea', merge: mergeIdea },
     ];
     TYPES.forEach(({ key, t, merge }) => {
       const bMap = new Map((base[key] || []).map((r) => [r.id, r]));
@@ -14946,6 +15662,20 @@
         if (parent) { it._parent = parent; it._type = 'item'; parent.items.push(it); }
       });
 
+      /* Idéene: ingen forelder å feste dem i, ingen roller å hente — de er
+         kontoens egne (docs/ideer.md). En idé hvis `cat` peker på en kategori
+         som ikke finnes (oppløst på en annen enhet) leses som ukategorisert,
+         nøyaktig som et listepunkt. */
+      const ideas = (doc.ideas || []).map((raw) => {
+        const d = cleanIdea(raw);
+        d._type = 'idea';
+        d._createdByMe = true;
+        return d;
+      });
+      const ideaCats = new Set(ideas.filter((d) => d.isCat).map((d) => d.id));
+      ideas.forEach((d) => { if (d.cat && !ideaCats.has(d.cat)) d.cat = null; });
+      ideas.sort(posCmp);
+
       // Seksjonsrekkefølge først, personlig posisjon innenfor hver seksjon.
       universes.sort((a, b) => (sectionRank(a) - sectionRank(b)) || posCmp(a, b));
       universes.forEach((u) => {
@@ -14959,6 +15689,7 @@
       const hadGroup = state.activeGroup && !!findGroupAnywhere(state.activeGroup);
       const hadUni = state.activeUniverse && !!findUniverse(state.activeUniverse);
       state.universes = universes;
+      state.ideas = ideas;
       state._hlc = doc.hlc || state._hlc || 0;
       observeTs(doc.hlc);
       const lostGroup = hadGroup && state.activeGroup && !findGroupAnywhere(state.activeGroup);
@@ -14987,7 +15718,7 @@
   }
 
   /* ---------------- Push: rad-CRUD mot tabellene ---------------- */
-  const TABLE = { universe: 'universes', group: 'groups', card: 'cards', item: 'items' };
+  const TABLE = { universe: 'universes', group: 'groups', card: 'cards', item: 'items', idea: 'ideas' };
   function insertPayload(t, row, uid) {
     const base = { id: row.id, owner_id: uid, trashed: !!row.trashed,
       ts: row.ts || 0, org: row.org || '', pos: row.pos || 0, pos_ts: row.posTs || 0, pos_org: row.posOrg || '' };
@@ -14999,6 +15730,8 @@
       responsible: row.responsible || null,
       start_at: row.start || null, due_at: row.due || null, lock_times: !!row.lockTimes,
       collapsed: !!row.collapsed });
+    if (t === 'idea') return Object.assign(base, { text: row.text || '', cat_id: row.cat || null,
+      is_cat: !!row.isCat, collapsed: !!row.collapsed });
     return Object.assign(base, { text: row.text || '', card_id: row.home, cat_id: row.cat || null,
       is_cat: !!row.isCat, lock_times: !!row.lockTimes, done: !!row.done, collapsed: !!row.collapsed,
       responsible: row.responsible || null,
@@ -15015,6 +15748,8 @@
       responsible: row.responsible || null,
       start_at: row.start || null, due_at: row.due || null, lock_times: !!row.lockTimes,
       collapsed: !!row.collapsed });
+    if (t === 'idea') return Object.assign(base, { text: row.text || '', cat_id: row.cat || null,
+      is_cat: !!row.isCat, collapsed: !!row.collapsed });
     return Object.assign(base, { text: row.text || '', card_id: row.home, cat_id: row.cat || null,
       is_cat: !!row.isCat, lock_times: !!row.lockTimes, done: !!row.done, collapsed: !!row.collapsed,
       responsible: row.responsible || null,
@@ -15126,7 +15861,7 @@
   // samme oppdateringen i det uendelige. Visningen behandler allerede en
   // hengende `cat` som nivå 1, så dette er å skrive ned det brukeren ser.
   function pruneDanglingCats(doc) {
-    ['items', 'groups'].forEach((key) => {
+    ['items', 'groups', 'ideas'].forEach((key) => {
       const rows = doc[key] || [];
       const cats = new Set(rows.filter((r) => r.isCat).map((r) => r.id));
       rows.forEach((r) => { if (r.cat && !cats.has(r.cat)) r.cat = null; });
@@ -15143,7 +15878,7 @@
     const client = acli();
     if (!client || !authUser) return { rejected: 0, netFailed: false };
     const uid = authUser.id;
-    const order = { universe: 0, group: 1, card: 2, item: 3 };
+    const order = { universe: 0, group: 1, card: 2, item: 3, idea: 4 };
     // Ovenfra-ned (foreldre først) på type, og INNEN en type: kategorier før
     // medlemmene sine. Kategorier nøstes aldri, så ett nivå er nok.
     const byParentFirst = (a, b) => (order[a.t] - order[b.t]) ||
@@ -15932,7 +16667,7 @@
     if (!client || !authUser) return;
     if (cloudChan) { try { client.removeChannel(cloudChan); } catch (e) {} cloudChan = null; }
     cloudChan = client.channel('hk-user-' + authUser.id);
-    ['universes', 'groups', 'cards', 'items', 'memberships', 'share_invites'].forEach((t) => {
+    ['universes', 'groups', 'cards', 'items', 'ideas', 'memberships', 'share_invites'].forEach((t) => {
       cloudChan.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => scheduleCloud(150));
     });
     cloudChan.subscribe((status) => {
@@ -17360,6 +18095,7 @@
   // fletteren til å tro at den nye kontoens manglende rader var slettet.
   function resetLocalSync() {
     state.universes = [];
+    state.ideas = [];
     state._tomb = emptyTomb();
     state._base = null;
     state._baseV = 0;
@@ -17382,6 +18118,7 @@
         });
       });
     });
+    (s.ideas || []).forEach((d) => set.add(d.id));
     return set;
   }
   function loadCache() {
@@ -17392,11 +18129,12 @@
       if (!s || !Array.isArray(s.universes)) return false;
       normalize(s);
       state.universes = s.universes;
+      state.ideas = s.ideas;
       // Gravsteinene og basen tas ALLTID fra den lastede posten (ikke «|| det vi
       // hadde»): faller vi tilbake på det som lå i minnet, arver en ny konto
       // forrige brukers gravsteiner.
       state._tomb = s._tomb && typeof s._tomb === 'object' ? s._tomb : emptyTomb();
-      ['universes', 'groups', 'cards', 'items'].forEach((k) => {
+      ['universes', 'groups', 'cards', 'items', 'ideas'].forEach((k) => {
         if (!state._tomb[k] || typeof state._tomb[k] !== 'object') state._tomb[k] = {};
       });
       state._hlc = s._hlc || 0;
@@ -18117,6 +18855,7 @@
     flushCacheWrite();  // en skriving bestilt før byttet skal bære BRUKERENS state
     demoSaved = {
       universes: state.universes,
+      ideas: state.ideas,
       activeUniverse: state.activeUniverse,
       activeGroup: state.activeGroup,
       activeGroups: state.activeGroups,
@@ -18124,10 +18863,12 @@
     };
     demoActive = true;
     state.universes = [];
+    state.ideas = [];
     state.activeUniverse = null;
     state.activeGroup = null;
     state.activeGroups = {};
     state._tomb = emptyTomb();
+    closeIdeasModal();
     closeTrash();
     closeNavModal();
     closeAccount();
@@ -18139,6 +18880,7 @@
     if (!demoActive) return;
     demoDropDeleteBuffer(); // buffrede slettinger av kulisser skal ikke committes
     state.universes = demoSaved.universes;
+    state.ideas = demoSaved.ideas;
     state.activeUniverse = demoSaved.activeUniverse;
     state.activeGroup = demoSaved.activeGroup;
     state.activeGroups = demoSaved.activeGroups;
@@ -19191,6 +19933,9 @@
        hendelsesmotoren: eksplisitt `now` og eksplisitt markør, så terskler,
        catch-up og preferanser kan testes uten systemklokken og uten server. */
     openNotifModal, closeNotifModal, collectNotifications, runNotifications,
+    // Idémodalen (docs/ideer.md) — som de andre modalene, så en test kan åpne
+    // og lukke den uten å gå veien om toppkontrollen.
+    openIdeasModal, closeIdeasModal,
     get notifRows() { return notifRows; },
     get notifPrefs() { return notifPrefs; },
     get notifCursor() { return notifCursor; },

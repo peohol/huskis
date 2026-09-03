@@ -148,16 +148,24 @@ telefon i LANDSKAP: panelet blir én kontrollhøyde høyt, og i landskap er høy
 det knappeste vi har (~360 px viewport). Listefunksjonene står **rett til høyre
 for nav-knappen**, ikke skjøvet ut til kanten: breadcrumben krymper (`flex: 0 1
 auto`, navnene kappes med ellipsis) når linjen blir trang, men vokser aldri.
-Under **560 px** — telefon i portrett, samme grense som board-ets
-én-kolonne-grense — legges listefunksjonene på raden UNDER: så smalt er navnene
+Under **620 px** legges listefunksjonene på raden UNDER: så smalt er navnene
 verdt mer enn de 49 px panelet sparer.
+
+Den grensen er toppmenyens EGEN, ikke board-ets én-kolonne-grense (560 px), og
+skal ikke slås sammen med den: den ene handler om plass på én linje og
+avhenger av hvor bred hjørnegruppen er, den andre speiler hva `relayoutBoard`
+regner ut i JS. Får gruppen en knapp til, flytter toppmenyens grense seg — den
+er en KONSEKVENS av gruppebredden, ikke et designvalg. Da gruppen fikk sin
+sjette knapp, krympet breadcrumben til null ved 561 px og listefunksjonene la
+seg oppå den; `tests/landscape-chrome.test.js` måler begge sidene av grensen,
+og at det ikke skjer igjen.
 
 Toppkontrollene (under) ligger fast i hjørnet og er ikke med i panelets flyt,
 så plassen til dem må holdes av noe annet: på én linje er det en
 `margin-right` i ENDEN av linjen (listefunksjonenes), i det stablede oppsettet
 holder BEGGE radene av den samme plassen (breadcrumbens `padding-right` og
-listefunksjonenes `margin-right`) — for der er hjørnegruppen også to rader, og
-da ligger én gruppe-rad ved siden av hver av dem. Begge leser
+listefunksjonenes `margin-right`) — er hjørnegruppen også to rader (under
+560 px), ligger én gruppe-rad ved siden av hver av dem. Begge leser
 `--corner-btns-w`, som appen MÅLER (`syncTopChrome`) som gruppens BREDESTE rad,
 så plassen holder takt med hvor mange knapper gruppen faktisk har. Har gruppen
 flere rader enn panelet, skyves overskuddet over panelets egne rader ned i
@@ -194,10 +202,11 @@ det finnes ingen `right:`-kjede å regne om:
 | 1 | **Varsler** (`.notif-btn`, `#notif-btn`) | varselmodalen — `docs/varsler.md` |
 | 2 | **Kalender** (`.events-btn`, `#events-btn`) | «Kommende hendelser» — `docs/kommende-hendelser.md` |
 | 3 | **Søk** (`.search-btn`, `#search-btn`) | søkemodalen — `docs/sok-og-navigering.md` |
-| 4 | **Drakt** (`.theme-toggle-btn`, `#theme-toggle-btn`) | ingen; bytter lys ↔ mørk i ETT trykk |
-| 5 | **Konto** (`.account-btn`, `#account-btn`) | konto-modalen |
+| 4 | **Idéer** (`.ideas-btn`, `#ideas-btn`) | idémodalen — `docs/ideer.md` |
+| 5 | **Drakt** (`.theme-toggle-btn`, `#theme-toggle-btn`) | ingen; bytter lys ↔ mørk i ETT trykk |
+| 6 | **Konto** (`.account-btn`, `#account-btn`) | konto-modalen |
 
-Alle fem bærer `.corner-btn`: samme flate-mønster som søppelkassene
+Alle seks bærer `.corner-btn`: samme flate-mønster som søppelkassene
 (halvgjennomsiktig hvit → hvit ved hover), samme høyde/radius som resten av
 kontrollene, samme fokusring. To av dem har en rød badge (`.menu-badge`):
 kontoknappen teller ventende invitasjoner (`#account-badge`), bjellen uleste
@@ -210,13 +219,13 @@ av innloggingsskjermens egen knapp (`#auth-theme-toggle-btn`, samme
 `.corner-btn`-flate og samme maling — bare inline i språkraden i stedet for
 fast i hjørnet).
 
-**Under 560 px deles gruppen i to rader:** drakt og konto øverst, de tre
-innholdsknappene (varsler, kalender, søk) under. Delingen gjøres av
+**Under 560 px deles gruppen i to rader:** idéer, drakt og konto øverst, de tre
+øvrige (varsler, kalender, søk) under. Delingen gjøres av
 `flex-wrap: wrap-reverse`, ikke av `order`: flex fyller den første linjen med de
 tre første i DOM-rekkefølgen, og `wrap-reverse` legger den SISTE linjen øverst.
 Regelen «en ny knapp legges FØRST i gruppen» holder dermed fortsatt, og gruppen
-er nøyaktig to rader enten den har fire eller fem knapper — en ny knapp koster
-ikke board-et høyde. Et usynlig bruddelement ville kostet en ekstra flex-linje,
+er nøyaktig to rader enten den har fire, fem eller seks knapper — en ny knapp
+koster ikke board-et høyde. Et usynlig bruddelement ville kostet en ekstra flex-linje,
 altså nettopp den høyden.
 
 Gruppen bryter til **flere rader** mot høyre kant når raden ikke rekker

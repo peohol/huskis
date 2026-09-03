@@ -133,6 +133,8 @@ verdi fra en separat `clamp()`.
 Kolonneformelen gir 1 av seg selv så smalt. Mobil-media-regelen (`max-width:
 560px`) setter derfor bare `--board-single-column: 1` — CSS-sidens svar på
 «er board-et i énkolonne-modus?», som `tests/dnd-layout-modes.test.js` leser for
-å vise at CSS og JS er enige om modus. Kortene (`width: 100%`, base-regelen)
+å vise at CSS og JS er enige om modus. Grensen må derfor følge JS-utregningen,
+og ikke slås sammen med toppmenyens stable-grense (620 px), som avhenger av noe
+helt annet — hvor bred hjørnegruppen er ([`menus.md`](menus.md)). Kortene (`width: 100%`, base-regelen)
 fyller hele den ene kolonnen → jevn luft på alle sider siden `--board-gap`
 uansett brukes konsekvent.

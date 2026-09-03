@@ -118,7 +118,7 @@
     <button class="corner-btn notif-btn" id="notif-btn" type="button"
             data-i18n-title="notif.title" data-i18n-aria-label="notif.title"
             aria-haspopup="dialog">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.8 16.4v-4.6a5.2 5.2 0 0 1 10.4 0v4.6z" fill="#ffffff"></path><path d="M4.8 16.4h14.4"></path><path d="M12 4.2v2.4"></path><path d="M10.2 19a2 2 0 0 0 3.6 0"></path></svg>
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.8 16.4v-4.6a5.2 5.2 0 0 1 10.4 0v4.6z" fill="#adad85"></path><path d="M4.8 16.4h14.4"></path><path d="M12 4.2v2.4"></path><path d="M10.2 19a2 2 0 0 0 3.6 0"></path></svg>
       <span class="menu-badge" id="notif-badge" hidden aria-hidden="true"></span>
     </button>
 
@@ -127,7 +127,7 @@
     <button class="corner-btn events-btn" id="events-btn" type="button"
             data-i18n-title="events.title" data-i18n-aria-label="events.title"
             aria-haspopup="dialog">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="#ffffff"></rect><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M3.5 9.5h17"></path></svg>
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="#ffffff" stroke="none"></rect><path d="M3.5 9.5V7.5a2.5 2.5 0 0 1 2.5-2.5h11a2.5 2.5 0 0 1 2.5 2.5V9.5Z" fill="#ad8585" stroke="none"></path><rect x="3.5" y="5" width="17" height="16" rx="2.5"></rect><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M3.5 9.5h17"></path></svg>
     </button>
 
     <!-- Søk: åpner søkemodalen (globalt søk over områder, mapper, lister,
@@ -135,7 +135,15 @@
     <button class="corner-btn search-btn" id="search-btn" type="button"
             data-i18n-title="search.title" data-i18n-aria-label="search.title"
             aria-haspopup="dialog">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="#ffffff"></circle><path d="M15.2 15.2 20 20"></path></svg>
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="#85adad"></circle><path d="M15.2 15.2 20 20"></path></svg>
+    </button>
+
+    <!-- Idéer: åpner idémodalen (kontoens egen hurtigblokk — den samme
+         listen uansett hvilket område/mappe man står i). Se docs/ideer.md. -->
+    <button class="corner-btn ideas-btn" id="ideas-btn" type="button"
+            data-i18n-title="ideas.title" data-i18n-aria-label="ideas.open"
+            aria-haspopup="dialog">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2a5.8 5.8 0 0 0-3.4 10.5c.5.36.8.95.8 1.57v.51h5.2v-.51c0-.62.3-1.21.8-1.57A5.8 5.8 0 0 0 12 3.2Z" fill="#adad85"></path><path d="M9.4 18.2h5.2"></path><path d="M10.6 20.8h2.8"></path></svg>
     </button>
 
     <!-- Draktknapp: ett trykk bytter lys ↔ mørk — ingen «følg systemet».
@@ -520,7 +528,7 @@
     <div class="modal search-modal" role="dialog" aria-modal="true" aria-labelledby="search-modal-title">
       <header class="modal-head">
         <h2 id="search-modal-title">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="#ffffff"></circle><path d="M15.2 15.2 20 20"></path></svg>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="#85adad"></circle><path d="M15.2 15.2 20 20"></path></svg>
           <span data-i18n="search.title">Søk</span>
         </h2>
         <button class="icon-btn" id="search-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
@@ -544,6 +552,48 @@
     </div>
   </div>
 
+  <!-- IDÉMODALEN: kontoens egne idéer og idékategorier (docs/ideer.md).
+       Innholdet er ikke knyttet til et område eller en mappe — den samme
+       listen vises uansett hvor man står. Kroppen er ETT kort uten hode, så
+       radene, kategoriene, skillelinjene og dra-og-slipp-motoren er nøyaktig de
+       samme som i en liste (`.items-container`, `.item`, `.category`). -->
+  <div class="modal-overlay" id="ideas-modal" hidden>
+    <div class="modal ideas-modal" role="dialog" aria-modal="true" aria-labelledby="ideas-modal-title">
+      <header class="modal-head">
+        <h2 id="ideas-modal-title">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2a5.8 5.8 0 0 0-3.4 10.5c.5.36.8.95.8 1.57v.51h5.2v-.51c0-.62.3-1.21.8-1.57A5.8 5.8 0 0 0 12 3.2Z" fill="#adad85"></path><path d="M9.4 18.2h5.2"></path><path d="M10.6 20.8h2.8"></path></svg>
+          <span data-i18n="ideas.title">Idéer</span>
+        </h2>
+        <button class="icon-btn" id="ideas-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+      </header>
+      <div class="modal-body ideas-body" id="ideas-body">
+        <!-- IKKE `.card`: et kort er en LISTE (eller et område i nav-modalen), og
+             den betydningen skal ikke utvannes — hverken for koden som teller
+             dem eller for et menneske som leser DOM-en. Idébeholderen har sin
+             egen klasse, og dra-motoren finner den gjennom `scope.contSelector`
+             (se ideaScope i app.js). Radene, kategoriene og hylla er fortsatt
+             nøyaktig listas. -->
+        <div class="ideas-card" id="ideas-card" data-id="__ideas__">
+          <ul class="items-container" id="ideas-list" data-dnd-container="__ideas__"></ul>
+          <!-- Tom-tilstanden er ren CSS (`.items-container:empty + …`): den kan
+               aldri komme i utakt med listen, heller ikke under et drag. -->
+          <p class="ideas-empty" data-i18n="ideas.empty">Ingen idéer ennå.</p>
+          <!-- Grønn idéknapp (ukategorisert idé) + gul kategoriknapp — samme
+               par som i en liste, men med pære i stedet for ＋. -->
+          <div class="add-item-row">
+            <button class="btn-add btn-solid btn-green icon-only add-idea-btn" id="add-idea-btn" type="button" data-i18n-title="add.idea" data-i18n-aria-label="add.idea"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2a5.8 5.8 0 0 0-3.4 10.5c.5.36.8.95.8 1.57v.51h5.2v-.51c0-.62.3-1.21.8-1.57A5.8 5.8 0 0 0 12 3.2Z" fill="#adad85"></path><path d="M9.4 18.2h5.2"></path><path d="M10.6 20.8h2.8"></path></svg></button>
+            <button class="btn-add btn-solid btn-yellow icon-only add-cat-btn" id="add-idea-cat-btn" type="button" data-i18n-title="add.ideaCat" data-i18n-aria-label="add.ideaCat"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H8.5"></path><circle cx="12.5" cy="8" r="0.8" fill="#111" stroke="none"></circle><path d="M15 8h4.5"></path><circle cx="12.5" cy="12" r="0.8" fill="#111" stroke="none"></circle><path d="M15 12h4.5"></path><circle cx="12.5" cy="16" r="0.8" fill="#111" stroke="none"></circle><path d="M15 16h4.5"></path></svg></button>
+            </div>
+          <!-- Idéenes egen søppelkasse. Bygges alltid, skjult når den er tom —
+               et drag skal kunne vise den fram som slippmål (armDragTrash). -->
+          <div class="item-trash idea-trash" id="idea-trash" hidden>
+            <button class="trashcan item-trash-btn idea-trash-btn" id="idea-trash-btn" type="button"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- «Kommende hendelser»: frister og starttider på tvers av hele tilstanden,
        gruppert og sortert av `collectUpcomingEvents()`. Innholdet bygges i JS
        (renderes på nytt mens modalen står åpen når tilstanden endrer seg), og
@@ -553,7 +603,7 @@
     <div class="modal events-modal" role="dialog" aria-modal="true" aria-labelledby="events-modal-title">
       <header class="modal-head">
         <h2 id="events-modal-title">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="#ffffff"></rect><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M3.5 9.5h17"></path></svg>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="#ffffff" stroke="none"></rect><path d="M3.5 9.5V7.5a2.5 2.5 0 0 1 2.5-2.5h11a2.5 2.5 0 0 1 2.5 2.5V9.5Z" fill="#ad8585" stroke="none"></path><rect x="3.5" y="5" width="17" height="16" rx="2.5"></rect><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M3.5 9.5h17"></path></svg>
           <span data-i18n="events.title">Kommende hendelser</span>
         </h2>
         <button class="icon-btn" id="events-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
@@ -586,7 +636,7 @@
         <button class="icon-btn notif-back-btn" id="notif-back" type="button" hidden
                 data-i18n-title="notif.backToList" data-i18n-aria-label="notif.backToList"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12H4.5"></path><path d="M11 5.5 4.5 12l6.5 6.5"></path></svg></button>
         <h2 id="notif-modal-title">
-          <span class="notif-title-icon" id="notif-title-bell" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.8 16.4v-4.6a5.2 5.2 0 0 1 10.4 0v4.6z" fill="#ffffff"></path><path d="M4.8 16.4h14.4"></path><path d="M12 4.2v2.4"></path><path d="M10.2 19a2 2 0 0 0 3.6 0"></path></svg></span>
+          <span class="notif-title-icon" id="notif-title-bell" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.8 16.4v-4.6a5.2 5.2 0 0 1 10.4 0v4.6z" fill="#adad85"></path><path d="M4.8 16.4h14.4"></path><path d="M12 4.2v2.4"></path><path d="M10.2 19a2 2 0 0 0 3.6 0"></path></svg></span>
           <span class="notif-title-icon" id="notif-title-gear" aria-hidden="true" hidden><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="6.3"></circle><circle cx="12" cy="12" r="2.4"></circle><path d="M12 2.7v2.3"></path><path d="M12 19v2.3"></path><path d="M21.3 12H19"></path><path d="M5 12H2.7"></path><path d="M18.6 5.4 17 7"></path><path d="M7 17l-1.6 1.6"></path><path d="M18.6 18.6 17 17"></path><path d="M7 7 5.4 5.4"></path></svg></span>
           <span id="notif-title-text" data-i18n="notif.title">Varsler</span>
         </h2>
@@ -767,6 +817,39 @@
              den alltid havner under det siste listepunktet. -->
         <li class="cat-add">
           <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" data-i18n-title="add.itemInCat" data-i18n-aria-label="add.itemInCat"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+        </li>
+      </ul>
+    </li>
+  </template>
+
+  <!-- Idérad: listepunktets rad uten avmerkingsboks og uten objektmeny. Den
+       ENESTE knappen en idé trenger er slett (docs/ideer.md); klikk på teksten
+       redigerer, klikk-og-dra løfter. -->
+  <template id="idea-row-template">
+    <li class="item idea-row">
+      <div class="item-main">
+        <span class="item-text idea-text" data-i18n-title="edit.clickToEdit"></span>
+      </div>
+      <button class="item-cog idea-del-btn" type="button" data-i18n-title="idea.delete" data-i18n-aria-label="idea.delete"></button>
+    </li>
+  </template>
+
+  <!-- Idékategori: listekategoriens rad, med oppløs som eneste knapp. -->
+  <template id="idea-cat-template">
+    <li class="category idea-cat">
+      <div class="cat-head">
+        <span class="cat-drag-icon" aria-hidden="true"></span>
+        <div class="cat-title-wrap">
+          <div class="title-line">
+            <h3 class="cat-title" data-i18n-title="edit.clickToRename"></h3>
+            <span class="collapse-count" aria-hidden="true" hidden></span>
+          </div>
+        </div>
+        <button class="cat-cog idea-dissolve-btn" type="button" data-i18n-title="ideaCat.dissolve" data-i18n-aria-label="ideaCat.dissolve"></button>
+      </div>
+      <ul class="cat-items">
+        <li class="cat-add">
+          <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" data-i18n-title="add.ideaInCat" data-i18n-aria-label="add.ideaInCat"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2a5.8 5.8 0 0 0-3.4 10.5c.5.36.8.95.8 1.57v.51h5.2v-.51c0-.62.3-1.21.8-1.57A5.8 5.8 0 0 0 12 3.2Z" fill="#adad85"></path><path d="M9.4 18.2h5.2"></path><path d="M10.6 20.8h2.8"></path></svg></button>
         </li>
       </ul>
     </li>

@@ -43,7 +43,8 @@ beskriver databasesiden.
 ## Datamodell
 
 Fire objekttabeller — `universes` > `groups` > `cards` (= «lister» i UI-et)
-> `items` — med `on delete cascade` nedover. Hver rad har:
+> `items` — med `on delete cascade` nedover. (`ideas` er en femte innholdstabell
+uten forelder; se «Flere tabeller hører til BRUKEREN» under.) Hver rad har:
 
 - `owner_id` — **oppretteren** (`created_by`). Uforanderlig (trigger-vakt), og
   gir **ingen** rettigheter. Kolonnenavnet er beholdt av migreringshensyn.
@@ -65,11 +66,20 @@ for et objekt to brukere har sammen:
 
 | Tabell | Hva den er | Klientvei |
 |---|---|---|
+| `ideas` | kontoens idéer og idékategorier ([`ideer.md`](ideer.md)) | RLS `owner_id = auth.uid()` |
 | `notifications` | varselhistorikken | RLS `user_id = auth.uid()` |
 | `notification_prefs` | de fire varselvalgene + generator-markøren | RLS `user_id = auth.uid()` |
 | `push_subscriptions` | ett abonnement per nettleserkontekst, med gjenkjennelig metadata | RLS på egne rader; skrives kun av RPC-ene |
 | `push_deliveries` | utboksen for web push | **låst** — ingen policy, ingen grant |
 | `device_sessions` | gjenkjennelig metadata om `auth.sessions` | **låst** — ingen policy, ingen grant |
+
+`ideas` skiller seg fra de andre her ved at den er INNHOLD: den er med i
+synk-doc-et, den har de samme to LWW-registrene som objekttabellene, og den har
+gravstein- og insert-vaktene deres. Det den ikke har, er et hierarki å arve
+tilgang fra — derfor står den her og ikke over. Skrivevakten
+(`ideas_before_update`) gjør bare det RLS ikke kan: holder registrene i orden
+og hindrer at oppretteren endres. `cat_id` peker på tabellens egen id
+(`on delete set null`, `deferrable initially deferred`).
 
 De to låste tabellene har ingen klientvei i det hele tatt: `push_deliveries`
 røres kun av senderens funksjoner (`service_role`), og `device_sessions` kun av
@@ -133,7 +143,7 @@ PostgREST — og ikke hva som «kunne vært nyttig»:
 
 | Tabell | `authenticated` | Hvem skriver ellers |
 |---|---|---|
-| `universes`, `groups`, `cards`, `items` | SELECT, INSERT, UPDATE, DELETE | rad-CRUD i synk-motoren |
+| `universes`, `groups`, `cards`, `items`, `ideas` | SELECT, INSERT, UPDATE, DELETE | rad-CRUD i synk-motoren |
 | `profiles` | SELECT, UPDATE(`display_name`, `avatar`) | e-posten speiles fra `auth.users` av triggerne |
 | `memberships` | SELECT, UPDATE | roller lages/slettes av RPC-ene og opprettelses-triggerne; UPDATE er kun den personlige `pos` |
 | `share_invites` | SELECT | alt går via `create`/`accept`/`decline`/`revoke_share_invite` |

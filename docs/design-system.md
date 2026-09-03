@@ -164,7 +164,10 @@ limes inn i).
 
 **Fargekart** (fyllene er hardkodet hex som speiler palettens seks første farger,
 HSL S=20 % L=60 %: farge 1–6 = `#ad8585 #adad85 #85ad85 #85adad #8585ad #ad85ad`;
-grå = `#c0c4c9`):
+grå = `#c0c4c9`). Ett fyll bruker palettens LYSE tone av samme farge (L=75, den
+andre verdien i det lyse L-settet — [`mork-drakt.md`](mork-drakt.md)): sol/måne
+= `#ccccb3` (farge 2 på L=75). Palettfyll står stille i begge drakter; kun
+`#ffffff`/`#c0c4c9`/`#111` snur:
 
 | Ikon | Fyll |
 |---|---|
@@ -174,7 +177,7 @@ grå = `#c0c4c9`):
 | Mappe | farge 2 (gulaktig mappefarge) |
 | Liste | hvit flate, svarte punkter/linjer |
 | Listepunkt (item) | hvit plate, svart punkt + linje — samme motiv som lista, én rad i stedet for tre |
-| Forstørrelsesglass (søk) | linsen hvit, skaftet kun strek |
+| Forstørrelsesglass (søk) | linsen farge 4 (lyseblå), skaftet kun strek |
 | Varseltrekant (alert) | trekanten hvit, utropstegnet svart |
 | Start/påbegynt (play) | urskive hvit, trekanten svart — bevisst IKKE en hake |
 | Øye (vis) | hornhinne hvit, pupill svart |
@@ -188,9 +191,12 @@ grå = `#c0c4c9`):
 | Oppløs (bubbleBurst) | ingen fyllflate — kun svarte streker |
 | Dør inn (login) | dørfeltet hvitt |
 | Hengelås | låst = farge 1, åpen = farge 3 |
-| Kalender/klokke | flate hvit |
+| Kalender (alle: starttid, frist, «Kommende hendelser», toppkontrollen) | hovedflaten hvit + det øverste feltet over topplinja rødt (farge 1) |
+| Klokke | flate hvit |
+| Bjelle (varsler: toppkontrollen og varselmodalens tittel) | klokkeflaten farge 2 (gull); kolv og kant kun strek |
+| Sol/måne (draktknappen) | skiven/halvmånen lysegul (`#ccccb3`) |
 | Hånd-opp (ansvarlig) | person farge 4 |
-| Lyspære (introduksjon, konto-modalen) | pæra farge 2, sokkelen kun streker |
+| Lyspære (introduksjon, konto-modalen, idéknappen) | pæra farge 2, sokkelen kun streker |
 
 Unntak som beholder `currentColor` (rene glyfer på massive fargeknapper):
 `.btn-glyph` (dør-ut på «Logg ut» og «Forlat», søppelkasse på «Slett konto» og
@@ -501,6 +507,16 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   Alle tittel-elementene bærer en `__rename`-hook (`setRenameHook`/`startRename`
   i app.js), slik at menyen, F2 og de programmatiske veiene (ny liste, nytt
   område, ny container etter et drag) åpner den SAMME navneredigereren.
+- **Flerlinjet redigering — kun der teksten faktisk er lang**: listepunkter og
+  idéer redigeres i et `<textarea>` som vokser med innholdet
+  (`editText(..., { multiline: true })` → `.edit-input-multi`); alle andre navn
+  beholder enlinjefeltet. Grunnen er lesbarhet, ikke pynt: et listepunkt bryter
+  gjerne over flere linjer i hvile, og et enlinjes felt rullet resten ut av syne
+  nettopp når man skulle lese den. Feltet arver IKKE skriftstørrelsen fra raden
+  (`.item-text` har sin egen brødtekst) — `editText` leser `font-size` og
+  `line-height` av elementet som byttes ut FØR det tas ut av dokumentet, så
+  feltet bryter på samme ord og raden ikke hopper i høyden. Teksten er fortsatt
+  én linje som DATA: Enter avslutter redigeringen, bryting er visuell.
 - **Listekollaps (rullgardin)**: klikk på korthodet (`.card-head`, ikke på
   menyknappen/meta-chip — tittelen kollapser også) folder `.card-body` sammen MOMENTANT (ingen
   animasjon — `collapseCardBody`/`expandCardBody` setter/fjerner bare høyde/opacity/

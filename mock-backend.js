@@ -63,6 +63,9 @@
       db = {
         profiles: [], passwords: {},
         universes: [], groups: [], cards: [], items: [],
+        // Idéene (docs/ideer.md): kontoens egne rader, uten forelder i
+        // hierarkiet — eierskapet er hele autorisasjonen.
+        ideas: [],
         memberships: [], share_invites: [], tombstones: [],
         notifications: [], notification_prefs: [],
         push_subscriptions: [], push_deliveries: [],
@@ -75,6 +78,9 @@
         native_notif_devices: [],
       };
     }
+    // En seedet eller eldre mock-database har ikke idé-tabellen; klienten leser
+    // den ved hver runde, så den må alltid finnes.
+    if (!Array.isArray(db.ideas)) db.ideas = [];
     return migrateRoles(db);
   }
   // Speiler rolle-backfillen i users-and-sharing.sql: en database fra FØR
@@ -889,6 +895,8 @@
     var myCards = db.cards.filter(function (c) { return myGroupIds[c.group_id]; });
     var myCardIds = {}; myCards.forEach(function (c) { myCardIds[c.id] = 1; });
     var myItems = db.items.filter(function (i) { return myCardIds[i.card_id]; });
+    // Idéer henger på KONTOEN, ikke på hierarkiet: ingen join, bare eierskap.
+    var myIdeas = (db.ideas || []).filter(function (d) { return d.owner_id === uid; });
 
     var email = emailOf(db, uid);
     var selfProf = db.profiles.find(function (x) { return x.id === uid; }) || {};
@@ -944,6 +952,14 @@
           trashed: !!i.trashed, done: !!i.done, responsible: i.responsible || null,
           start: i.start_at || null, due: i.due_at || null,
           ts: i.ts, org: i.org, pos: i.pos, posTs: i.pos_ts, posOrg: i.pos_org,
+        };
+      }),
+      ideas: myIdeas.map(function (d) {
+        return {
+          id: d.id, creator: d.owner_id, createdByMe: true, text: d.text,
+          cat: d.cat_id || null, isCat: !!d.is_cat, collapsed: !!d.collapsed,
+          trashed: !!d.trashed,
+          ts: d.ts, org: d.org, pos: d.pos, posTs: d.pos_ts, posOrg: d.pos_org,
         };
       }),
       invites_in: db.share_invites.filter(function (s) {
@@ -1192,7 +1208,7 @@
   // er nettopp den avvisningen som en gang låste synken i en usynlig
   // retry-løkke, så mocken må håndheve den for at testene skal være ekte.
   function catFkError(db, table, payload) {
-    if (table !== 'items' && table !== 'groups') return null;
+    if (table !== 'items' && table !== 'groups' && table !== 'ideas') return null;
     var cat = payload && payload.cat_id;
     if (!cat) return null;
     var rows = db[table] || [];
@@ -1200,7 +1216,7 @@
     return { code: '23503', message: 'insert or update on table "' + table +
       '" violates foreign key constraint "' + table + '_cat_id_fkey"' };
   }
-  var TYPE_OF_TABLE = { universes: 'universe', groups: 'group', cards: 'card', items: 'item' };
+  var TYPE_OF_TABLE = { universes: 'universe', groups: 'group', cards: 'card', items: 'item', ideas: 'idea' };
   // Speiler guard_object_insert: en gravlagt id kan ikke settes inn igjen.
   // Returneres som en feil (ikke et kast), med samme distinkte kode som
   // PostgREST gir for PT409, slik at klientens isTombstoneReject treffer.
@@ -1221,7 +1237,7 @@
     var rows = Array.isArray(payload) ? payload : [payload];
     // Objekt-tabellene har uuid-kolonner (som ekte Postgres): avvis ugyldige
     // id-er slik at klienten faktisk må generere UUID-er.
-    var OBJ = { universes: 1, groups: 1, cards: 1, items: 1 };
+    var OBJ = { universes: 1, groups: 1, cards: 1, items: 1, ideas: 1 };
     if (OBJ[table]) {
       for (var i = 0; i < rows.length; i++) {
         if (!UUID_RE.test(String(rows[i].id || ''))) {
@@ -1293,6 +1309,25 @@
         if (row.user_id !== uid) return;
         if ('role' in patch && patch.role !== row.role) throw new Error('roller endres kun via set_member_role()');
         if ('pos' in patch) row.pos = patch.pos;
+        return;
+      }
+      if (table === 'ideas') {
+        // Idéer deles aldri: RLS er `owner_id = auth.uid()`, og da står bare
+        // registrene igjen (ideas_before_update i users-and-sharing.sql).
+        if (row.owner_id !== uid) return;
+        if ('owner_id' in patch && patch.owner_id !== row.owner_id) throw new Error('owner_id (oppretter) kan ikke endres');
+        if (regNewer(patch.ts, patch.org, row.ts, row.org)) {
+          if ('text' in patch) row.text = patch.text;
+          if ('is_cat' in patch) row.is_cat = patch.is_cat;
+          if ('collapsed' in patch) row.collapsed = patch.collapsed;
+          if ('trashed' in patch) row.trashed = patch.trashed;
+          row.ts = patch.ts; row.org = patch.org;
+        }
+        if (regNewer(patch.pos_ts, patch.pos_org, row.pos_ts, row.pos_org)) {
+          if ('pos' in patch) row.pos = patch.pos;
+          if ('cat_id' in patch) row.cat_id = patch.cat_id;
+          row.pos_ts = patch.pos_ts; row.pos_org = patch.pos_org;
+        }
         return;
       }
       var type = table === 'universes' ? 'universe' : table === 'groups' ? 'group'
@@ -1380,6 +1415,18 @@
         return true;
       });
       db.push_deliveries = db.push_deliveries.filter(function (d) { return !vekk[d.subscription_id]; });
+      return;
+    }
+    // Idéer: mine egne, uten capability-oppslag. `cat_id`-en er `on delete set
+    // null` mot sin egen tabell — en oppløst kategori løsner medlemmene sine.
+    if (table === 'ideas') {
+      db.ideas = db.ideas.filter(function (row) {
+        if (!matches(row, filters)) return true;
+        if (row.owner_id !== uid) return true;
+        writeTombstone(db, 'idea', row.id);
+        db.ideas.forEach(function (d) { if (d.cat_id === row.id) d.cat_id = null; });
+        return false;
+      });
       return;
     }
     var type = table === 'universes' ? 'universe' : table === 'groups' ? 'group' : table === 'cards' ? 'card' : 'item';
@@ -1751,6 +1798,12 @@
           if (i.responsible === uid) { i.responsible = null; stamp(i); }
         });
         db.memberships = db.memberships.filter(function (m) { return m.user_id !== uid; });
+        // 4a. idéene er MINE ALENE — de deles aldri, så de skal bort, ikke arves.
+        db.ideas = db.ideas.filter(function (d) {
+          if (d.owner_id !== uid) return true;
+          writeTombstone(db, 'idea', d.id);
+          return false;
+        });
         // 4b. varselhistorikken, preferansene, push-abonnementene og utboksen —
         //     alt sammen mitt alene (som kaskaden i delete_account()).
         db.notifications = db.notifications.filter(function (n) { return n.user_id !== uid; });

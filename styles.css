@@ -1886,6 +1886,21 @@ body {
    annet fokusert element. */
 .edit-input:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 1px; }
 
+/* FLERLINJET redigering (listepunkter og idéer): feltet er et <textarea> som
+   vokser med teksten, slik at hele punktet kan LESES mens det redigeres — det
+   enlinjes feltet rullet resten ut av syne. Høyden settes av editText
+   (scrollHeight), så feltet må verken rulle eller kunne dras i:
+   `overflow: hidden` fjerner rullefeltet, `resize: none` håndtaket.
+   Skriftstørrelsen og linjehøyden settes av `editText` fra elementet som
+   byttes ut — de arves ikke fra raden, og et felt med en annen linjehøyde enn
+   teksten hadde ville brutt på et annet ord og hoppet i høyden. */
+.edit-input-multi {
+  display: block;
+  resize: none;
+  overflow: hidden;
+  min-height: 0;
+}
+
 /* Dialogflaten selv får fokus når en modal åpnes (se fokusfellen i app.js), slik
    at skjermleseren leser dialogens navn før innholdet. Den er ikke en kontroll
    man betjener, så den skal ikke BÆRE en fokusring — en ramme rundt hele
@@ -3151,29 +3166,46 @@ body.tour-demo .trash-row button:not(.tour-live) { opacity: 0.35; }
   height: 100%;
 }
 
-/* ---------------- Mobil ----------------
+/* ---------------- Smalt: stablet toppmeny, én kolonne, modal-popovere ----------------
    Samme toppmeny som desktop, men stablet i to rader; board-et endres til én
-   kolonne, og popover-skallet blir en sentrert modal. */
-@media (max-width: 560px) {
-  /* Kolonneantallet regnes ut i JS (`relayoutBoard`) og er uansett 1 så smalt —
-     her settes bare CSS-sidens flagg for den samme modusen. */
-  .board { --board-single-column: 1; }
+   kolonne, og popover-skallet blir en sentrert modal. De TO grensene er ulike
+   og skal være det — se under. */
 
-  /* Så smalt er det ikke plass til begge deler på én linje: listefunksjonene
-     legges på raden under. Panelet blir én kontrollhøyde høyere — det er byttet
-     mot at navnene ikke kappes bort. Telefonen i LANDSKAP er bredere enn dette
-     og beholder derfor én-linjes-panelet.
-     Klaringen holdes av BEGGE radene her: hjørnegruppen er også to rader så
-     smalt (drakt/konto over kalender/søk), og da ligger den ene gruppe-raden
-     ved siden av breadcrumben og den andre ved siden av listefunksjonene. Det
-     er nettopp derfor panelet slipper å skyves ned for gruppens andre rad —
-     se `--corner-btns-overflow` (syncTopChrome). */
+/* TOPPMENYEN STABLES FØR board-et gir opp den andre kolonnen (620 vs. 560).
+   De to grensene svarer på hver sin ting, og den ene fulgte den andre bare så
+   lenge tallene tilfeldigvis stemte:
+
+     • Board-ets grense (560) speiler hva `relayoutBoard` regner ut i JS. Den
+       må IKKE flyttes uten at utregningen flyttes med — flagget her er kun
+       CSS-sidens kopi av det samme svaret.
+     • Toppmenyens grense er ren plass på ÉN linje, og den avhenger av hvor
+       bred hjørnegruppen er. Gruppen har seks knapper (`docs/menus.md`), og
+       med den reserven (`--corner-btns-w`) tar breadcrumben, listefunksjonene
+       og gruppen mer enn 560 px til sammen: breadcrumben krympet til null og
+       listefunksjonene la seg OPPÅ den. En knapp til flytter grensen igjen —
+       tallet er en konsekvens av gruppens bredde, ikke et designvalg.
+
+   Under grensen legges listefunksjonene på raden under. Panelet blir én
+   kontrollhøyde høyere — det er byttet mot at navnene ikke kappes bort.
+   Telefonen i LANDSKAP er bredere enn dette og beholder derfor
+   én-linjes-panelet.
+   Klaringen holdes av BEGGE radene: er hjørnegruppen også to rader (under
+   560 px), ligger den ene gruppe-raden ved siden av breadcrumben og den andre
+   ved siden av listefunksjonene — og da slipper panelet å skyves ned for
+   gruppens andre rad (se `--corner-btns-overflow`, syncTopChrome). */
+@media (max-width: 620px) {
   .topbar { flex-direction: column; align-items: stretch; }
   .breadcrumb { padding-right: var(--corner-btns-w); }
   .toolbar { margin-right: var(--corner-btns-w); flex-wrap: wrap; }
 
-  /* Litt tettere breadcrumb så navnene får plass ved siden av kontoknappen. */
+  /* Litt tettere breadcrumb så navnene får plass ved siden av hjørnegruppen. */
   .crumb-btn { font-size: var(--fs-md); padding: 0 10px; gap: 6px; }
+}
+
+@media (max-width: 560px) {
+  /* Kolonneantallet regnes ut i JS (`relayoutBoard`) og er uansett 1 så smalt —
+     her settes bare CSS-sidens flagg for den samme modusen. */
+  .board { --board-single-column: 1; }
 
   /* Nav-modalens overskrift er lang (to nivåer med hvert sitt ikon) — mindre
      skrift så den får plass på én linje ved siden av lukkeknappen. */
@@ -3929,6 +3961,49 @@ body.no-auth .corner-controls { display: none; }
    en seksjonsoverskrift og gruppene under den — mens luften inne i en gruppe
    (8 px mellom radene) er en helt annen størrelsesorden. Da leses grupperingen
    uten en eneste strek; en skillelinje i tillegg ble bare støy. */
+/* ---------------- Idémodalen (docs/ideer.md) ----------------
+   Kroppen er ETT kort uten hode, så radene, kategoriene, skillelinjene og
+   dra-og-slipp-motoren er nøyaktig listas. Kortet skal likevel ikke LESE som
+   et kort inne i en modal: flaten er modalens egen, uten skygge og uten
+   palettfarge, så idéene ligger rett på arket. */
+.ideas-modal { min-height: min(320px, 100%); }
+.ideas-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+/* Idébeholderen er IKKE en `.card` (se index.html), men radene inni er listas,
+   og de leser de tre kortvariablene: `--card-bg` gir platene sin tone i mørk
+   drakt, `--card-accent` er kanten navnefeltet får. De settes derfor her, som
+   `.card` gjør for seg.
+
+   NØYTRAL flate, ingen palettfarge: idébeholderen er ikke en av kortene i
+   board-ets rekke, og en posisjonsfarge ville lovet en tilhørighet som ikke
+   finnes. Flaten må likevel være en TONE, ikke modalens egen hvite — radenes
+   plate er halvgjennomsiktig hvit, og på hvitt forsvinner den. */
+.ideas-card {
+  --card-bg: var(--surface-2);
+  --card-head: var(--surface-2);
+  --card-accent: var(--line);
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0;
+  border-radius: var(--radius);
+  background: var(--card-bg);
+}
+
+/* Tom-tilstand: ren CSS, slik at den ikke kan komme i utakt med listen —
+   heller ikke midt i et drag, der dnd-kits klone gjør listen «ikke tom». */
+.ideas-empty { display: none; margin: 0; font-size: var(--fs-sm); color: var(--ink-soft); font-weight: 500; }
+.items-container:empty + .ideas-empty { display: block; }
+
+/* Slett-knappen på en idé er den ENESTE knappen raden har. Den arver
+   `.item-cog` sin plass og berøringsflate; det eneste som skiller den er at
+   hover er rød (handlingen er destruktiv), ikke grønn. */
+.idea-del-btn:hover { color: var(--danger); }
+
 .events-body {
   flex: 1 1 auto;
   min-height: 0;

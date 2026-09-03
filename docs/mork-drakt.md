@@ -158,10 +158,12 @@ merker. Streken og «papiret» pinnes **sammen**: kalender- og klokkeikonene har
 en hvit flate under strekene, og med bare streken pinnet ville mørk strek møtt
 mørkt papir og ikonet blitt en ulesbar klatt.
 
-**De seks palettfyllene i ikonene** (globusens felter, mappene i logoen) står
-uendret i begge drakter. De er den lyse palettens første sett (S=20 %, L=60 %)
-og leser godt mot mørk flate; skiftet til den mørke rekka ville gjort ikonene
-grumsete uten å vinne noe.
+**Palettfyllene i ikonene** (globusens felter, mappene i logoen, bjellas gull,
+kalenderens røde topp, søkelinsa, sol/måne) står uendret i begge drakter. De er
+den lyse palettens sett (S=20 %, L=60 — sol/måne L=75) og leser godt mot mørk
+flate; skiftet til den mørke rekka ville gjort ikonene grumsete uten å vinne
+noe. Det gjelder også draktknappens eget ikon: skiven og halvmånen er lysegule
+i begge drakter, ikke «papir» som snur.
 
 ## Palettfargene: samme tone, speilet lyshet
 

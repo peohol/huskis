@@ -53,7 +53,7 @@ declare
   t text;
 begin
   foreach t in array array[
-    'profiles', 'universes', 'groups', 'cards', 'items',
+    'profiles', 'universes', 'groups', 'cards', 'items', 'ideas',
     'memberships', 'share_invites', 'tombstones',
     'notifications', 'notification_prefs',
     'push_subscriptions', 'push_deliveries', 'device_sessions',
@@ -103,6 +103,11 @@ begin
     'items:cat_id', 'items:is_cat', 'items:lock_times',
     'items:responsible', 'items:start_at', 'items:due_at',
     'items:ts', 'items:org', 'items:pos', 'items:pos_ts', 'items:pos_org',
+
+    -- Idéer (docs/ideer.md): kontoens egne rader, uten forelder i hierarkiet.
+    'ideas:id', 'ideas:owner_id', 'ideas:text', 'ideas:trashed',
+    'ideas:cat_id', 'ideas:is_cat', 'ideas:collapsed',
+    'ideas:ts', 'ideas:org', 'ideas:pos', 'ideas:pos_ts', 'ideas:pos_org',
 
     'memberships:id', 'memberships:user_id', 'memberships:universe_id',
     'memberships:group_id', 'memberships:role', 'memberships:pos',
@@ -184,7 +189,7 @@ declare
   t text; paa boolean;
 begin
   foreach t in array array[
-    'profiles', 'universes', 'groups', 'cards', 'items',
+    'profiles', 'universes', 'groups', 'cards', 'items', 'ideas',
     'memberships', 'share_invites', 'tombstones',
     'notifications', 'notification_prefs',
     'push_subscriptions', 'push_deliveries', 'device_sessions',
@@ -221,6 +226,8 @@ begin
     'cards:cards_update', 'cards:cards_delete',
     'items:items_select', 'items:items_insert',
     'items:items_update', 'items:items_delete',
+    'ideas:ideas_select', 'ideas:ideas_insert',
+    'ideas:ideas_update', 'ideas:ideas_delete',
     'memberships:memberships_select', 'memberships:memberships_update',
     'memberships:memberships_delete',
     'share_invites:share_invites_select', 'share_invites:share_invites_delete',
@@ -243,7 +250,7 @@ begin
     perform set_config('huskis.smoke_feil',
       current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
   else
-    raise notice '  ✓ alle 30 policyene finnes';
+    raise notice '  ✓ alle 34 policyene finnes';
   end if;
 end $$;
 
@@ -376,11 +383,12 @@ begin
   -- reglene håndheves ikke.
   foreach tg in array array[
     'universes:universes_guard', 'groups:groups_guard',
-    'cards:cards_guard', 'items:items_guard',
+    'cards:cards_guard', 'items:items_guard', 'ideas:ideas_guard',
     'universes:universes_tombstone', 'groups:groups_tombstone',
-    'cards:cards_tombstone', 'items:items_tombstone',
+    'cards:cards_tombstone', 'items:items_tombstone', 'ideas:ideas_tombstone',
     'universes:universes_insert_guard', 'groups:groups_insert_guard',
     'cards:cards_insert_guard', 'items:items_insert_guard',
+    'ideas:ideas_insert_guard',
     'universes:universes_owner_seed', 'groups:groups_owner_seed',
     'memberships:memberships_guard', 'memberships:memberships_last_owner_guard',
     'share_invites:on_share_invite_created'
@@ -408,7 +416,7 @@ declare
   feil text[] := '{}';
   t text;
 begin
-  foreach t in array array['universes', 'groups', 'cards', 'items'] loop
+  foreach t in array array['universes', 'groups', 'cards', 'items', 'ideas'] loop
     if not has_table_privilege('authenticated', 'public.' || t, 'SELECT, INSERT, UPDATE, DELETE') then
       feil := array_append(feil, 'authenticated mangler CRUD på public.' || t);
     end if;
@@ -520,7 +528,7 @@ begin
 
   -- anon skal ikke se noe som helst.
   foreach t in array array[
-    'profiles', 'universes', 'groups', 'cards', 'items',
+    'profiles', 'universes', 'groups', 'cards', 'items', 'ideas',
     'memberships', 'share_invites', 'tombstones',
     'notifications', 'notification_prefs', 'push_subscriptions', 'push_deliveries',
     'device_sessions', 'native_notif_devices'
@@ -552,7 +560,7 @@ begin
     return;
   end if;
   foreach t in array array[
-    'universes', 'groups', 'cards', 'items', 'memberships', 'share_invites'
+    'universes', 'groups', 'cards', 'items', 'ideas', 'memberships', 'share_invites'
   ] loop
     select count(*) into n from pg_publication_tables
      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t;
@@ -564,7 +572,7 @@ begin
     perform set_config('huskis.smoke_feil',
       current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
   else
-    raise notice '  ✓ alle seks tabellene er i supabase_realtime';
+    raise notice '  ✓ alle sju tabellene er i supabase_realtime';
   end if;
 end $$;
 

@@ -6,10 +6,11 @@
   begge testes her:
 
     • Toppmenyen står på ÉN linje der bredden rekker (desktop og telefon i
-      landskap) — breadcrumben og listefunksjonene deler linje. Under 560 px
-      (telefon i PORTRETT) legges listefunksjonene på raden under, slik at
-      navnene ikke kappes bort til ingenting. Grensen er den samme som
-      board-ets én-kolonne-grense (560/561 px).
+      landskap) — breadcrumben og listefunksjonene deler linje. Under 620 px
+      legges listefunksjonene på raden under, slik at navnene ikke kappes bort
+      til ingenting. Grensen er toppmenyens EGEN (620/621 px), ikke board-ets
+      én-kolonne-grense (560/561): den avhenger av hvor bred hjørnegruppen er,
+      og flytter seg når gruppen får en knapp til.
     • Demonstrasjonens kort holder seg INNENFOR viewportet uansett hvor lavt
       det er. Kortet er en flex-kolonne: teksten ruller, mens knapperaden blir
       stående — «Kom i gang» er eneste vei videre ut av velkomsten, og et kort
@@ -25,7 +26,9 @@
     4. Kappingen skjer på TEKSTEN, ikke på kortet: `.tour-body` ruller.
     5. Landskap: et tooltip-steg (pilspiss mot et mål) holder seg innenfor
        viewportet og dekker fortsatt ikke målet.
-    6. 561 px: én linje. 560 px og telefon i portrett: to rader, som før.
+    6. 621 px: én linje. 620 px og telefon i portrett: to rader. Og på
+       561 px — der grensen gikk før hjørnegruppen fikk sin sjette knapp —
+       skal listefunksjonene fortsatt IKKE ligge oppå breadcrumben.
 
   Kjør:
     python3 -m http.server 8000                       # fra repo-roten, i egen terminal
@@ -256,8 +259,10 @@ async function bredde(navn, vp, énLinje) {
 
 (async () => {
   await landskap();
-  await bredde('561 px', { width: 561, height: 600 }, true);
-  await bredde('560 px', { width: 560, height: 600 }, false);
+  await bredde('621 px', { width: 621, height: 600 }, true);
+  await bredde('620 px', { width: 620, height: 600 }, false);
+  // Den gamle grensen: her skal panelet være stablet, ikke overlappende.
+  await bredde('561 px', { width: 561, height: 600 }, false);
   await bredde('portrett', { width: 390, height: 780 }, false);
   const ok = results.filter(Boolean).length;
   console.log('\n==== ' + ok + '/' + results.length + ' PASS ====');

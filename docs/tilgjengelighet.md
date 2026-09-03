@@ -140,9 +140,9 @@ oppført i konto-modalens Tips-skuff (`.menu-keys`, se `docs/menus.md`).
 | Tast | Virkning |
 |---|---|
 | `Alt` + `↑` / `↓` (og `←` / `→`) | flytt objektet ett hakk — **sortering** |
-| `Alt` + `M` | «Flytt til …» — ny forelder |
-| `F2` | endre navn — på ALLE nivåer (klikk på navnet omdøper nå bare listepunkter og kategorier) |
-| `Enter` / `Mellomrom` | på et korthode: kollaps/utvid. På en mapperad: naviger. På et listepunkt: endre navn |
+| `Alt` + `M` | «Flytt til …» — ny forelder (for en idé: hvilken idékategori, [`ideer.md`](ideer.md)) |
+| `F2` | endre navn — på ALLE nivåer (klikk på navnet omdøper nå bare listepunkter, idéer og kategorier) |
+| `Enter` / `Mellomrom` | på et korthode: kollaps/utvid. På en mapperad: naviger. På et listepunkt eller en idé: endre navn |
 | `Escape` | lukk øverste modal — eller avbryt en navneendring |
 
 **Sortering = bytt plass.** `Alt`+pil bytter objektet med naboen, som er
