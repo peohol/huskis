@@ -2212,8 +2212,14 @@ body.is-dragging * { cursor: grabbing !important; }
 .nav-modal .modal-head h2 span { white-space: nowrap; }
 /* Område-søppelkassen står i modalens egen fot (se index.html) — sentrert som
    idé-modalens kontrollfelt (`.ideas-foot`), men uten dens stabling: her er
-   det bare den ene kassen. */
+   det bare den ene kassen. `.ideas-foot` har alltid de to ＋-knappene og
+   trenger derfor aldri skjules — nav-foten har KUN kassen, så er den tom
+   (det vanlige), skal hele foten kollapse, ikke bare stå igjen som en tom
+   stripe. `updateTrashBadge()` skjuler wrapperen, ikke foten selv (den vet
+   ingenting om at wrapperen sitter i en fot) — derfor følger foten etter med
+   `:has()`, samme mønster som `.update-banner`s skjulte notat lenger opp. */
 .nav-foot { justify-content: center; }
+.nav-foot:has(.item-trash[hidden]) { display: none; }
 /* Kolonnene lages av `relayoutBoard` (samme maskineri som hovedsidens board),
    men nav-scopet setter `singleColumn` → alltid ÉN `.board-col`. */
 .nav-board {

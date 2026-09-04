@@ -21,7 +21,9 @@
     9. Slipp i et LÅST område rulles tilbake (DB-guarden ville avvist det), og
        mappe-kassen følger ikke med inn i et område som ikke tar imot mappa.
    10. [område-/mappe-ikon][delt-ikon]Navn, og ingen lys innerkant på kortet.
-   11. Mappe-søppelkassen ligger i områdekortet; område-søppelkassen nederst.
+   11. Mappe-søppelkassen ligger i områdekortet; område-søppelkassen står i
+       modalens faste fot, og foten kollapser HELT (ikke bare kassen) når den
+       er tom.
 
   Kjør:
     python3 -m http.server 8000                  # fra repo-roten, i egen terminal
@@ -562,6 +564,15 @@ async function run(label, vp, mobile) {
   // områder), så søppel-sjekkene får sitt eget kjente utgangspunkt.
   await seed(p);
   await open(p);
+  // Fersk state — ingenting i område-søppelkassen ennå. Foten rundt den skal
+  // da kollapse HELT (ikke bare knappen inni), ellers står det igjen en tom
+  // stripe nederst i modalen hver eneste gang kassen er tom (det vanlige).
+  const emptyFoot = await p.evaluate(() => {
+    const foot = document.querySelector('.nav-foot');
+    return { display: getComputedStyle(foot).display, height: foot.getBoundingClientRect().height };
+  });
+  log(label + ' 11: den tomme fasit-foten kollapser helt, ikke bare kassen inni',
+    emptyFoot.display === 'none' && emptyFoot.height === 0, JSON.stringify(emptyFoot));
   await menuPick(p, '#nav-board .card[data-id="uni-A"] .item[data-id="g-a2"]', 'Slett mappen for alle');
   await p.waitForTimeout(650);
   const trash = await p.evaluate(() => ({
