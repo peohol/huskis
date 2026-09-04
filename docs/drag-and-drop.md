@@ -65,7 +65,8 @@ rot, fordi liste-søppelkassen og 📁-breadcrumben ligger i toppmenyen, utenfor
 scopet til `#board` selv, ellers ville nav-modalens kort havnet i det samme
 registeret — to board som registrerer det samme elementet kjemper om det.
 `boardRowBoard` har `board` som rot (element-kassene ligger inne i kortene), og
-nav-board-ene har modal-KROPPEN (område-kassen ligger utenfor `#nav-board`).
+nav-board-ene har HELE nav-modalen (område-kassen ligger i modalens egen fot,
+utenfor både `#nav-board` og modalens rullende kropp).
 
 **Dra-tilstandene males på `.dnd-surface`.** Hver dra-rot — nøyaktig de
 elementene `scope.root` peker på (`#board`, `#nav-board`, `#ideas-body`) — bærer
@@ -854,14 +855,17 @@ tilbake dit den kom fra FØR handlingen kalles — nøyaktig semantikken vi vil 
 ingen ny `pos` skrives, slettingen tar over. Treffsonen er knappen selv; sonen er
 en droppable, og dnd-kit måler dens egen boks.
 
-**Kassene som ligger i et KORT er radbrede mens draget står på** — listepunkt-
-kassen nederst i lista, mappe-kassen nederst i området. Knappen er ~48 px i
-hvile: den forsvinner under en fingertupp, og på berøring finnes ingen peker som
-viser hvor man egentlig sikter. Bare BREDDEN endres, så kortets høyde — og
-dermed `cardBand` og ekstraher-terskelen — står stille. De to andre kassene
-(topplinjas og nav-modalens bunnrad) deler rad med ＋-knappen og har ingen ledig
-bredde å ta av. `dnd-trash` sjekk 11 måler bredden og treffer ytterkanten av
-raden.
+**Kassene som har en HEL rad for seg selv er radbrede mens draget står på** —
+listepunkt-kassen nederst i lista, mappe-kassen nederst i området, OG
+område-kassen i nav-modalens faste fot (`.nav-foot .item-trash` i
+`styles.css` gir wrapperen full bredde, siden foten der ikke deler rad med
+noe ＋-knapp). Knappen er ~48 px i hvile: den forsvinner under en fingertupp,
+og på berøring finnes ingen peker som viser hvor man egentlig sikter. Bare
+BREDDEN endres, så høyden — kortets, eller nav-modalens fot — står stille, og
+for kortene betyr det at `cardBand` og ekstraher-terskelen står stille. Kun
+topplinjas liste-kasse er annerledes: den deler rad med ＋-knappen og har ingen
+ledig bredde å ta av. `dnd-trash` sjekk 11 måler bredden og treffer ytterkanten
+av raden (kortene) og feltet (nav-modalen).
 
 - **Kassen FØLGER objektet**: for et listepunkt/en mappe står den i containeren
   objektet er i NÅ (`retargetDragTrash` flytter `drag.trashHost` på hver

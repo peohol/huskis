@@ -2210,7 +2210,23 @@ body.is-dragging * { cursor: grabbing !important; }
    de to leddene, aldri midt i et ord. */
 .nav-modal .modal-head h2 { flex-wrap: wrap; }
 .nav-modal .modal-head h2 span { white-space: nowrap; }
-.nav-body { gap: 14px; }
+/* Område-søppelkassen står i modalens egen fot (se index.html) — sentrert som
+   idé-modalens kontrollfelt (`.ideas-foot`), men uten dens stabling: her er
+   det bare den ene kassen. `.ideas-foot` har alltid de to ＋-knappene og
+   trenger derfor aldri skjules — nav-foten har KUN kassen, så er den tom
+   (det vanlige), skal hele foten kollapse, ikke bare stå igjen som en tom
+   stripe. `updateTrashBadge()` skjuler wrapperen, ikke foten selv (den vet
+   ingenting om at wrapperen sitter i en fot) — derfor følger foten etter med
+   `:has()`, samme mønster som `.update-banner`s skjulte notat lenger opp.
+
+   `.item-trash` fyller hele fotens bredde (ingen ＋-knapp å dele rad med her,
+   i motsetning til topplinjas liste-kasse) — i hvile holder wrapperens egen
+   `justify-content: center` (se `.item-trash` lenger ned) knappen midtstilt
+   likevel, og under en DnD gir den fulle bredden `.item-trash .trashcan.
+   drag-trash` (samme regel som mappe-/listepunkt-kassene) noe å vokse inn i,
+   så kassen blir like lett å treffe her som i et kort. */
+.nav-foot .item-trash { flex: 1 1 auto; }
+.nav-foot:has(.item-trash[hidden]) { display: none; }
 /* Kolonnene lages av `relayoutBoard` (samme maskineri som hovedsidens board),
    men nav-scopet setter `singleColumn` → alltid ÉN `.board-col`. */
 .nav-board {
@@ -4780,14 +4796,16 @@ body.no-auth .corner-controls { display: none; }
    strekke seg over radbredden (rett under), og alle fire ved at de i det hele
    tatt DUKKER OPP — de er skjult når de er tomme. Siktemarkeringen er
    `.drop-target` lenger ned. */
-/* Kassene som ligger i et KORT — listepunkt-kassen nederst i lista, mappe-kassen
-   nederst i området — strekker seg over hele radbredden mens draget står på.
+/* Kassene som har en HEL rad for seg selv — listepunkt-kassen nederst i
+   lista, mappe-kassen nederst i området, OG område-kassen i nav-modalens
+   faste fot — strekker seg over hele radbredden mens draget står på.
    Grunnen er fingeren: knappen er ellers ~48 px bred, den forsvinner under
    tuppen, og på berøring finnes ingen peker som viser hvor man egentlig sikter.
-   Bare BREDDEN endres. Høyden står, altså står kortets boks, og
-   ekstraher-terskelen (`cardBand` = kortets egen kant) rører seg ikke.
-   De to andre kassene — topplinjas og nav-modalens bunnrad — deler rad med
-   ＋-knappen og har ingen ledig bredde å ta av. */
+   Bare BREDDEN endres. Høyden står — for kassene i et kort altså kortets boks,
+   og ekstraher-terskelen (`cardBand` = kortets egen kant) rører seg ikke.
+   Nav-modalens fot har ingen tilsvarende terskel å forstyrre.
+   Topplinjas liste-kasse er ANNERLEDES: den deler rad med ＋-knappen og har
+   ingen ledig bredde å ta av, så den forblir knapp-bred. */
 .item-trash .trashcan.drag-trash {
   flex: 1 1 auto;
   justify-content: center;

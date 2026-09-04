@@ -20,14 +20,17 @@
     8. En kasse som draget avdekket er tom, og viser derfor ingen «0»-teller —
        både der knappen selv var skjult og der wrapperen rundt den var det.
     9. Kassen blir stående i synsfeltet etter slettingen, så den kan tømmes med
-       én gang (nav-modalen scroller, og draget kollapser kortene underveis).
+       én gang. Område-kassen står i modalens FASTE fot og trenger ikke det —
+       den er alltid i syne, uansett hvor langt nav-modalen — som scroller, og
+       der draget kollapser kortene underveis — hadde rullet.
    10. Kassen slår EKSTRAHERINGEN: den ligger utenfor listas innholdssone, så
        raden er teknisk «utenfor alle lister» når man er framme ved den. Sikter
        man på kassen, lover ikke ny-liste-placeholderen noe, og et slipp i
        treffsonen sletter i stedet for å lage en ny liste.
-   11. Kassen i et KORT er radbred mens draget står på — den skal treffes med en
-       finger, ikke med en musepeker — og treffer man ytterkanten av raden, er
-       det fortsatt kassen man sikter på.
+   11. Kassen i et KORT — og område-kassen i nav-modalens faste fot — er
+       rad-/fot-bred mens draget står på — den skal treffes med en finger,
+       ikke med en musepeker — og treffer man ytterkanten av raden, er det
+       fortsatt kassen man sikter på.
    12. Kassen FØLGER objektet: drar man en rad til en annen container, flytter
        kassen seg dit — én om gangen — og et slipp i den NYE verten sletter
        raden i dens EGEN container. Forlater raden alle containere, blir kassen
@@ -154,6 +157,16 @@ async function dragOnto(p, fromSel, targetSel, opts = {}) {
       vask: rgb ? rgb.slice(1, 4).map(Number) : null,
       opacity: cs ? cs.opacity : null };
   }, targetSel);
+  // Bredden mens draget står på (punkt 11: kassen skal vokse for å bli et
+  // lettere touch-mål) — målt mot en gitt rammeselektor (kortet/modalen
+  // kassen bor i), samme sted som `aiming`: pekeren står på målet, FØR slippet.
+  const width = opts.widthFrameSel ? await p.evaluate(({ s, c }) => {
+    const btn = document.querySelector(s), frame = document.querySelector(c);
+    if (!btn || !frame) return null;
+    const r = btn.getBoundingClientRect(), fr = frame.getBoundingClientRect();
+    return { kasse: Math.round(r.width), ramme: Math.round(fr.width),
+      innenfor: r.left >= fr.left - 1 && r.right <= fr.right + 1 };
+  }, { s: targetSel, c: opts.widthFrameSel }) : null;
   if (opts.shot) await p.screenshot({ path: opts.shot });
   if (opts.abortAway) {
     // Slipp langt unna kassen i stedet — ingenting skal slettes.
@@ -162,7 +175,7 @@ async function dragOnto(p, fromSel, targetSel, opts = {}) {
   }
   await p.mouse.up();
   await p.waitForTimeout(800);
-  return { armed, aiming };
+  return { armed, aiming, width };
 }
 
 async function run(label, viewport) {
@@ -277,11 +290,18 @@ async function run(label, viewport) {
         !document.querySelector('#nav-board .item[data-id="G2"]');
     }));
 
-  const uni = await dragOnto(p, '#nav-board .card[data-id="UNI2"] .card-head', '#uni-trash-btn');
+  const uni = await dragOnto(p, '#nav-board .card[data-id="UNI2"] .card-head', '#uni-trash-btn',
+    { widthFrameSel: '.nav-modal' });
   log(label + ' 1: område-kassen nederst i modalen dukket opp under draget',
     uni.armed.synlig === true && uni.armed.armert === true, JSON.stringify(uni.armed));
   log(label + ' 8: den avdekkede område-kassen viser ingen «0»-teller',
     uni.armed.tellerSkjult === true, JSON.stringify(uni.armed));
+  // Modalens fot har ingen ＋-knapp å dele rad med (i motsetning til
+  // topplinjas liste-kasse), så kassen vokser til fot-bredden — samme
+  // regel som mappe-/listepunkt-kassene i et kort (punkt 11).
+  log(label + ' 11: den armerte område-kassen er fot-bred (og holder seg innenfor modalen)',
+    !!uni.width && uni.width.kasse >= uni.width.ramme - 60 && uni.width.innenfor === true,
+    JSON.stringify(uni.width));
   log(label + ' 2: området havnet i kassen',
     await p.evaluate(() => {
       const u = window.__huskis.state.universes.find((x) => x.id === 'UNI2');
@@ -311,9 +331,10 @@ async function run(label, viewport) {
     frozenArmed === 0, 'armerte kasser=' + frozenArmed);
 
   /* ---------- 9) Kassen blir stående i synsfeltet etter slettingen ----------
-     Nok områder til at nav-modalen scroller. Står man NEDERST (der kassen er)
-     og drar det siste området i den, skal man fortsatt se kassen etterpå —
-     ellers må man scrolle ned igjen for å tømme den. */
+     Nok områder til at nav-modalen scroller. Kassen står i modalens FASTE fot
+     (utenfor `#nav-modal-body`), så uansett hvor man har scrollet — her helt
+     NEDERST i lista, verst tenkelige start — og hvor mye draget kollapser
+     kortene underveis, skal kassen stå i ro innenfor MODALEN etterpå. */
   await p.evaluate(() => {
     const H = window.__huskis, st = H.state;
     st.universes = Array.from({ length: 12 }, (_, i) => ({
@@ -329,9 +350,10 @@ async function run(label, viewport) {
   await p.waitForTimeout(200);
   await dragOnto(p, '#nav-board .card[data-id="S11"] .card-head', '#uni-trash-btn');
   const kasseSyn = await p.evaluate(() => {
-    const b = document.getElementById('nav-modal-body'), t = document.getElementById('uni-trash-btn');
-    if (!b || !t || t.hidden) return { synlig: false, grunn: 'kassen mangler/er skjult' };
-    const r = t.getBoundingClientRect(), br = b.getBoundingClientRect();
+    const t = document.getElementById('uni-trash-btn');
+    if (!t || t.closest('[hidden]')) return { synlig: false, grunn: 'kassen mangler/er skjult' };
+    const modal = t.closest('.modal');
+    const r = t.getBoundingClientRect(), br = modal.getBoundingClientRect();
     return { synlig: r.top >= br.top - 1 && r.bottom <= br.bottom + 1,
       topp: Math.round(r.top), bunn: Math.round(r.bottom), boks: Math.round(br.bottom) };
   });
