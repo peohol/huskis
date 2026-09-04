@@ -15,7 +15,8 @@
      måles er det som faktisk STÅR MALT under draget — og at rotasjonen settes
      som en EGEN `rotate`-egenskap: dnd-kit skriver `transform` selv, med
      `!important`, så en rotasjon lagt der ville forsvunnet uten at noe annet
-     feilet.
+     feilet. Nav-modalens to nivåer måles motsatt: der er draget låst til én
+     akse, og da males det UTEN rotasjon (`dnd-vertical-axis`).
   7. To hvile-regler må vike for det LØFTEDE objektet, og de sier det med
      dnd-kits krok — ikke med en klasse:
        a) MØRK drakt gir et hvilende listepunkt en svak inset-kant
@@ -299,13 +300,16 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
     const gIds = await p.evaluate((sel) => [...document.querySelectorAll(sel + ' .items-container > .item')].map((g) => g.dataset.id), uSel);
     const g0 = await centerOf(p, uSel + ' .item[data-id="' + gIds[0] + '"]');
     await G.lift(p, { x: g0.x, y: g0.y }, true);
-    // Til venstre, så dra-rotasjonen (og dermed rotate/scale-suffikset) ikke blir 0.
     await G.touchMove(p, g0.x - 90, g0.y + 30); await p.waitForTimeout(120);
     const gPaint = await paintOf(p, '#nav-board [data-dnd-dragging]');
     log('6 mappe: løftes med skala 1.03',
       !!gPaint && gPaint.scale === '1.03', JSON.stringify(gPaint));
-    log('6 mappe: rotasjonen er en EGEN `rotate`-egenskap, ikke en `transform`',
-      !!gPaint && /^-?[\d.]+deg$/.test(gPaint.rotate), JSON.stringify(gPaint));
+    /* … men UTEN rotasjon. Nav-modalen har alltid én kolonne, og et drag som er
+       låst til den loddrette aksen står stille i x — en vinkel som fulgte den
+       ville svingt av en intensjon ingen ser (`dnd-vertical-axis`). Bevegelsen
+       over går 90 px til venstre nettopp for at en rotasjon SKULLE slått ut. */
+    log('6 mappe: males UTEN rotasjon (draget er låst til én akse)',
+      !!gPaint && gPaint.rotate === '', JSON.stringify(gPaint));
     log('6 mappe: flaten er halvgjennomsiktig med bakgrunnsslør, teksten i full styrke',
       !!gPaint && gPaint.alfa > 0.3 && gPaint.alfa < 0.9 &&
       gPaint.opacity === '1' && /blur\(2px\)/.test(gPaint.slor), JSON.stringify(gPaint));
@@ -334,6 +338,8 @@ const log = (n, ok, x = '') => { results.push(ok); console.log((ok ? 'PASS' : 'F
       !!uPaint && uPaint.scale === '1.02', JSON.stringify(uPaint));
     log('6 område: løftes i top layer (dnd-kits `position: fixed`)',
       !!uPaint && uPaint.position === 'fixed', JSON.stringify(uPaint));
+    log('6 område: males UTEN rotasjon (draget er låst til én akse)',
+      !!uPaint && uPaint.rotate === '', JSON.stringify(uPaint));
     log('6 område: flaten er halvgjennomsiktig med bakgrunnsslør, teksten i full styrke',
       !!uPaint && uPaint.alfa > 0.3 && uPaint.alfa < 0.9 &&
       uPaint.opacity === '1' && /blur\(2px\)/.test(uPaint.slor), JSON.stringify(uPaint));

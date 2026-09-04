@@ -83,14 +83,14 @@ ikke et linjeskift), akkurat som i enlinjefeltet. Bryting er visuell.
 ## Dra-og-slipp
 
 Gesten og politikken er delt med de andre nivåene
-([`drag-and-drop.md`](drag-and-drop.md)); to ting er idémodalens egne:
+([`drag-and-drop.md`](drag-and-drop.md)); to ting er verdt å merke seg:
 
-- **Draget er låst til den vertikale aksen.** Lista er én smal kolonne uten et
-  eneste vannrett slippmål, så en vannrett komponent kunne bare bomme
-  (`Smett.RestrictToVerticalAxis` i `ensureIdeaRowBoard`). Modifikatorene
-  erstatter Smetts standardliste, så viewport-klemma (`SafeViewport`) skrives ut
-  igjen sammen med låsen.
-- **Kassen er ikke et slippmål.** Se under.
+- **Draget er låst til den vertikale aksen, og males uten rotasjon.** Lista er én
+  smal kolonne uten et eneste vannrett slippmål, så en vannrett komponent kunne
+  bare bomme. Låsen er den delte (`dndLockAxis`, «Én akse» i
+  [`drag-and-drop.md`](drag-and-drop.md)) — den slår inn av seg selv fordi
+  idéscopet er `singleColumn`.
+- **Kassen er ikke et slippmål.** Se under. Dette er idémodalens eget.
 
 ## Søppelkassen
 
