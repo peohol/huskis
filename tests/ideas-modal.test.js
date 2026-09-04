@@ -292,10 +292,9 @@ async function run(label, viewport, touch) {
   log(label + ': draget avdekker IKKE idé-kassen (den er ikke et slippmål)',
     await p.$eval('#idea-trash', (el) => el.hidden));
   /* Løftet objektet skal ikke følge pekeren sidelengs — lista er én kolonne.
-     SENTERET måles, ikke venstrekanten: objektet bærer en dynamisk rotasjon
-     under draget (`dndPaintRotation`), og en rotert boks har en aksejustert
-     `left` som vandrer et par piksler. Senteret står stille gjennom både
-     rotasjonen og løfte-skaleringen. */
+     SENTERET måles, ikke venstrekanten: løfte-skaleringen flytter kantene, men
+     ikke senteret. (Den dynamiske rotasjonen er av her — den hører til
+     flerkolonnevisningen, se `dnd-vertical-axis.test.js`.) */
   const senterX = () => p.$eval('#ideas-list [data-dnd-dragging]',
     (el) => { const r = el.getBoundingClientRect(); return Math.round((r.left + r.right) / 2); });
   const xFørSide = await senterX();

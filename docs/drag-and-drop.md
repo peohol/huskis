@@ -46,10 +46,9 @@ om selektoren, `S.contSelector` (`.card` i de to andre, `.ideas-card` her), i
 stedet for å anta `.card`. Ekstrahering finnes ikke der (det er ingenting å
 ekstrahere TIL), og det eneste et slipp kan bety er ny plass i rekka, inn i
 eller ut av en kategori. **Ingen sletting**: idémodalen har ingen `zoneSelector`,
-og kassen der er bare veien tilbake (`ideer.md`). **Og bare én akse**: lista er
-én smal kolonne uten et eneste vannrett slippmål, så idé-boardet setter
-`Smett.RestrictToVerticalAxis` — sammen med `SafeViewport`, som ellers ville
-falt bort (modifikatorlisten erstattes, den utvides ikke).
+og kassen der er bare veien tilbake (`ideer.md`). Og **bare én akse**, som
+nav-modalen: lista er én smal kolonne uten et eneste vannrett slippmål (se
+«Én akse» under).
 
 **Ett board per hierarkinivå, hver med sin egen manager.** dnd-kit stempler
 `pointerdown` med sensoren som tok den, så det INNERSTE board-et vinner et delt
@@ -308,6 +307,17 @@ I nav-modalen (`navCollapseCardsForDrag`) er regnestykket det samme, men grunnen
 en annen: modalen er loddrett sentrert og re-sentrerer når innholdet blir
 kortere, så kortet ville løsnet fra fingeren med opptil ~100 px. Board-høyden
 fryses (modalen re-sentrerer da ikke) og kompenseres med `padding-top`.
+
+**Og kollapsen er bare den ene halvdelen der.** Område-kassen ligger i modalens
+egen fot og er skjult når den er tom, så et drag som avdekker den gjør HELE
+modalen høyere — og en sentrert modal flytter da innholdet oppover. MÅLT: kortet
+hoppet 37 px opp under fingeren i det draget startet. Kompensasjonen
+(`navHoldGrab`) måles derfor ETTER `armDragTrash`, ikke bare etter kollapsen, og
+gjelder både kort- og raddrag. For et raddrag er board-høyden ikke frosset, så
+padding-en gjør board-et høyere og den sentrerte modalen gir halvparten tilbake;
+målingen gjentas derfor til gapet er lukket (tak: tre runder).
+`dnd-nav-engine` sjekk 11 er vakten, og den må kjøre mens modalen er KORTERE enn
+sin maks-høyde: en full modal ruller kroppen i stedet, og skiftet finnes ikke.
 
 `boardReleaseBoard` / `navReleaseBoard` (kalt fra `onCommit`/`onZoneDrop`/
 `dragend` MOMENTANT rett etter `restoreCardsAfterDrag`) fjerner `min-height` +
@@ -1122,30 +1132,42 @@ som «veier» et korthode. Hvilehøyden måles rett før kollapsen
 gangen den er å se. `board-columns` sjekk 9 følger selve flukten: den skal gå mot
 hvileplassen hele veien, og ende der.
 
-To ting må vente til klonen faktisk er borte (`boardRelayoutAfterDrop`):
+To ting må vente til klonen faktisk er borte (`dndAfterCloneGone`, som
+`boardRelayoutAfterDrop` og `navScrollAfterDrop` deler):
 
-- **Scroll til den slupne lista.** Klonen holder plassen med den KOLLAPSEDE
-  boksen, så dokumentet er kortere enn det blir — og scrollen klemmes mot nettopp
-  dokumenthøyden. `scrollDroppedIntoView` kjøres derfor én frame etter at klonen
-  er fjernet, og slår opp lista på ID: en synk-runde kan ha rendret board-et i
+- **Scroll til det slupne kortet.** Klonen holder plassen med den KOLLAPSEDE
+  boksen, så innholdet er kortere enn det blir — og scrollen klemmes mot nettopp
+  den høyden. `scrollDroppedIntoView` kjøres derfor én frame etter at klonen er
+  fjernet, og slår opp kortet på ID: en synk-runde kan ha rendret board-et i
   mellomtiden, og en frakoblet node måler 0 (scrollen ville da sendt siden til
   toppen).
 - **Bunn-luften og en siste synk.** `fixBoardBottomGap` måler kortenes bokser, og
   slettingen («dra lista i kassen») kan ha rendret board-et mens dnd-kit ennå
-  avsluttet draget.
+  avsluttet draget. Kun på hovedsiden; nav-modalen har verken kolonnefordeling
+  eller bunn-luft å rette opp.
 
-**Scrollen er så lite påtrengende som mulig.** Det trygge området er mellom
-toppmenyen (+ board-gapet) og den BRUKBARE bunnen (viewportbunnen −
-`--safe-bottom` − gapet; gestelinjen dekker de nederste pikslene, og er 0 i en
-nettleser — [`design-system.md`](design-system.md)). Ligger lista allerede HELT
-innenfor det, er funksjonen en **no-op** — en liste som var synlig hele tiden skal
-ikke rykke rundt bare fordi den ble omrokkert. Ellers scrolles den KORTEST MULIGE
-avstanden inn i området, men aldri så langt at toppen forsvinner bak toppmenyen.
-`behavior: 'smooth'`, `'auto'` ved `prefers-reduced-motion`. Sloten måles på
-KLONEN — det løftede kortet ligger i top layer og har ingen plass i flyten å måle.
-Hoppes over når lista slippes på nav-knappen eller i kassen (begge er soner og går
-aldri gjennom `onCommit`). Kun i `boardScope` — nav-modalen har ingen
-window-scroll å justere.
+**Scrollen er så lite påtrengende som mulig.** Ligger kortet allerede HELT
+innenfor det trygge området, er funksjonen en **no-op** — et kort som var synlig
+hele tiden skal ikke rykke rundt bare fordi det ble omrokkert. Ellers scrolles det
+KORTEST MULIGE avstanden inn i området, men aldri så langt at toppen forsvinner
+over kanten. `behavior: 'smooth'`, `'auto'` ved `prefers-reduced-motion`.
+Hvileboksen leses uten transform (`layoutRect`): en FLIP-tween kan fortsatt være i
+lufta, og den malte plassen er da ikke den kortet lander på. Hoppes over når kortet
+slippes på nav-knappen eller i kassen (begge er soner og går aldri gjennom
+`onCommit`).
+
+**Scrolleren er scopets egen**, samme deling som `anchorScroller` gjør under selve
+draget:
+
+| Scope | Scroller | Trygt område |
+|---|---|---|
+| `boardScope` | vinduet | toppmenyen (+ board-gapet) → viewportbunnen − `--safe-bottom` − gapet (gestelinjen dekker de nederste pikslene, og er 0 i en nettleser — [`design-system.md`](design-system.md)) |
+| `navScope` | `#nav-modal-body` | modalkroppens egen boks, minus gapet i hver ende |
+
+Nav-modalen trenger den mest: draget kollapser ALLE områdekortene, og slippet
+folder dem ut igjen — et kort som lander under noen høye kort havner da langt
+under folden. Uten scrollen forsvant området man nettopp flyttet ut av syne
+(`dnd-nav-engine` sjekk 10).
 
 ## Et avbrutt drag er ikke et slipp
 
@@ -1168,6 +1190,43 @@ seg fullføre (f.eks. ekstrahering uten en aktiv mappe): den setter
 ryddes av dnd-kit. En node som alt er ute av dokumentet settes IKKE inn igjen —
 DOM-en har gått videre uten den, og en re-innsetting ville gitt et
 spøkelses-duplikat ved siden av de ferske nodene.
+
+## Én akse: når draget låses loddrett
+
+En vannrett komponent i draget har bare mening når det finnes noe vannrett å
+sikte på — en **nabokolonne**. Finnes den ikke, kan sidelengs bevegelse bare
+bomme: fingeren som glir litt på en telefon drar objektet ut av kolonnen uten at
+det betyr noe.
+
+Låsen spør derfor det SAMME regnestykket som layouten fordeler kortene etter
+(`boardColumnCount`), og gjelder alle fem nivåene:
+
+| Board | Låst? |
+|---|---|
+| `navCardBoard`, `navRowBoard` | alltid — nav-modalen er `singleColumn` |
+| `ideaRowBoard` | alltid — idémodalen er `singleColumn` |
+| `boardCardBoard`, `boardRowBoard` | når board-et FAKTISK står i én kolonne |
+
+Grensen er altså kolonnetallet, ikke skjermbredden og ikke pekertypen: en bred
+skjerm som likevel bare får plass til én kolonne er låst
+(`dnd-vertical-axis` sjekk 3).
+
+**Avgjørelsen tas ÉN gang per drag**, i `beforedragstart` (`dndLockAxis` →
+`drag.oneAxis`) — før dnd-kit har malt en eneste frame. Selve nullingen av x
+gjør en modifikator som leser det flagget, og alle fem board-ene får den samme
+listen (`dndModifiers`, installert av `dndTuneManager`). Listen ERSTATTER Smetts
+standardliste, så viewport-klemma må skrives ut igjen der; rekkefølgen er
+virksom — klemma først, akselåsen sist.
+
+**Låsen er MALINGEN, ikke politikken.** Smetts `intentRectangle` er regnet ut av
+`position.delta`, som ingen modifikator rører: `draggedRect()` og `drag.lastX`
+beskriver derfor fortsatt fingeren, og 1/3-tersklene, kolonnevalget og sonene
+svarer nøyaktig som før. Det er bare objektet som står stille sidelengs.
+
+**Rotasjonen følger låsen.** Den leser objektets vannrette posisjon, og den
+finnes ikke når x er nullet — vinkelen ville svingt av en intensjon ingen ser.
+`dndPaintRotation` er derfor en no-op når `drag.oneAxis` står, og `rotate` blir
+aldri satt (se under).
 
 ## Viewport-klemmen og rotasjonen
 
@@ -1194,10 +1253,11 @@ grepet er det ikke. `dnd-viewport-clamp` regner derfor rotasjons-slarken inn i s
 egen toleranse, og måler den ut fra objektets faktiske `rotate`.
 
 **Rotasjonen er dynamisk** (`cardRotation()`, ±5° ut fra horisontal posisjon: −5°
-inntil venstre kant, +5° inntil høyre) og gjelder ALLE objekt-typene. Den settes
-fra JS som en EGEN `rotate`-egenskap, aldri via `transform`: geometrien er
-dnd-kits og skrives med `!important` (`position`, `top`, `left`, `width`,
-`height`, `transform`, `translate`). Skalaen ligger i CSS av samme grunn.
+inntil venstre kant, +5° inntil høyre) og gjelder ALLE objekt-typene — men bare
+der draget faktisk KAN gå sidelengs (se «Én akse» over). Den settes fra JS som en
+EGEN `rotate`-egenskap, aldri via `transform`: geometrien er dnd-kits og skrives
+med `!important` (`position`, `top`, `left`, `width`, `height`, `transform`,
+`translate`). Skalaen ligger i CSS av samme grunn.
 
 **Og en regel uten virkning er ingen regel.** `.dnd-surface [data-dnd-placeholder] {
 rotate: none }` gjorde ingenting — klonen bærer rotasjonen som en INLINE-stil, og
@@ -1255,7 +1315,10 @@ bare et annet state-tre (`navScope`). Det som er verdt å merke seg:
 - **Alltid én kolonne**: `navScope.singleColumn` gjør at `relayoutBoard` lager
   nøyaktig én `.board-col` (samme kolonnemaskineri som hovedsiden, se
   [`board-layout.md`](board-layout.md)), så kort-draget aldri møter
-  flerkolonne-logikken.
+  flerkolonne-logikken. Draget er dermed alltid låst til den loddrette aksen, og
+  males uten rotasjon (se «Én akse» over).
+- **Scrollen etter slippet ruller MODALKROPPEN**, ikke vinduet
+  (`navScrollAfterDrop`). Se «Etterarbeidet ved slippet».
 - **En mappe som bytter område går gjennom `move_group`-RPC-en**
   (`commitGroupMove`) — databasen avviser en direkte skriving av
   `groups.universe_id`. Flyttingen vises optimistisk lokalt og holdes i

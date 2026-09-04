@@ -34,6 +34,12 @@
        nytt mens dnd-kit ennå avslutter draget, og da lar bibliotekets egen
        DOM-overvåking ombyggingen passere: uten en `sync()` etterpå står
        registeret igjen med de gamle kortene, og neste løft finner ingenting.
+   10. Det slupne OMRÅDET holdes i sikte. Draget kollapser alle kortene og
+       slippet folder dem ut igjen, så et kort som lander under noen høye kort
+       havner under folden — og modalen ruller sin EGEN kropp, ikke vinduet.
+   11. Grepet holder gjennom løftet. Kollapsen er bare den ene halvdelen:
+       område-kassen dukker opp i modalens fot og gjør modalen høyere, og en
+       sentrert modal flytter da innholdet oppover under fingeren.
 
   Kjør:
     python3 -m http.server 8000                         # fra repo-roten, i egen terminal
@@ -138,6 +144,46 @@ async function run(label, viewport, mobile) {
   await addUniverses(p, 1);
   await addGroups(p, 3);
   await openNav(p);
+
+  /* ---------- 11) Grepet holder gjennom løftet ----------
+     Løftet gjør to ting med layouten samtidig: alle områdekortene kollapser, OG
+     område-kassen dukker opp i modalens egen fot. Kassen gjør hele modalen
+     høyere, og en loddrett sentrert modal flytter da innholdet oppover — kortet
+     hoppet 37 px opp under fingeren i det draget startet. `navHoldGrab` måler
+     skiftet etter BEGGE deler og legger det tilbake som padding.
+
+     Avstanden fra pekeren til kortets øvre kant måles før løftet og under
+     draget: er de like, ligger kortet fortsatt der man tok tak i det.
+
+     Kjøres FØRST, mens modalen fortsatt er kortere enn sin maks-høyde: det er
+     bare da den er loddrett sentrert og kan re-sentrere. En full modal ruller
+     kroppen i stedet, og skiftet finnes ikke. */
+  const grepId = (await uniCards(p))[0];
+  const grepSel = '#nav-board .card[data-id="' + grepId + '"]';
+  const grepAt = await G.centre(p, grepSel + ' .card-head');
+  const grepFør = await p.evaluate((s2) =>
+    document.querySelector(s2).getBoundingClientRect().top, grepSel);
+  const grepLøft = await G.lift(p, grepAt, touch);
+  // Én bevegelse til etter løftet, NEDOVER: et musedrag aktiveres av
+  // terskelbevegelsen, og den flyttingen er ikke malt ennå idet draget starter.
+  const grepTil = { x: grepLøft.x, y: grepLøft.y + 40 };
+  if (touch) await G.touchMove(p, grepTil.x, grepTil.y);
+  else await p.mouse.move(grepTil.x, grepTil.y, { steps: 3 });
+  await p.waitForTimeout(160);
+  const grepUnder = await p.evaluate(() =>
+    document.querySelector('#nav-board [data-dnd-dragging]').getBoundingClientRect().top);
+  const grep = { før: grepAt.y - grepFør, under: grepTil.y - grepUnder };
+  log(label + ' 11: grepet holder gjennom løftet (kollaps + kassen i modalfoten)',
+    Math.abs(grep.under - grep.før) <= 2,
+    'før=' + grep.før.toFixed(1) + ' under=' + grep.under.toFixed(1));
+  if (touch) await G.touchCancel(p); else { await p.keyboard.press('Escape'); await p.mouse.up(); }
+  await p.waitForFunction(() => !document.querySelector('[data-dnd-dragging]'), null, { timeout: 5000 });
+  await p.waitForTimeout(300);
+  // Escape lukker øverste lag: avbruddet over kan ha tatt modalen med seg.
+  await p.evaluate(() => {
+    if (document.getElementById('nav-modal').hidden) window.__huskis.openNavModal();
+  });
+  await p.waitForTimeout(400);
 
   /* ---------- 1) Motorens egne kroker ---------- */
   const rows = await groupRows(p);
@@ -342,6 +388,61 @@ async function run(label, viewport, mobile) {
   }, { gid: rows[1], uid: cards[1] });
   log(label + ' 8: mappen landet i det peek-åpnede området, og det ble stående åpent',
     landed.uni === cards[1] && landed.collapsed === false, JSON.stringify(landed));
+
+  /* ---------- 10) Etter slippet er området I SIKTE ----------
+     Draget kollapser alle områdekortene, og slippet folder dem ut igjen. Et kort
+     som lander UNDER noen høye kort havner dermed langt under folden i modalens
+     rullende kropp — man slipper området, og det forsvinner ut av syne.
+     Hovedsiden har alltid holdt den slupne LISTA i sikte; nav-modalen ruller sin
+     EGEN kropp, ikke vinduet, og gjorde det ikke.
+
+     Kortene gjøres høye med mapper skrevet rett i `state`: det er geometrien som
+     er påstanden her, ikke opprettelsesflyten. */
+  await closeNav(p);
+  await p.evaluate(() => {
+    const H = window.__huskis;
+    H.state.universes.forEach((u, ui) => {
+      u.collapsed = false;
+      for (let i = 0; i < 6; i++) {
+        u.groups.push({
+          id: 'fyll-' + ui + '-' + i, uni: u.id, name: 'Fyllmappe ' + i,
+          trashed: false, cat: null, isCat: false, collapsed: false,
+          _type: 'group', _role: 'owner', _createdByMe: true,
+          ts: 0, org: 't', pos: 100 + i, posTs: 0, posOrg: 't', cards: [],
+        });
+      }
+    });
+    H.render();
+  });
+  await openNav(p);
+  await p.evaluate(() => { document.getElementById('nav-modal-body').scrollTop = 0; });
+  await p.waitForTimeout(250);
+  const høye = await uniCards(p);
+  const slupt = høye[0];
+  await G.lift(p, await G.centre(p, '#nav-board .card[data-id="' + slupt + '"] .card-head'), touch);
+  // Kortdraget kollapser alle områdene, så målsloten måles ETTER løftet.
+  await G.travel(p, () => G.centre(p, '#nav-board .card[data-id="' + høye[høye.length - 1] + '"]'), touch);
+  await G.drop(p, undefined, touch);
+  // Fast venting: klonen skal være borte OG den myke scrollen ferdig — begge
+  // deler er animasjonsfysikk, ikke en tilstand appen melder fra om.
+  await p.waitForTimeout(1400);
+  const sikt = await p.evaluate((id) => {
+    const body = document.getElementById('nav-modal-body');
+    const el = document.querySelector('#nav-board .card[data-id="' + id + '"]');
+    if (!el) return null;
+    const b = body.getBoundingClientRect(), r = el.getBoundingClientRect();
+    return {
+      rullbart: Math.round(body.scrollHeight - body.clientHeight),
+      scrollTop: Math.round(body.scrollTop),
+      // Hvor kortets topp ligger i forhold til det synlige feltet i modalen.
+      overKanten: Math.round(r.top - b.top),
+      underKanten: Math.round(r.top - b.bottom),
+    };
+  }, slupt);
+  log(label + ' 10: modalen har noe å rulle (ellers beviser målingen ingenting)',
+    !!sikt && sikt.rullbart > 40, JSON.stringify(sikt));
+  log(label + ' 10: det slupne området står i sikte i modalkroppen etter slippet',
+    !!sikt && sikt.overKanten >= -1 && sikt.underKanten <= 0, JSON.stringify(sikt));
 
   /* ---------- 7) En LÅST mappe kan ikke løftes ---------- */
   // Låsen settes på OMRÅDET, og gjelder da mappene i det: en eier omgår enhver

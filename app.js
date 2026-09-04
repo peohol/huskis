@@ -4282,6 +4282,58 @@
 
   const drag = { active: false };
 
+  /* ------- ÉN AKSE: draget låst loddrett -------
+     En vannrett komponent i draget har bare mening når det FINNES noe vannrett
+     å sikte på — en NABOKOLONNE. Nav-modalen og idémodalen har alltid nøyaktig
+     én kolonne, og hovedsidens board har det på smale skjermer. Da kan
+     sidelengs bevegelse bare bomme: fingeren som glir litt på en telefon drar
+     objektet ut av kolonnen uten at det betyr noe.
+
+     Låsen spør det SAMME regnestykket som layouten fordeler kortene etter
+     (`boardColumnCount`), så den kan ikke komme i utakt med det man ser — og
+     den avgjøres ÉN gang per drag, i `beforedragstart`, før dnd-kit har malt en
+     eneste frame. `drag.oneAxis` leses derfra av både modifikatoren og
+     rotasjonen. DELT av alle fem nivåene. */
+  function dndLockAxis() {
+    drag.oneAxis = boardColumnCount(dragScope()) <= 1;
+  }
+
+  /* Modifikatoren dnd-kit spør hver frame. Den nuller x når draget er låst —
+     samme virkning som `Smett.RestrictToVerticalAxis`, men avgjort av Huskis'
+     eget kolonnetall i stedet for å være bakt inn i board-et da det ble
+     opprettet. Alle fem nivåene får derfor den SAMME modifikatorlisten.
+     Klassen lages først når den trengs: `Smett` er en global fra et eget
+     skript, og board-ene selv sjekker at den finnes før de bygges. */
+  let DndAxisLock = null;
+  function dndModifiers() {
+    if (!DndAxisLock) {
+      DndAxisLock = class extends Smett.Modifier {
+        apply(op) { return drag.oneAxis ? Object.assign({}, op.transform, { x: 0 }) : op.transform; }
+      };
+    }
+    /* Listen ERSTATTER Smetts standardliste, så viewport-klemma må skrives ut
+       igjen her — den er det `safeInsets` mates inn i, og uten den kan det
+       løftede objektet havne under en systemflate. Rekkefølgen er virksom:
+       klemma først, akselåsen sist (den nuller x til slutt). */
+    return [Smett.SafeViewport.configure({ insets: safeInsets }), DndAxisLock];
+  }
+
+  /* Det hvert board gjør likt med dnd-kits egne lag. DELT av alle fem nivåene.
+
+     To av dnd-kits plugins maler noe Huskis allerede maler selv, og de gjør det
+     ved å INJISERE et stilark under draget: `Cursor` (`* { cursor: grabbing }`)
+     og `PreventSelection` (`* { user-select: none }`). Vi har begge fra før, på
+     `body.is-dragging` — og hvert injiserte ark er en inline-stil som
+     `style-src` må slippe gjennom med en egen sjekksum. Å melde dem av er
+     derfor både mindre duplisering og én færre hash i policyen. Den ENE som
+     blir igjen er `Feedback`s, og den er uunnværlig: den er hele
+     posisjoneringen av det løftede objektet (`docs/sikkerhetsheadere.md`). */
+  function dndTuneManager(b) {
+    b.manager.registry.plugins.unregister(Smett.Cursor);
+    b.manager.registry.plugins.unregister(Smett.PreventSelection);
+    b.manager.modifiers = dndModifiers();
+  }
+
   // Layout-boks uten evt. pågående FLIP-transform, så treffdeteksjon er stabil
   // selv mens kort animerer på plass.
   function layoutRect(el) {
@@ -5109,34 +5161,71 @@
     showToast(tr('move.movedTo', { name: quoted(c.title), dest: quoted(dest.name) }));
   }
 
-  // Etter et fullført liste-drag: sørg for at den slupne lista er synlig — men så
-  // lite påtrengende som mulig. Ligger den allerede komfortabelt i det trygge
-  // området (mellom toppmenyen og viewportbunnen), gjør vi INGENTING; ellers
-  // scroller vi den KORTEST MULIGE avstanden inn i det området i stedet for alltid
-  // å toppjustere den. En liste som var synlig hele tiden skal ikke rykke rundt
-  // bare fordi den ble omrokkert. `cardDocTop`/`cardH` = dokument-Y og høyde for
-  // kortets hvileposisjon (målt FØR fly-inn-transformen).
-  function scrollDroppedIntoView(cardDocTop, cardH) {
-    const topbarH = topbarEl.getBoundingClientRect().height;
-    const gap = parseFloat(getComputedStyle(board).columnGap) || 16;
-    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-    const safeTop = topbarH + gap;   // øverste synlige linje (rett under toppmenyen)
-    // Nederste synlige linje: gestelinjen dekker de nederste pikslene, så
-    // viewportbunnen alene ville latt kortet ligge delvis under den.
-    const safeBottom = vh - safeInsets().bottom - gap;
-    const y = window.scrollY;
-    const top = cardDocTop - y;      // kortets viewport-Y akkurat nå
-    let target = y;
-    if (top < safeTop) target = cardDocTop - safeTop;                 // ligger (delvis) bak toppmenyen
-    else if (top + cardH > safeBottom) {
-      // Stikker under viewportbunnen: scroll ned akkurat nok — men aldri så langt
-      // at toppen forsvinner bak toppmenyen (høye lister prioriterer toppen).
-      target = y + Math.min(top + cardH - safeBottom, top - safeTop);
+  /* Etter et fullført KORT-drag: sørg for at det slupne kortet er synlig — men
+     så lite påtrengende som mulig. Ligger det allerede komfortabelt i det trygge
+     området, gjør vi INGENTING; ellers scroller vi den KORTEST MULIGE avstanden
+     inn i det området i stedet for alltid å toppjustere. Et kort som var synlig
+     hele tiden skal ikke rykke rundt bare fordi det ble omrokkert.
+
+     DELT av de to kortnivåene, som har hver sin SCROLLER: hovedsidens board
+     ruller vinduet, og nav-modalens kort ruller modalkroppen (`navModalBody`).
+     Det er den samme delingen `anchorScroller` gjør under selve draget — uten
+     den scrollet et område-drag vinduet, som ikke har noe å gi, og kortet ble
+     liggende utenfor modalens synlige felt.
+
+     Det trygge området er scrollerens egen boks; for vinduet er det viewporten
+     minus toppmenyen og gestelinjen. Kortets boks leses UTEN transform
+     (`layoutRect`): en FLIP-tween kan fortsatt være i lufta rett etter slippet,
+     og den malte plassen er da ikke den kortet lander på. */
+  function scrollDroppedIntoView(el, scroller) {
+    if (!el || !el.isConnected) return;
+    const gap = boardGap(boardRootOf(el));
+    const r = layoutRect(el);
+    let safeTop, safeBottom, pos, maxScroll;
+    if (scroller) {
+      const s = scroller.getBoundingClientRect();
+      safeTop = s.top + gap;
+      safeBottom = s.bottom - gap;
+      pos = scroller.scrollTop;
+      maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    } else {
+      const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+      safeTop = topbarEl.getBoundingClientRect().height + gap;
+      // Gestelinjen dekker de nederste pikslene, så viewportbunnen alene ville
+      // latt kortet ligge delvis under den.
+      safeBottom = vh - safeInsets().bottom - gap;
+      pos = window.scrollY;
+      maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
     }
-    const maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
-    target = Math.max(0, Math.min(target, maxScroll));
-    if (Math.abs(target - y) < 1) return; // allerede komfortabelt synlig → ikke rør viewporten
-    window.scrollTo({ top: target, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    let flytt = 0;
+    if (r.top < safeTop) flytt = r.top - safeTop;              // ligger (delvis) over kanten
+    // Stikker under: scroll ned akkurat nok — men aldri så langt at toppen
+    // forsvinner over kanten (høye kort prioriterer toppen).
+    else if (r.bottom > safeBottom) flytt = Math.min(r.bottom - safeBottom, r.top - safeTop);
+    if (!flytt) return;
+    const target = Math.max(0, Math.min(pos + flytt, maxScroll));
+    if (Math.abs(target - pos) < 1) return;   // allerede komfortabelt synlig
+    const opts = { top: target, behavior: prefersReducedMotion() ? 'auto' : 'smooth' };
+    if (scroller) scroller.scrollTo(opts); else window.scrollTo(opts);
+  }
+
+  /* Etterarbeidet etter et slipp må vente til KLONEN ER BORTE: fram til da
+     holder den plassen med det løftede kortets KOLLAPSEDE boks, mens kortet som
+     lander der er foldet ut igjen — innholdet er altså kortere enn det blir, og
+     et regnestykke på høyder ville stoppet for tidlig. 120 frames er et
+     sikkerhetsnett, ikke en forventning: drop-animasjonen er ferdig lenge før,
+     og en fane i bakgrunnen skal ikke bli hengende. DELT av de to
+     kortnivåene. */
+  function dndAfterCloneGone(root, fn) {
+    let frames = 0;
+    const tick = () => {
+      if (root.querySelector('[data-dnd-placeholder]') && ++frames < 120) {
+        requestAnimationFrame(tick);
+        return;
+      }
+      fn();
+    };
+    requestAnimationFrame(tick);
   }
 
   // Fargene er posisjonsbaserte (colorForIndex): en omrokkering endrer alle
@@ -6696,17 +6785,7 @@
   }
 
   function navWire(board) {
-    /* To av dnd-kits plugins maler noe Huskis allerede maler selv, og de gjør
-       det ved å INJISERE et stilark under draget: `Cursor` (`* { cursor:
-       grabbing }`) og `PreventSelection` (`* { user-select: none }`). Vi har
-       begge fra før, på `body.is-dragging` — og hvert injiserte ark er en
-       inline-stil som `style-src` må slippe gjennom med en egen sjekksum.
-       Å melde dem av er derfor både mindre duplisering og én færre hash i
-       policyen. Den ENE som blir igjen er `Feedback`s, og den er uunnværlig:
-       den er hele posisjoneringen av det løftede objektet
-       (`docs/sikkerhetsheadere.md`). */
-    board.manager.registry.plugins.unregister(Smett.Cursor);
-    board.manager.registry.plugins.unregister(Smett.PreventSelection);
+    dndTuneManager(board);
     const monitor = board.manager.monitor;
     // `beforedragstart` er den ENESTE kroken som kjører før dnd-kit måler det
     // løftede objektet, og målingen skjer én gang (`shape.initial`, som Smetts
@@ -6779,6 +6858,10 @@
     // Nettleserens scroll-anchoring ville ellers rykket modalen brått når
     // kortene kollapser. `finishDrag` slipper den igjen.
     document.documentElement.style.overflowAnchor = 'none';
+    // Grepets referanse: der objektet lå da fingeren tok tak. ALT som skjer ved
+    // løft flytter layouten under den, og kompensasjonen legges tilbake til
+    // slutt — etter kassen, som er den siste som endrer noe.
+    const top0 = el.getBoundingClientRect().top;
     if (kind === 'card') {
       navCollapseCardsForDrag(el);
       navTuneColumnCollision();
@@ -6786,8 +6869,10 @@
       if (kind === 'category') dndCollapseCategory(el);
       dndTuneRowCollisions(navRowBoard);
     }
-    dndNoteLiftedBox(el);       // etter kollapsen: boksen dnd-kit straks måler
     armDragTrash();             // kassen for NIVÅET, avdekket for draget
+    navHoldGrab(el, top0);
+    dndNoteLiftedBox(el);       // etter kollapsen: boksen dnd-kit straks måler
+    dndLockAxis();              // nav-modalen har alltid én kolonne
   }
 
   function navDragStart(board) {
@@ -6838,8 +6923,12 @@
   // Rotasjonen er dynamisk (±5° etter horisontal posisjon) og må derfor settes
   // fra JS. Som EGEN egenskap (`rotate`), aldri `transform`: den skriver dnd-kit
   // selv, med `!important`. Skalaen ligger i CSS av samme grunn. DELT.
+  //
+  // Den hører til FLERKOLONNEVISNINGEN. Er draget låst loddrett (`dndLockAxis`),
+  // står objektet stille i x mens intensjonen (`draggedRect`) fortsatt glir
+  // sidelengs — vinkelen ville da svingt uten at noe beveget seg.
   function dndPaintRotation() {
-    if (!drag.el) return;
+    if (!drag.el || drag.oneAxis) return;
     drag.el.style.rotate = cardRotation().toFixed(2) + 'deg';
   }
 
@@ -6873,11 +6962,30 @@
     dndRowTargetCont = null;
     dndPeekPending = null;
     navSourceCardId = null;
-    if (!drag.active) return;
+    if (!drag.active) { navDroppedCardId = null; return; }
     if (drag.kind === 'category' && drag.el && drag.el.isConnected) dndSettleCategory(drag.el);
     if (drag.kind === 'card') { restoreCardsAfterDrag(); navReleaseBoard(); }
     dndNoteCanceled(event);
     finishDrag();
+    navScrollAfterDrop();
+  }
+
+  /* Etterarbeidet etter et OMRÅDE-drag: hold det slupne kortet synlig, nøyaktig
+     som hovedsiden gjør for en liste (`boardRelayoutAfterDrop`). Kolonnen
+     fordeles ikke på nytt her — nav-modalen har alltid én — så det eneste som
+     står igjen er scrollen, og den ruller MODALKROPPEN. */
+  let navDroppedCardId = null;
+  function navScrollAfterDrop() {
+    const id = navDroppedCardId;
+    navDroppedCardId = null;
+    if (!id || !navModalBody) return;
+    dndAfterCloneGone(navBoard, () => {
+      // ÉN frame til: klonen ble nettopp fjernet, og både kortets egen boks og
+      // modalkroppens scrollhøyde er først ferdige etter den layout-runden.
+      requestAnimationFrame(() => {
+        scrollDroppedIntoView(navBoard.querySelector('.card[data-id="' + id + '"]'), navModalBody);
+      });
+    });
   }
 
   /* ------- Kollaps ved løft -------
@@ -6892,25 +7000,45 @@
      fordi kortene OVER krymper, og fordi nav-modalen er loddrett sentrert og
      dermed re-sentrerer når innholdet blir kortere.
 
-     Derfor fryses board-høyden (modalen re-sentrerer da ikke) og
-     kompenseres med padding-top for kortene over — samme regnestykke som
-     `boardCollapseCardsForDrag` gjør for hovedsidens board, av en annen grunn.
-     Board-et er `box-sizing: border-box`, så padding-en spiser av innholdet og
-     totalhøyden står stille. `card.collapsed` er urørt, så
+     Derfor fryses board-høyden her (modalen re-sentrerer da ikke), og selve
+     kompensasjonen ligger i `navHoldGrab` — den måles etter ALT som flytter
+     layouten ved løft, ikke bare etter kollapsen. `card.collapsed` er urørt, så
      `restoreCardsAfterDrag()` folder alt tilbake til lagret tilstand. */
   let navBoardFrozen = false;
   function navCollapseCardsForDrag(draggedEl) {
-    const basePad = parseFloat(getComputedStyle(navBoard).paddingTop) || 0;
     const before = navBoard.getBoundingClientRect().height;
-    const top0 = draggedEl.getBoundingClientRect().top;
     draggedEl.style.height = '';
     navBoard.style.height = before + 'px';
     navBoardFrozen = true;
     navBoard.querySelectorAll('.card').forEach((cEl) => {
       if (!cEl.classList.contains('collapsed')) collapseCardBody(cEl);
     });
-    const shift = top0 - draggedEl.getBoundingClientRect().top;
-    if (shift > 0) navBoard.style.paddingTop = (basePad + shift) + 'px';
+  }
+  /* Kompensasjonen: legg tilbake det layouten flyttet seg mellom `pointerdown`
+     og målingen, så kortet blir liggende under fingeren.
+
+     Kollapsen er bare den ene halvdelen. Den andre er SØPPELKASSEN: område-
+     kassen ligger i modalens egen fot og er skjult når den er tom, så et drag
+     som avdekker den gjør HELE MODALEN høyere — og en loddrett sentrert modal
+     flytter da innholdet oppover. MÅLT: kortet hoppet 37 px opp under fingeren i
+     det draget startet. Derfor måles skiftet ETTER `armDragTrash`, ikke bare
+     etter kollapsen.
+
+     For et KORTDRAG er board-høyden frosset og board-et `box-sizing: border-box`,
+     så padding-en spiser av innholdet uten å gjøre modalen høyere igjen. */
+  function navHoldGrab(el, top0) {
+    // Tre runder, ikke én: for et RADDRAG er board-høyden ikke frosset, så
+    // padding-en gjør board-et høyere — og en sentrert modal gir da halvparten
+    // av skiftet tilbake. Hver runde måler på nytt og lukker det som står igjen;
+    // taket er et sikkerhetsnett, ikke en forventning.
+    for (let i = 0; i < 3; i++) {
+      const shift = top0 - el.getBoundingClientRect().top;
+      // Bare NEDOVER: et negativt skift ville dratt objektet vekk fra fingeren
+      // den andre veien.
+      if (shift <= 0.5) return;
+      const pad = parseFloat(getComputedStyle(navBoard).paddingTop) || 0;
+      navBoard.style.paddingTop = (pad + shift) + 'px';
+    }
   }
   function navReleaseBoard() {
     if (!navBoardFrozen) return;
@@ -7019,6 +7147,9 @@
     // det løftede kortet skal fly, og layouten må være ferdig da.
     restoreCardsAfterDrag();
     navReleaseBoard();
+    // Scroll-til-slupt hører til ETTERarbeidet (`navScrollAfterDrop`): klonen
+    // holder fortsatt plassen med den kollapsede boksen.
+    navDroppedCardId = el.dataset.id;
   }
 
   function navCommitRow() {
@@ -7405,11 +7536,7 @@
   }
 
   function boardWire(b) {
-    // Samme avmelding som i nav-scopet: `Cursor` og `PreventSelection` maler noe
-    // Huskis allerede maler fra `body.is-dragging`, og hvert injiserte stilark
-    // koster en egen sjekksum i `style-src` (`docs/sikkerhetsheadere.md`).
-    b.manager.registry.plugins.unregister(Smett.Cursor);
-    b.manager.registry.plugins.unregister(Smett.PreventSelection);
+    dndTuneManager(b);
     const monitor = b.manager.monitor;
     // `beforedragstart` er den ENESTE kroken som kjører før dnd-kit måler det
     // løftede kortet, og målingen skjer én gang. Kollapsen av alle lister må
@@ -7451,6 +7578,7 @@
     boardCollapseCardsForDrag(el);
     boardTuneColumnCollisions();
     dndNoteLiftedBox(el);       // etter kollapsen: boksen dnd-kit straks måler
+    dndLockAxis();              // én kolonne (smal skjerm) = ingen vannrett vei
     armDragTrash();             // liste-kassen, avdekket for draget
   }
 
@@ -7536,14 +7664,7 @@
      kjørt av `boardCommitCard`; runden her fanger veiene som ikke går gjennom
      den (avbrudd, slipp i en sone) og korthøyder som endret seg underveis. */
   function boardRelayoutAfterDrop() {
-    let frames = 0;
-    const tick = () => {
-      // 120 frames er et sikkerhetsnett, ikke en forventning: drop-animasjonen
-      // er ferdig lenge før, og en fane i bakgrunnen skal ikke bli hengende.
-      if (board.querySelector('[data-dnd-placeholder]') && ++frames < 120) {
-        requestAnimationFrame(tick);
-        return;
-      }
+    dndAfterCloneGone(board, () => {
       boardLiftedRow = null;
       boardLiftedRowH = 0;
       relayoutBoard(boardScope);
@@ -7558,15 +7679,10 @@
       const droppedId = boardDroppedCardId;
       boardDroppedCardId = null;
       requestAnimationFrame(() => {
-        const el = droppedId && board.querySelector('.card[data-id="' + droppedId + '"]');
-        if (el) {
-          const r = el.getBoundingClientRect();
-          scrollDroppedIntoView(r.top + window.scrollY, r.height);
-        }
+        if (droppedId) scrollDroppedIntoView(board.querySelector('.card[data-id="' + droppedId + '"]'), null);
         boardSyncBoards();
       });
-    };
-    requestAnimationFrame(tick);
+    });
   }
 
   /* ------- Sonene: søppelkassen og 📁-breadcrumben -------
@@ -7798,12 +7914,7 @@
   }
 
   function boardRowWire(b) {
-    // Samme avmelding som i de to andre board-ene: `Cursor` og
-    // `PreventSelection` maler noe Huskis allerede maler fra `body.is-dragging`,
-    // og hvert injiserte stilark koster en egen sjekksum i `style-src`
-    // (`docs/sikkerhetsheadere.md`).
-    b.manager.registry.plugins.unregister(Smett.Cursor);
-    b.manager.registry.plugins.unregister(Smett.PreventSelection);
+    dndTuneManager(b);
     const monitor = b.manager.monitor;
     // `beforedragstart` er den ENESTE kroken som kjører før dnd-kit måler det
     // løftede objektet, og målingen skjer én gang. Kategoriens sammenfolding må
@@ -7849,6 +7960,7 @@
     boardFreezeForRowDrag(el);
     dndTuneRowCollisions(boardRowBoard);
     dndNoteLiftedBox(el);       // etter kategoriens sammenfolding: boksen dnd-kit straks måler
+    dndLockAxis();              // én kolonne (smal skjerm) = ingen vannrett vei
     armDragTrash();             // element-kassen, avdekket for draget
   }
 
@@ -13920,26 +14032,15 @@
       onCommit: ideaCommitRow,
       onError: (err) => { if (window.console) console.error('[huskis] idea-row-dnd', err); },
     });
-    /* ÉN AKSE: idélista er én smal kolonne uten et eneste vannrett slippmål —
-       ingen nabo-liste, ingen breadcrumb, ingen ny-liste-stripe. En vannrett
-       komponent kunne derfor bare bomme: fingeren som glir litt sidelengs på
-       en telefon dro raden ut av kolonnen uten at det betydde noe.
-
-       Modifikatorene ERSTATTER Smetts standardliste, så viewport-klemma må
-       skrives ut igjen her — den er det `safeInsets` mates inn i, og uten den
-       kan det løftede objektet havne under en systemflate. Rekkefølgen er
-       virksom: klemma først, akselåsen sist (den nuller x til slutt). */
-    ideaRowBoard.manager.modifiers = [
-      Smett.SafeViewport.configure({ insets: safeInsets }),
-      Smett.RestrictToVerticalAxis,
-    ];
+    // ÉN AKSE: idélista er én smal kolonne uten et eneste vannrett slippmål —
+    // ingen nabo-liste, ingen breadcrumb, ingen ny-liste-stripe. Låsen er delt
+    // med de andre board-ene og settes av `dndLockAxis` ved løft.
     ideaRowWire(ideaRowBoard);
     dndInstallClickGuard();
   }
 
   function ideaRowWire(b) {
-    b.manager.registry.plugins.unregister(Smett.Cursor);
-    b.manager.registry.plugins.unregister(Smett.PreventSelection);
+    dndTuneManager(b);
     const monitor = b.manager.monitor;
     monitor.addEventListener('beforedragstart', () => ideaRowDragBegin(b));
     monitor.addEventListener('dragstart', () => ideaRowDragStart(b));
@@ -13976,6 +14077,7 @@
     if (kind === 'category') dndCollapseCategory(el);
     dndTuneRowCollisions(ideaRowBoard);
     dndNoteLiftedBox(el);
+    dndLockAxis();              // idémodalen har alltid én kolonne
   }
 
   function ideaRowDragStart(b) {
