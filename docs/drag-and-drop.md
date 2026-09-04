@@ -1132,13 +1132,17 @@ som «veier» et korthode. Hvilehøyden måles rett før kollapsen
 gangen den er å se. `board-columns` sjekk 9 følger selve flukten: den skal gå mot
 hvileplassen hele veien, og ende der.
 
-To ting må vente til klonen faktisk er borte (`dndAfterCloneGone`, som
-`boardRelayoutAfterDrop` og `navScrollAfterDrop` deler):
+To ting må vente til draget ikke maler noe mer (`dndAfterCloneGone`, som
+`boardRelayoutAfterDrop` og `navScrollAfterDrop` deler). Den venter på BEGGE
+merkene, ikke bare klonen: `[data-dnd-placeholder]` holder plassen med den
+KOLLAPSEDE boksen, og `[data-dnd-dragging]` sitter på det løftede objektet
+gjennom hele drop-animasjonen — der det ligger i top layer og ikke har noen plass
+i flyten å måle.
 
 - **Scroll til det slupne kortet.** Klonen holder plassen med den KOLLAPSEDE
   boksen, så innholdet er kortere enn det blir — og scrollen klemmes mot nettopp
-  den høyden. `scrollDroppedIntoView` kjøres derfor én frame etter at klonen er
-  fjernet, og slår opp kortet på ID: en synk-runde kan ha rendret board-et i
+  den høyden. `scrollDroppedIntoView` kjøres derfor én frame etter at merkene er
+  borte, og slår opp kortet på ID: en synk-runde kan ha rendret board-et i
   mellomtiden, og en frakoblet node måler 0 (scrollen ville da sendt siden til
   toppen).
 - **Bunn-luften og en siste synk.** `fixBoardBottomGap` måler kortenes bokser, og
@@ -1150,11 +1154,19 @@ To ting må vente til klonen faktisk er borte (`dndAfterCloneGone`, som
 innenfor det trygge området, er funksjonen en **no-op** — et kort som var synlig
 hele tiden skal ikke rykke rundt bare fordi det ble omrokkert. Ellers scrolles det
 KORTEST MULIGE avstanden inn i området, men aldri så langt at toppen forsvinner
-over kanten. `behavior: 'smooth'`, `'auto'` ved `prefers-reduced-motion`.
-Hvileboksen leses uten transform (`layoutRect`): en FLIP-tween kan fortsatt være i
-lufta, og den malte plassen er da ikke den kortet lander på. Hoppes over når kortet
-slippes på nav-knappen eller i kassen (begge er soner og går aldri gjennom
-`onCommit`).
+over kanten. `behavior: 'smooth'`, `'auto'` ved `prefers-reduced-motion`. Hoppes
+over når kortet slippes på nav-knappen eller i kassen (begge er soner og går aldri
+gjennom `onCommit`).
+
+**Og den måles av LAYOUTEN, ikke av maleriet.** `getBoundingClientRect()` gir den
+malte boksen, og rett etter et slipp er den ikke kortets plass: en FLIP-tween
+eller drop-animasjonen kan ha skalert den. `layoutRect` retter opp
+forskyvningen, men ikke skalaen. MÅLT på en firedobbelt strupet maskin: kortet
+malte 7,5 × 12,6 px, 162 px OVER modalkroppen, mens FLIP-en fløy — regnestykket
+leste det som «allerede synlig», gjorde ingenting, og kortet ble liggende 791 px
+under folden da flyten tok det tilbake. `layoutTop` (summen av `offsetTop` opp
+`offsetParent`-kjeden) og `offsetHeight` er layout og rører ingen transform, og
+alt regnes derfor i scrollerens egen innholds-Y.
 
 **Scrolleren er scopets egen**, samme deling som `anchorScroller` gjør under selve
 draget:

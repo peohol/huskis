@@ -4351,6 +4351,16 @@
     }
     return r;
   }
+  /* Elementets DOKUMENT-Y, lest av layouten. `offsetTop` er upåvirket av enhver
+     transform — også en skalering, som `layoutRect` ikke kan rette opp — og
+     endrer seg ikke av scroll. Summen opp `offsetParent`-kjeden er derfor den
+     ene stabile «hvor ligger dette egentlig» rett etter et slipp. */
+  function layoutTop(el) {
+    let y = 0;
+    for (let n = el; n; n = n.offsetParent) y += n.offsetTop;
+    return y;
+  }
+
   // Dra-elementets logiske boks ut fra pekerposisjon (urørt av rotasjon/skala).
   function draggedRect() {
     const left = drag.lastX - drag.grabX;
@@ -5180,28 +5190,36 @@
   function scrollDroppedIntoView(el, scroller) {
     if (!el || !el.isConnected) return;
     const gap = boardGap(boardRootOf(el));
-    const r = layoutRect(el);
-    let safeTop, safeBottom, pos, maxScroll;
-    if (scroller) {
-      const s = scroller.getBoundingClientRect();
-      safeTop = s.top + gap;
-      safeBottom = s.bottom - gap;
-      pos = scroller.scrollTop;
-      maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-    } else {
-      const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-      safeTop = topbarEl.getBoundingClientRect().height + gap;
-      // Gestelinjen dekker de nederste pikslene, så viewportbunnen alene ville
-      // latt kortet ligge delvis under den.
-      safeBottom = vh - safeInsets().bottom - gap;
-      pos = window.scrollY;
-      maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
-    }
+    /* MÅLT AV LAYOUTEN, IKKE AV MALERIET.
+       `getBoundingClientRect()` gir den MALTE boksen, og rett etter et slipp er
+       den ikke kortets plass: en FLIP-tween eller dnd-kits drop-animasjon kan
+       ha skalert den. `layoutRect` retter opp forskyvningen, men ikke skalaen.
+       MÅLT på en firedobbelt strupet maskin: kortet malte 7,5 × 12,6 px, 162 px
+       OVER modalkroppen, mens FLIP-en fløy — «allerede synlig» ble svaret, og
+       kortet ble liggende 791 px under folden da flyten tok det tilbake.
+
+       `layoutTop`/`offsetHeight` er LAYOUT og rører ingen transform. Alt regnes
+       derfor i scrollerens egen innholds-Y: kortets plass, den synlige linjen
+       øverst og nederst, og målet. */
+    const top = layoutTop(el) - (scroller ? layoutTop(scroller) + scroller.clientTop : 0);
+    const bottom = top + el.offsetHeight;
+    const pos = scroller ? scroller.scrollTop : window.scrollY;
+    const synlig = scroller ? scroller.clientHeight
+      : (window.innerHeight || document.documentElement.clientHeight || 0);
+    // Øverste brukbare linje: modalkroppens egen topp, eller — for vinduet —
+    // rett under den faste toppmenyen. Nederste: gestelinjen dekker de nederste
+    // pikslene av viewportet, så viewportbunnen alene ville latt kortet ligge
+    // delvis under den. (Sonen er 0 i en nettleser.)
+    const safeTop = pos + gap + (scroller ? 0 : topbarEl.getBoundingClientRect().height);
+    const safeBottom = pos + synlig - gap - (scroller ? 0 : safeInsets().bottom);
+    const maxScroll = scroller
+      ? Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+      : Math.max(0, document.documentElement.scrollHeight - synlig);
     let flytt = 0;
-    if (r.top < safeTop) flytt = r.top - safeTop;              // ligger (delvis) over kanten
+    if (top < safeTop) flytt = top - safeTop;                  // ligger (delvis) over kanten
     // Stikker under: scroll ned akkurat nok — men aldri så langt at toppen
     // forsvinner over kanten (høye kort prioriterer toppen).
-    else if (r.bottom > safeBottom) flytt = Math.min(r.bottom - safeBottom, r.top - safeTop);
+    else if (bottom > safeBottom) flytt = Math.min(bottom - safeBottom, top - safeTop);
     if (!flytt) return;
     const target = Math.max(0, Math.min(pos + flytt, maxScroll));
     if (Math.abs(target - pos) < 1) return;   // allerede komfortabelt synlig
@@ -5209,17 +5227,30 @@
     if (scroller) scroller.scrollTo(opts); else window.scrollTo(opts);
   }
 
-  /* Etterarbeidet etter et slipp må vente til KLONEN ER BORTE: fram til da
-     holder den plassen med det løftede kortets KOLLAPSEDE boks, mens kortet som
-     lander der er foldet ut igjen — innholdet er altså kortere enn det blir, og
-     et regnestykke på høyder ville stoppet for tidlig. 120 frames er et
-     sikkerhetsnett, ikke en forventning: drop-animasjonen er ferdig lenge før,
-     og en fane i bakgrunnen skal ikke bli hengende. DELT av de to
-     kortnivåene. */
+  /* Etterarbeidet etter et slipp må vente til DRAGET IKKE MALER NOE MER, og det
+     er TO merker som må være borte — ikke ett:
+
+     - `[data-dnd-placeholder]`, klonen: den holder plassen med det løftede
+       kortets KOLLAPSEDE boks, mens kortet som lander der er foldet ut igjen.
+       Innholdet er altså kortere enn det blir, og et regnestykke på høyder
+       ville stoppet for tidlig.
+     - `[data-dnd-dragging]`, det løftede objektet: det bærer merket gjennom
+       HELE drop-animasjonen, og ligger da fortsatt i top layer
+       (`position: fixed`) — uten en plass i flyten å måle.
+
+     De to slukner ikke nødvendigvis i samme frame. MÅLT på en firedobbelt
+     strupet maskin: klonen var borte mens objektet fortsatt fløy, og kortet
+     målte da 24 px høyt, 137 px OVER modalkroppen. `scrollDroppedIntoView`
+     leste det som «allerede synlig» og gjorde ingenting — og kortet ble
+     liggende 791 px under folden da flyten tok det tilbake.
+
+     120 frames er et sikkerhetsnett, ikke en forventning: drop-animasjonen er
+     ferdig lenge før, og en fane i bakgrunnen skal ikke bli hengende. DELT av
+     de to kortnivåene. */
   function dndAfterCloneGone(root, fn) {
     let frames = 0;
     const tick = () => {
-      if (root.querySelector('[data-dnd-placeholder]') && ++frames < 120) {
+      if (root.querySelector('[data-dnd-placeholder], [data-dnd-dragging]') && ++frames < 120) {
         requestAnimationFrame(tick);
         return;
       }

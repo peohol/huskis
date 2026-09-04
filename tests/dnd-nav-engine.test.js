@@ -122,6 +122,43 @@ const closeNav = async (p) => {
   await p.waitForTimeout(250);
 };
 
+/* MODALEN HAR LANDET etter et OMRÅDE-slipp.
+   To ting skjer etter slippet, i rekkefølge: dnd-kits klone forsvinner når
+   drop-animasjonen er ferdig, og DA ruller nav-modalen det slupne kortet i
+   sikte (`navScrollAfterDrop`) — mykt. Et punkt målt mens den rullingen pågår
+   er utdatert i det fingeren lander, og de to sjekkene som gjør ETT forsøk
+   (9: «lar det seg løfte i det hele tatt», 7: «her skal INGENTING løftes»)
+   ville da måle noe annet enn det de påstår. MÅLT: modalkroppen sto på
+   scrollTop 8 etter slippet i 2b på mobil.
+
+   Klokka duger ikke som bevis: hvor lang tid en drop-animasjon og en myk
+   scroll bruker er nettleserens sak, ikke vår, og en treg CI-runner bruker
+   lengre tid enn en lokal maskin — nettopp forskjellen som gjorde 9 rød i CI
+   og grønn lokalt, og som en firedobbelt struping av CPU-en gjør om til at 10
+   måler for tidlig. Vi venter derfor på TILSTANDEN, i samme rekkefølge: først
+   at klonen er borte, så at scrollen har stått stille.
+
+   Vinduet på 500 ms er ikke en gjetning på hvor lenge scrollen tar, men på at
+   den har rukket å BEGYNNE: den starter et par frames etter at klonen forsvant,
+   og uten vinduet ville «står stille» kunne bety «har ikke startet ennå». */
+async function modalenHarLandet(p) {
+  await p.waitForFunction(
+    () => !document.querySelector('#nav-board [data-dnd-dragging], #nav-board [data-dnd-placeholder]'),
+    null, { timeout: 10000, polling: 100 });
+  const start = Date.now();
+  let forrige = null, like = 0;
+  for (let i = 0; i < 80; i++) {
+    const nå = await p.evaluate(() => {
+      const b = document.getElementById('nav-modal-body');
+      return b ? Math.round(b.scrollTop) : 0;
+    });
+    like = nå === forrige ? like + 1 : 0;
+    forrige = nå;
+    if (like >= 3 && Date.now() - start >= 500) return;
+    await p.waitForTimeout(80);
+  }
+}
+
 const groupRows = (p) => p.evaluate(() => [...document.querySelectorAll(
   '#nav-board .card .items-container > .item')].map((e) => e.dataset.id));
 const uniCards = (p) => p.evaluate(() => [...document.querySelectorAll(
@@ -328,6 +365,7 @@ async function run(label, viewport, mobile) {
   log(label + ' 2b: områdene er foldet ut igjen etter draget',
     (await p.evaluate(() => [...document.querySelectorAll('#nav-board .card')]
       .filter((c) => c.classList.contains('collapsed')).length)) === 0);
+  await modalenHarLandet(p);   // slippet over ruller modalen; 9 måler ETT punkt
 
   /* ---------- 9) Et ANDRE drag virker rett etter det første ---------- */
   // Draget i 2b rendret nav-modalen på nytt, og de nye kortene er ikke de
@@ -423,9 +461,7 @@ async function run(label, viewport, mobile) {
   // Kortdraget kollapser alle områdene, så målsloten måles ETTER løftet.
   await G.travel(p, () => G.centre(p, '#nav-board .card[data-id="' + høye[høye.length - 1] + '"]'), touch);
   await G.drop(p, undefined, touch);
-  // Fast venting: klonen skal være borte OG den myke scrollen ferdig — begge
-  // deler er animasjonsfysikk, ikke en tilstand appen melder fra om.
-  await p.waitForTimeout(1400);
+  await modalenHarLandet(p);
   const sikt = await p.evaluate((id) => {
     const body = document.getElementById('nav-modal-body');
     const el = document.querySelector('#nav-board .card[data-id="' + id + '"]');
