@@ -2210,7 +2210,10 @@ body.is-dragging * { cursor: grabbing !important; }
    de to leddene, aldri midt i et ord. */
 .nav-modal .modal-head h2 { flex-wrap: wrap; }
 .nav-modal .modal-head h2 span { white-space: nowrap; }
-.nav-body { gap: 14px; }
+/* Område-søppelkassen står i modalens egen fot (se index.html) — sentrert som
+   idé-modalens kontrollfelt (`.ideas-foot`), men uten dens stabling: her er
+   det bare den ene kassen. */
+.nav-foot { justify-content: center; }
 /* Kolonnene lages av `relayoutBoard` (samme maskineri som hovedsidens board),
    men nav-scopet setter `singleColumn` → alltid ÉN `.board-col`. */
 .nav-board {

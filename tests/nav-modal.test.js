@@ -577,19 +577,22 @@ async function run(label, vp, mobile) {
       const b = document.querySelector('#nav-board .card[data-id="uni-B"] .group-trash-btn');
       return !!b && !b.hidden && !b.closest('[hidden]');
     })(),
-    uniTrashHidden: document.getElementById('uni-trash-btn').hidden,
-    uniTrashInModalFooter: !!document.querySelector('#nav-modal .nav-actions #uni-trash-btn'),
+    // Kassen selv har ikke lenger `hidden` (den lever på `.item-trash`-
+    // innpakningen rundt den, som modal-foten kollapser sammen med — se
+    // updateTrashBadge i app.js), så synligheten leses av HELE kjeden.
+    uniTrashHidden: document.getElementById('uni-trash-btn').closest('[hidden]') !== null,
+    uniTrashInModalFooter: !!document.querySelector('#nav-modal .nav-foot #uni-trash-btn'),
   }));
   log(label + ' 11: mappe-søppelkassen ligger i områdekortet mappa hørte til',
     trash.inUniCard === true && trash.count === '1' &&
     trash.synligIUniA === true && trash.synligIUniB === false, JSON.stringify(trash));
-  log(label + ' 11: område-søppelkassen ligger nederst i modalen (skjult når tom)',
-    trash.uniTrashInModalFooter === true && trash.uniTrashHidden === true);
+  log(label + ' 11: område-søppelkassen ligger i modalens faste fot (skjult når tom)',
+    trash.uniTrashInModalFooter === true && trash.uniTrashHidden === true, JSON.stringify(trash));
 
   await menuPick(p, '#nav-board .card[data-id="uni-A"] .card-head', 'Slett området for alle');
   await p.waitForTimeout(650);
   const uniTrash = await p.evaluate(() => ({
-    hidden: document.getElementById('uni-trash-btn').hidden,
+    hidden: document.getElementById('uni-trash-btn').closest('[hidden]') !== null,
     count: document.getElementById('uni-trash-count').textContent,
   }));
   log(label + ' 11: område-søppelkassen dukker opp med antall',

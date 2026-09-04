@@ -20,7 +20,9 @@
     8. En kasse som draget avdekket er tom, og viser derfor ingen «0»-teller —
        både der knappen selv var skjult og der wrapperen rundt den var det.
     9. Kassen blir stående i synsfeltet etter slettingen, så den kan tømmes med
-       én gang (nav-modalen scroller, og draget kollapser kortene underveis).
+       én gang. Område-kassen står i modalens FASTE fot og trenger ikke det —
+       den er alltid i syne, uansett hvor langt nav-modalen — som scroller, og
+       der draget kollapser kortene underveis — hadde rullet.
    10. Kassen slår EKSTRAHERINGEN: den ligger utenfor listas innholdssone, så
        raden er teknisk «utenfor alle lister» når man er framme ved den. Sikter
        man på kassen, lover ikke ny-liste-placeholderen noe, og et slipp i
@@ -311,9 +313,10 @@ async function run(label, viewport) {
     frozenArmed === 0, 'armerte kasser=' + frozenArmed);
 
   /* ---------- 9) Kassen blir stående i synsfeltet etter slettingen ----------
-     Nok områder til at nav-modalen scroller. Står man NEDERST (der kassen er)
-     og drar det siste området i den, skal man fortsatt se kassen etterpå —
-     ellers må man scrolle ned igjen for å tømme den. */
+     Nok områder til at nav-modalen scroller. Kassen står i modalens FASTE fot
+     (utenfor `#nav-modal-body`), så uansett hvor man har scrollet — her helt
+     NEDERST i lista, verst tenkelige start — og hvor mye draget kollapser
+     kortene underveis, skal kassen stå i ro innenfor MODALEN etterpå. */
   await p.evaluate(() => {
     const H = window.__huskis, st = H.state;
     st.universes = Array.from({ length: 12 }, (_, i) => ({
@@ -329,9 +332,10 @@ async function run(label, viewport) {
   await p.waitForTimeout(200);
   await dragOnto(p, '#nav-board .card[data-id="S11"] .card-head', '#uni-trash-btn');
   const kasseSyn = await p.evaluate(() => {
-    const b = document.getElementById('nav-modal-body'), t = document.getElementById('uni-trash-btn');
-    if (!b || !t || t.hidden) return { synlig: false, grunn: 'kassen mangler/er skjult' };
-    const r = t.getBoundingClientRect(), br = b.getBoundingClientRect();
+    const t = document.getElementById('uni-trash-btn');
+    if (!t || t.closest('[hidden]')) return { synlig: false, grunn: 'kassen mangler/er skjult' };
+    const modal = t.closest('.modal');
+    const r = t.getBoundingClientRect(), br = modal.getBoundingClientRect();
     return { synlig: r.top >= br.top - 1 && r.bottom <= br.bottom + 1,
       topp: Math.round(r.top), bunn: Math.round(r.bottom), boks: Math.round(br.bottom) };
   });

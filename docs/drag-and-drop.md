@@ -65,7 +65,8 @@ rot, fordi liste-søppelkassen og 📁-breadcrumben ligger i toppmenyen, utenfor
 scopet til `#board` selv, ellers ville nav-modalens kort havnet i det samme
 registeret — to board som registrerer det samme elementet kjemper om det.
 `boardRowBoard` har `board` som rot (element-kassene ligger inne i kortene), og
-nav-board-ene har modal-KROPPEN (område-kassen ligger utenfor `#nav-board`).
+nav-board-ene har HELE nav-modalen (område-kassen ligger i modalens egen fot,
+utenfor både `#nav-board` og modalens rullende kropp).
 
 **Dra-tilstandene males på `.dnd-surface`.** Hver dra-rot — nøyaktig de
 elementene `scope.root` peker på (`#board`, `#nav-board`, `#ideas-body`) — bærer

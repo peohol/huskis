@@ -1480,15 +1480,18 @@
   const dragScope = () => drag.scope || boardScope;
 
   /* ---------------- Render ---------------- */
-  // Søppelkasse-badgen (område/mappe/liste): antall, og knappen skjules når
-  // kassen er tom. Delt av de tre faste knappene (element-nivået er annerledes
-  // — se updateItemsTrashBadge, som slår opp badgen i DOM).
+  // Søppelkasse-badgen (område/mappe/liste): antall, og knappen (eller feltet
+  // rundt den, står den i en `.item-trash`-innpakning — se nav-foot i
+  // index.html) skjules når kassen er tom. Delt av de tre faste knappene
+  // (element-nivået er annerledes — se updateItemsTrashBadge, som slår opp
+  // badgen i DOM).
   // Kassen vises kun når den har innhold — med unntak av et pågående drag som
   // har avdekket den som slippmål (`data-drag-revealed`, se armDragTrash).
   function updateTrashBadge(trashedSel, countEl, btnEl) {
     const list = trashedSel();
     countEl.textContent = list.length;
-    if (!btnEl.dataset.dragRevealed) btnEl.hidden = list.length === 0;
+    const target = btnEl.closest('.item-trash') || btnEl;
+    if (!target.dataset.dragRevealed) target.hidden = list.length === 0;
   }
   // Lister-søppelkassen vises kun når den har innhold (samme logikk som de andre).
   function updateTrashCount() { updateTrashBadge(trashedCards, trashCount, trashBtn); }
@@ -6620,10 +6623,11 @@
   /* ------- Boardene ------- */
   function ensureNavBoards() {
     if (navCardBoard || typeof Smett === 'undefined' || !Smett.SortableBoard) return;
-    // Roten er modal-KROPPEN, ikke board-et: område-søppelkassen ligger utenfor
-    // `#nav-board`, og en sone må ligge under board-ets rot for å bli registrert.
+    // Roten er HELE MODALEN, ikke bare kroppen: område-søppelkassen ligger i
+    // modalens egen fot, utenfor både `#nav-board` OG `#nav-modal-body` (se
+    // index.html), og en sone må ligge under board-ets rot for å bli registrert.
     const shared = {
-      root: navModalBody,
+      root: navModal,
       idAttribute: 'data-id',
       axis: 'vertical',
       // Tastaturet er Huskis' eget (`attachKeyHandle`: F2, Alt+piler, «Flytt
