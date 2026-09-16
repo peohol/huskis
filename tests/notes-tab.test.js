@@ -604,26 +604,29 @@ async function run(navn, viewport, touch) {
   });
   await p.waitForTimeout(200);
 
-  /* … og TYPEIKONET står på tittelens FØRSTE LINJE, slik ikonet gjør på alle
-     andre objekttyper. Hodet her er topp-justert (tittelen kan gå over flere
-     linjer), og et rent `flex-start` la ikonet på toppen av tittelblokka i
-     stedet for midt på dens første linje. Måles som senter mot senter: ikonets
-     midtpunkt skal ligge på den første tekstlinjens midtpunkt. */
-  const ikon = await p.evaluate(() => {
+  /* … og HODET er `align-items: center` som ALLE andre objekttypers korthode
+     — ikonet, tittelen, «sist endret»-pillen og objektmenyknappen skal alle
+     dele samme vertikale senter i raden, ikke stå topp-justert mot hverandre
+     (tidligere lå ikon og pille flush mot toppen mens knappen var sentrert i
+     en høyere rad, se git-historikken for `.note-card-head`). */
+  const senter = await p.evaluate(() => {
     const el = document.querySelector('#notes-board .note-card');
-    const i = el.querySelector('.note-card-icon').getBoundingClientRect();
-    const t = el.querySelector('.note-card-title');
-    // Første linjeboks i tittelen — ikke hele elementet, som kan ha flere linjer.
-    const linje = t.getClientRects()[0] || t.getBoundingClientRect();
+    const midt = (sel) => {
+      const r = el.querySelector(sel).getBoundingClientRect();
+      return +(r.top + r.height / 2).toFixed(1);
+    };
     return {
-      ikonSenter: +(i.top + i.height / 2).toFixed(1),
-      linjeSenter: +(linje.top + linje.height / 2).toFixed(1),
-      ikonH: Math.round(i.height),
+      ikon: midt('.note-card-icon'),
+      tittel: midt('.note-card-title'),
+      meta: midt('.note-card-meta'),
+      knapp: midt('.card-cog'),
     };
   });
-  log(navn + ': notatikonet står på tittelens første linje',
-    Math.abs(ikon.ikonSenter - ikon.linjeSenter) <= 2 && ikon.ikonH >= 16,
-    JSON.stringify(ikon));
+  log(navn + ': ikon, tittel, dato-pille og menyknapp deler samme senter i korthodet',
+    Math.abs(senter.ikon - senter.knapp) <= 1.5
+    && Math.abs(senter.tittel - senter.knapp) <= 1.5
+    && Math.abs(senter.meta - senter.knapp) <= 1.5,
+    JSON.stringify(senter));
 
   /* ---------- 10. Synk mot mock-backenden ---------- */
   /* Vent på at DOKUMENTET er pushet, ikke bare at raden finnes: insert-en kan

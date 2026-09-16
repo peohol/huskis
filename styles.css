@@ -5706,24 +5706,16 @@ body.no-auth .corner-controls { display: none; }
   outline: var(--focus-w) solid var(--focus);
   outline-offset: 2px;
 }
-.note-card-head { align-items: flex-start; }
-/* Ikonet står på FØRSTE tittellinje, slik det gjør på alle andre objekttyper —
-   der er hodet `align-items: center` og tittelen én linje, så de to havner på
-   samme skriftlinje av seg selv. Notatkortets hode er topp-justert fordi
-   tittelen kan gå over flere linjer, og et rent `flex-start` la ikonet på
-   TOPPEN av tittelblokka i stedet for midt på dens første linje. Ikonet får
-   derfor høyden til den linjeboksen (tittelens skriftstørrelse × linjefall +
-   dens egen polstring) og sentreres i den. Størrelsen er den samme som
-   type-ikonene i nav-modalen (`.nav-board .kind-icon`), så et notat leser likt
-   uansett hvor det står. */
+/* Notatkortets hode er `align-items: center` som ALLE andre objekttypers
+   korthode (arves fra `.card-head`) — også når tittelen går over flere
+   linjer. Ikonet er samme størrelse som type-ikonene i nav-modalen
+   (`.nav-board .kind-icon`), så et notat leser likt uansett hvor det står. */
 .note-card-head > .note-card-icon {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  align-self: flex-start;
   font-size: var(--fs-lg);
   line-height: 1;
-  height: calc(var(--fs-lg) * 1.2 + 8px);
 }
 .note-card-title {
   /* `.card-title` gir hvit skrift med skygge på korthodet; her bare linjefallet
@@ -5735,7 +5727,6 @@ body.no-auth .corner-controls { display: none; }
 .note-card-meta {
   flex: 0 0 auto;
   cursor: inherit;
-  align-self: flex-start;
 }
 /* IKKE flex: `.card-body` er det, og en flex-item BLOKKIFISERES — da faller
    `-webkit-box` (og dermed linjeklippingen på utdraget) bort. */
