@@ -6415,3 +6415,244 @@ body.note-editing .corner-controls { display: none; }
 /* Bokhyllekortets to knapper står side om side, som ÉN rad nederst i kortet. */
 .note-folder-cans { display: flex; justify-content: center; gap: 8px; }
 .nav-foot { gap: 8px; }
+
+
+/* ============================================================
+   OPPSKRIFTER — kokebøker › kapitler › oppskrifter
+   Bygd av de samme klassene som notatene (kort, rader, kategorier,
+   fullskjermsbildet); her står bare det som er eget for oppskriftene.
+   Autoritativt: docs/oppskrifter.md.
+   ============================================================ */
+
+/* Kokebokmenyen: kokeboken er områdekortet, kapitlene kategoriene i en liste. */
+.recipe-book-card .card-body { padding-bottom: 6px; }
+.recipes-add-book { display: flex; justify-content: center; margin: 4px 0 2px; }
+.recipe-level { list-style: none; margin: 0 0 6px; padding: 0; }
+.recipe-level .item-text { font-style: italic; }
+/* Et tomt kapittel og en tom «rett i boken»-sone må fortsatt kunne ta imot et
+   slipp — ellers finnes det ingen flate å slippe på. */
+.recipe-chapters:empty,
+.recipe-free:empty { min-height: 0; }
+body.is-dragging .recipe-chapters:empty,
+body.is-dragging .recipe-free:empty { min-height: 36px; }
+.recipe-row-icon, .chapter-icon { flex: none; display: inline-flex; align-items: center; }
+
+/* Hovedflaten: oppskriftskortet er notatkortet. */
+.recipe-card .note-card-excerpt-text { white-space: normal; }
+
+/* ---- Oppskriftsflaten ---- */
+.recipe-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 2px;
+  color: #fff;
+  text-shadow: var(--text-shadow);
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.recipe-title[hidden], .recipe-title-input[hidden] { display: none; }
+.recipe-edit-btn { display: inline-flex; align-items: center; gap: 6px; }
+.recipe-edit-icon { display: inline-flex; }
+.recipe-sheet {
+  color: var(--ink);
+  font-size: var(--fs-md);
+  line-height: 1.55;
+}
+.recipe-desc {
+  margin: 0 0 14px;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Porsjonsvelgeren: − antall + med «tilbake til» når man har skalert. */
+.recipe-serv {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.recipe-serv-icon { display: inline-flex; font-size: 22px; margin-right: 2px; }
+.recipe-serv-value { min-width: 7.5em; text-align: center; font-weight: 700; }
+.recipe-serv-btn {
+  appearance: none;
+  border: 1.5px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  width: var(--touch, 40px);
+  height: var(--touch, 40px);
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: 18px;
+}
+.recipe-serv-btn:hover:not(:disabled) { background: var(--wash); }
+.recipe-serv-btn:disabled { opacity: 0.4; cursor: default; }
+.recipe-serv-btn:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+.recipe-serv-reset { margin-left: auto; }
+
+.recipe-sec { margin-top: 18px; }
+.recipe-sec-title {
+  font-size: var(--fs-lg);
+  font-weight: 800;
+  margin: 0 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.recipe-sub-name { font-size: var(--fs-md); font-weight: 700; margin: 12px 0 4px; }
+.recipe-other-name { color: var(--ink-soft); }
+.recipe-empty { color: var(--ink-soft); font-style: italic; margin: 4px 0; }
+.recipe-ing-list, .recipe-step-list { margin: 0 0 6px; padding-left: 1.4em; }
+.recipe-ing-list li { margin: 0 0 4px; }
+.recipe-step-list li { margin: 0 0 10px; padding-left: 4px; }
+.recipe-step-list li::marker { font-weight: 700; color: var(--primary-dark); }
+.recipe-amt { font-weight: 700; font-variant-numeric: tabular-nums; }
+.recipe-ing-name, .recipe-step-text { overflow-wrap: anywhere; white-space: pre-wrap; }
+
+/* ---- Redigeringsmodus ---- */
+.recipe-title-input { color: #fff; }
+.recipe-meta-edit { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
+.recipe-field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 260px; min-width: 0; }
+.recipe-serv-field { flex: 0 0 9em; }
+.recipe-field-label { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-soft); }
+.recipe-sheet input[type='text'], .recipe-sheet input[type='number'], .recipe-sheet textarea {
+  font: inherit;
+  font-size: var(--fs-base);
+  color: var(--ink);
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+}
+.recipe-sheet textarea { resize: none; overflow: hidden; line-height: 1.45; }
+.recipe-sheet input:focus-visible, .recipe-sheet textarea:focus-visible {
+  outline: var(--focus-w) solid var(--focus);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+.recipe-lines { list-style: none; margin: 0; padding: 0; min-height: 6px; }
+.recipe-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 3px 0;
+  background: var(--surface);
+}
+.recipe-line > input, .recipe-line > textarea { flex: 1 1 auto; }
+.recipe-line .recipe-amt-input { flex: 0 0 4.8em; text-align: right; }
+.recipe-line .recipe-unit-input { flex: 0 0 4.6em; }
+.recipe-step-num {
+  flex: 0 0 1.8em;
+  padding-top: 8px;
+  text-align: right;
+  font-weight: 700;
+  color: var(--primary-dark);
+}
+.recipe-grip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 38px;
+  color: var(--ink-soft);
+  cursor: grab;
+  touch-action: none;
+  font-size: 18px;
+}
+.recipe-line .icon-btn { align-self: flex-start; }
+.recipe-subs { display: flex; flex-direction: column; gap: 10px; }
+.recipe-subs:not(:empty) { margin-bottom: 10px; }
+.recipe-sub {
+  padding: 6px 8px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+.recipe-sub .recipe-line { background: var(--surface-2); }
+.recipe-sub-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.recipe-sub-head .recipe-sub-name-input { flex: 1 1 auto; font-weight: 700; }
+.recipe-sub-add { display: flex; justify-content: center; margin-top: 4px; }
+.recipe-sub-add .btn-add.icon-only { width: 34px; height: 34px; }
+.recipe-sub-add .btn-add.icon-only .icon { font-size: 26px; }
+/* «Øvrige»-sonen uten linjer har ingen overskrift — bortsett fra mens noe dras,
+   da den må synes for å kunne ta imot. */
+.recipe-main.has-subs.is-empty > .recipe-other-name { display: none; }
+body.is-dragging .recipe-main.has-subs.is-empty > .recipe-other-name { display: block; }
+body.is-dragging .recipe-main .recipe-lines:empty { min-height: 36px; }
+.recipe-add-row { margin-top: 8px; padding: 0; }
+
+@media (max-width: 560px) {
+  .recipe-serv-reset { margin-left: 0; }
+  /* Én linje også på telefon: mengde og enhet krymper, navnet tar resten. */
+  .recipe-line { gap: 4px; }
+  .recipe-line > input, .recipe-line > textarea { padding: 7px 6px; }
+  .recipe-line .recipe-name-input { flex: 1 1 0; }
+  .recipe-line .recipe-amt-input { flex: 0 0 3.4em; }
+  .recipe-line .recipe-unit-input { flex: 0 0 3.2em; }
+  .recipe-line .icon-btn { width: 30px; }
+  .recipe-grip { width: 18px; }
+  .recipe-sub { padding: 6px 4px 8px; }
+  .recipe-sheet { font-size: var(--fs-base); }
+}
+
+/* ---- Den offentlige lesevisningen (oppskrift.html) ----
+   Oppskriftsflatens lesemodus, alene på siden: samme linje øverst, samme ark,
+   ingen redigeringskontroller. */
+.pub-page { min-height: 100vh; display: flex; flex-direction: column; }
+.pub-bar { position: sticky; top: 0; z-index: 2; }
+.pub-brand { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-size: var(--fs-md); }
+.pub-brand-icon { font-size: 22px; }
+.pub-readonly {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.share-public-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.share-public-url { flex: 1 1 14em; min-width: 0; padding: 8px 10px; font-size: var(--fs-sm); }
+.pub-main { padding-bottom: calc(24px + var(--safe-bottom)); }
+.pub-loading { color: #fff; text-shadow: var(--text-shadow); text-align: center; }
+.pub-back { margin: 0 auto 10px; display: flex; max-width: 760px; width: fit-content; }
+.pub-main > .pub-back { margin-left: max(0px, calc((100% - 760px) / 2)); }
+.pub-icon { font-size: var(--fs-xl); }
+.pub-chapter .recipe-sec-title { display: flex; align-items: center; gap: 6px; }
+.recipe-sec-title .pub-icon { font-size: 1em; }
+.pub-chapter + .pub-chapter { margin-top: 18px; }
+.pub-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pub-recipe {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-md);
+  text-align: left;
+  cursor: pointer;
+}
+.pub-recipe:hover { background: var(--wash); }
+.pub-recipe:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+.pub-recipe .pub-icon { font-size: 22px; }
+.pub-recipe-title { flex: 1 1 auto; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+.pub-recipe-meta { flex: 0 0 auto; font-size: var(--fs-sm); color: var(--ink-soft); }
+.pub-message-title { font-size: var(--fs-lg); font-weight: 700; margin: 0 0 6px; }
+@media (max-width: 560px) {
+  .pub-readonly { order: 3; flex: 1 1 100%; }
+  .pub-bar { flex-wrap: wrap; }
+  .pub-brand { flex: 1 1 auto; }
+}

@@ -157,8 +157,12 @@ neste gang appen lastes — også på en ny enhet. Løpende synk flytter IKKE
 visningen (restore skjer kun på første pull), så to åpne enheter kan stå i hver
 sin mappe. `activeGroups`-minnet er alltid per enhet (synkes aldri).
 
-**Hovedbryteren (`Lister ↔ Notater`) er per ENHET og synkes ikke** — den ligger i
+**Hovedbryteren (`Lister ↔ Notater ↔ Oppskrifter`) er per ENHET og synkes ikke** — den ligger i
 `localStorage['huskis-tab']`. Hvilken fane man sist så på er ikke innhold.
+
+Oppskriftene ligger i de samme `state.noteProjects`/`state.notes` som
+notatene, merket `kind: 'recipe'`, med oppskriftsdokumentet i `note.recipe`
+([oppskrifter.md](oppskrifter.md)).
 
 ## Hierarkiet: Område > Mappe > Liste > Listepunkt
 

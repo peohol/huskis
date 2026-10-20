@@ -120,18 +120,28 @@ begin
     'note_projects:locked', 'note_projects:unlocked', 'note_projects:invite_policy',
     'note_projects:ts', 'note_projects:org',
     'note_projects:pos', 'note_projects:pos_ts', 'note_projects:pos_org',
+    -- Oppskriftene (docs/oppskrifter.md) bor i de samme tabellene: `kind` skiller
+    -- en kokebok fra en bokhylle, og `recipe` er oppskriftens innhold.
+    'note_projects:kind',
 
     'note_folders:id', 'note_folders:owner_id', 'note_folders:project_id',
     'note_folders:name', 'note_folders:trashed', 'note_folders:archived',
     'note_folders:locked', 'note_folders:unlocked', 'note_folders:invite_policy',
     'note_folders:ts', 'note_folders:org',
     'note_folders:pos', 'note_folders:pos_ts', 'note_folders:pos_org',
+    'note_folders:kind',
 
     'notes:id', 'notes:owner_id', 'notes:project_id', 'notes:folder_id',
     'notes:title', 'notes:body', 'notes:trashed', 'notes:archived',
     'notes:locked', 'notes:unlocked', 'notes:invite_policy',
     'notes:ts', 'notes:org',
     'notes:pos', 'notes:pos_ts', 'notes:pos_org',
+    'notes:kind', 'notes:recipe',
+
+    -- De offentlige oppskriftslenkene. Klienten når dem bare gjennom
+    -- recipe_link_*/recipe_public_get, men kolonnene må finnes.
+    'recipe_links:token', 'recipe_links:note_project_id', 'recipe_links:note_folder_id',
+    'recipe_links:note_id', 'recipe_links:created_by', 'recipe_links:created_at',
 
     -- Samskrivingsloggen (docs/notater-plan.md, «Sanntids samskriving»).
     -- Klienten skriver den ikke direkte — alt går gjennom note_crdt_*-RPC-ene
@@ -406,7 +416,10 @@ begin
     'public.notif_revoke_others(text, text, text)',
     'public.session_touch(text, text, text, text)',
     'public.list_my_devices(text, text, text)',
-    'public.revoke_my_session(uuid)'
+    'public.revoke_my_session(uuid)',
+    'public.recipe_link_get(text, uuid)',
+    'public.recipe_link_create(text, uuid)',
+    'public.recipe_link_revoke(text, uuid)'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
@@ -552,6 +565,10 @@ begin
     'note_projects:note_projects_insert_guard',
     'note_folders:note_folders_insert_guard', 'notes:notes_insert_guard',
     'notes:notes_parent_guard', 'note_folders:note_folders_cascade',
+    -- Notat eller oppskrift: `kind` arves og kan ikke krysses (docs/oppskrifter.md).
+    'note_projects:note_projects_kind_guard',
+    'note_folders:note_folders_sync_kind', 'notes:notes_sync_kind',
+    'note_folders:note_folders_kind_check', 'notes:notes_kind_check',
     'object_links:object_links_tombstone', 'object_links:object_links_insert_guard',
     'universes:universes_owner_seed', 'groups:groups_owner_seed',
     'note_projects:note_projects_owner_seed', 'note_folders:note_folders_owner_seed',
@@ -700,6 +717,30 @@ begin
     end if;
   end loop;
 
+  -- De offentlige oppskriftslenkene: INGEN direkte vei for noen. Nøklene er
+  -- hemmeligheter; alt går gjennom RPC-ene (docs/oppskrifter.md).
+  foreach t in array array['SELECT', 'INSERT', 'UPDATE', 'DELETE'] loop
+    if has_table_privilege('authenticated', 'public.recipe_links', t) then
+      feil := array_append(feil, 'authenticated KAN ' || t || ' på recipe_links (skal kun gå via recipe_link_*)');
+    end if;
+  end loop;
+  -- …og den ENE RPC-en anon skal kunne kalle: lesingen bak en offentlig lenke.
+  if to_regprocedure('public.recipe_public_get(text)') is null then
+    feil := array_append(feil, 'RPC public.recipe_public_get(text) mangler');
+  elsif not has_function_privilege('anon', to_regprocedure('public.recipe_public_get(text)'), 'EXECUTE') then
+    feil := array_append(feil, 'anon mangler EXECUTE på recipe_public_get (den offentlige oppskriftsvisningen)');
+  end if;
+  foreach t in array array['public.recipe_obj_live(text, uuid)', 'public.recipe_link_row(text, uuid)',
+                           'public.recipe_link_authorize(text, uuid)',
+                           'public.recipe_public_items(uuid, uuid)'] loop
+    if to_regprocedure(t) is null then
+      feil := array_append(feil, 'funksjon ' || t || ' mangler');
+    elsif has_function_privilege('anon', to_regprocedure(t), 'EXECUTE')
+       or has_function_privilege('authenticated', to_regprocedure(t), 'EXECUTE') then
+      feil := array_append(feil, t || ': kallbar som RPC (skal være intern)');
+    end if;
+  end loop;
+
   -- anon skal ikke se noe som helst.
   foreach t in array array[
     'profiles', 'universes', 'groups', 'cards', 'items', 'ideas',
@@ -707,7 +748,7 @@ begin
     'note_versions', 'object_links',
     'memberships', 'share_invites', 'tombstones',
     'notifications', 'notification_prefs', 'push_subscriptions', 'push_deliveries',
-    'device_sessions', 'native_notif_devices'
+    'device_sessions', 'native_notif_devices', 'recipe_links'
   ] loop
     if has_table_privilege('anon', 'public.' || t, 'SELECT') then
       feil := array_append(feil, 'anon har SELECT på public.' || t);
@@ -865,6 +906,20 @@ begin
   exception when insufficient_privilege then null;
   end;
   begin
+    perform 1 from public.recipe_links limit 1;
+    feil := array_append(feil, 'anon fikk lese public.recipe_links');
+  exception when insufficient_privilege then null;
+  end;
+  -- Den offentlige oppskriftsvisningen: anon SKAL slippe inn her, og en ukjent
+  -- nøkkel gir null — ikke en feil, og ikke noe innhold.
+  begin
+    if public.recipe_public_get(repeat('x', 43)) is not null then
+      feil := array_append(feil, 'recipe_public_get svarte med innhold på en ukjent nøkkel');
+    end if;
+  exception when others then
+    feil := array_append(feil, 'anon fikk ikke kalle recipe_public_get(): ' || sqlerrm);
+  end;
+  begin
     perform public.get_my_doc();
     feil := array_append(feil, 'anon fikk kalle get_my_doc()');
   exception when insufficient_privilege then null;
@@ -874,7 +929,7 @@ begin
     perform set_config('huskis.smoke_feil',
       current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
   else
-    raise notice '  ✓ anon avvises på tabeller og RPC';
+    raise notice '  ✓ anon avvises på tabeller og RPC — og når bare den offentlige oppskriftslesingen';
   end if;
 end $$;
 reset role;

@@ -154,10 +154,10 @@ async function run(navn, viewport, touch) {
       rolle: tabs.getAttribute('role'),
       øverst: Math.round(t.top) <= Math.round(rad.top),
       iPanelet: t.top >= bar.top && t.bottom <= bar.bottom,
-      // ÉN kontroll: begge halvdelene ligger inntil hverandre i den samme
-      // flaten, ikke som to frittstående knapper med luft mellom.
-      sammenhengende: knapper.length === 2 &&
-        Math.round(knapper[1].left - knapper[0].right) <= 4,
+      // ÉN kontroll: segmentene (Lister | Notater | Oppskrifter) ligger
+      // inntil hverandre i den samme flaten, ikke som frittstående knapper.
+      sammenhengende: knapper.length === 3 &&
+        knapper.slice(1).every((k, i) => Math.round(k.left - knapper[i].right) <= 4),
       // Sentrert i HELE headerens bredde — ikke forskjøvet av hjørnegruppen.
       avvikFraMidten: Math.abs(Math.round((t.left + t.right) / 2 - window.innerWidth / 2)),
       // Hjørnegruppen ligger UNDER bryteren, ikke ved siden av den.
@@ -166,7 +166,7 @@ async function run(navn, viewport, touch) {
     };
   });
   log(navn + ': ÉN segmentert hovedbryter, sentrert på panelets øverste linje',
-    faner.antall === 2 && faner.rolle === 'tablist' && faner.øverst && faner.iPanelet &&
+    faner.antall === 3 && faner.rolle === 'tablist' && faner.øverst && faner.iPanelet &&
     faner.sammenhengende && faner.avvikFraMidten <= 2 && faner.hjørneUnder,
     JSON.stringify(faner));
   log(navn + ': toppkontrollene er felles og synlige i listefanen', faner.hjørne);
@@ -198,7 +198,7 @@ async function run(navn, viewport, touch) {
     };
   });
   log(navn + ': markøren er ÉN flate, nøyaktig ett segment bred',
-    bryter.markørW === bryter.segmentW && bryter.likeBrede && bryter.n === '2' && bryter.i === '0',
+    bryter.markørW === bryter.segmentW && bryter.likeBrede && bryter.n === '3' && bryter.i === '0',
     JSON.stringify(bryter));
   log(navn + ': markøren flyttes med `transform`, i bryter-timingen',
     bryter.egenskap === 'transform' && bryter.varighet === '0.16s',
@@ -245,7 +245,7 @@ async function run(navn, viewport, touch) {
     JSON.stringify({ farge: glidd.aktivFarge, strek: glidd.aktivStrek,
       bredde: glidd.aktivStrekBredde, skygge: glidd.aktivSkygge }));
   log(navn + ': rullende tabIndex følger med (0 på den aktive)',
-    glidd.tabIndex === '-1,0', glidd.tabIndex);
+    glidd.tabIndex === '-1,0,-1', glidd.tabIndex);
 
   // Piltastene bytter fortsatt fane, og markøren følger.
   await p.locator('#tab-notes').focus();

@@ -314,6 +314,20 @@ SECURITY DEFINER). `device_sessions` er bare et sidebord med det som gjør en ø
 gjenkjennelig for eieren — nettleser, plattform, vert, enhets-id. Hverken IP
 eller hele user-agenten forlater databasen.
 
+### Oppskriftene (`kind`, `notes.recipe`, `recipe_links`)
+
+Oppskriftene bor i notattabellene: `note_projects.kind`, `note_folders.kind` og
+`notes.kind` er `'note'` eller `'recipe'`, og triggerne `note_child_kind` /
+`note_kind_consistent` holder et tre ensartet (barnet arver kokebokens verdi, og
+en flytting på tvers avvises). `notes.recipe` er oppskriftsdokumentet (jsonb),
+LWW-stemplet sammen med tittelen.
+
+`recipe_links` holder de offentlige lenkene (én per objekt): RLS uten policy og
+uten grant, så bare `SECURITY DEFINER`-funksjonene når den.
+`recipe_link_get/_create/_revoke` krever `can_manage_members`;
+`recipe_public_get` er den eneste funksjonen `anon` har `EXECUTE` på.
+Autoritativt: [oppskrifter.md](oppskrifter.md).
+
 ### Roller (`memberships`)
 
 Én rad = én brukers ROLLE på ETT delbart objekt (område **eller** mappe):

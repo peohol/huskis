@@ -480,6 +480,77 @@ do $$ begin
     check (invite_policy in ('inherit','allow','deny'));
 exception when duplicate_object then null; end $$;
 
+-- OPPSKRIFTENE (docs/oppskrifter.md) ER HUSKIS' TREDJE HOVEDDEL, og de bor i
+-- DE SAMME TRE TABELLENE: en KOKEBOK er en bokhylle, et KAPITTEL er en
+-- notatbok og en OPPSKRIFT er et notat — med `kind = 'recipe'`. Det er ikke en
+-- snarvei, men hele grepet: deling, roller, låser, invitasjoner, gravsteiner,
+-- «Delt med meg», kontosletting og rad-synken gjelder dermed uendret, og
+-- rettighetsmodellen (docs/rettigheter-og-deling.md) finnes fortsatt ÉN gang.
+--
+-- `kind` er en egenskap ved HELE treet: kokebokens verdi er fasit, og
+-- kapitlene og oppskriftene arver den (vaktene i seksjon 6 utleder den og
+-- avviser en flytting mellom en bokhylle og en kokebok). Den er uforanderlig
+-- etter opprettelsen. Default 'note', så eksisterende rader og eldre klienter
+-- er notater, som før.
+--
+-- `recipe` er oppskriftens innhold — beskrivelse, porsjoner, ingredienser og
+-- fremgangsmåte — som ETT strukturert dokument. Formen er klientens
+-- (`recipe-core.js`); databasen lagrer den som jsonb og tolker den ikke. Den
+-- rir på innholdsregisteret (`ts`/`org`) sammen med tittelen, akkurat som et
+-- notatdokument gjorde før samskrivingen: to samtidige redigeringer av den
+-- SAMME oppskriften gir én vinner per dokument. `null` for notater.
+alter table public.note_projects add column if not exists kind text not null default 'note';
+alter table public.note_folders  add column if not exists kind text not null default 'note';
+alter table public.notes         add column if not exists kind text not null default 'note';
+alter table public.notes         add column if not exists recipe jsonb;
+do $$ begin
+  alter table public.note_projects add constraint note_projects_kind_chk
+    check (kind in ('note','recipe'));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.note_folders add constraint note_folders_kind_chk
+    check (kind in ('note','recipe'));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.notes add constraint notes_kind_chk
+    check (kind in ('note','recipe'));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.notes add constraint notes_recipe_chk
+    check (recipe is null or jsonb_typeof(recipe) = 'object');
+exception when duplicate_object then null; end $$;
+
+-- OFFENTLIGE LENKER til en kokebok, et kapittel eller en oppskrift
+-- (docs/oppskrifter.md, «Offentlig lenke»). Én rad = én aktiv lenke. Den gir
+-- KUN lesetilgang, og KUN gjennom `recipe_public_get()` — tabellen har ingen
+-- policy og ingen grant, så verken anon eller innloggede klienter når den
+-- direkte. Nøkkelen er 192 tilfeldige bit fra pgcrypto, laget av serveren.
+--
+-- Lenken peker på OBJEKTET, ikke på en kopi: den viser alltid innholdet slik
+-- det er nå. Den slutter å virke når den trekkes tilbake (raden slettes),
+-- når objektet slettes for godt (kaskaden), når det ligger i søppelkassen, og
+-- når den som laget lenken ikke lenger eier objektet — tilgangsendringer
+-- smitter altså på lenken med en gang. Høyst én lenke per objekt.
+create table if not exists public.recipe_links (
+  token           text primary key,
+  note_project_id uuid references public.note_projects (id) on delete cascade,
+  note_folder_id  uuid references public.note_folders (id) on delete cascade,
+  note_id         uuid references public.notes (id) on delete cascade,
+  created_by      uuid not null references public.profiles (id) on delete cascade,
+  created_at      timestamptz not null default now(),
+  constraint recipe_links_target_chk
+    check (num_nonnulls(note_project_id, note_folder_id, note_id) = 1),
+  constraint recipe_links_token_chk check (length(token) >= 32)
+);
+create unique index if not exists recipe_links_project_uq
+  on public.recipe_links (note_project_id) where note_project_id is not null;
+create unique index if not exists recipe_links_folder_uq
+  on public.recipe_links (note_folder_id) where note_folder_id is not null;
+create unique index if not exists recipe_links_note_uq
+  on public.recipe_links (note_id) where note_id is not null;
+create index if not exists recipe_links_creator_idx on public.recipe_links (created_by);
+alter table public.recipe_links enable row level security;
+
 
 -- ------------------------------------------------------------
 -- 2b-2. SAMSKRIVING I SAMME NOTAT — public.note_updates
@@ -2832,8 +2903,8 @@ begin
   end if;
   if (uid is not null and not can_content and not public.in_privileged_op())
      or not public.reg_newer(new.ts, new.org, old.ts, old.org) then
-    new.title := old.title; new.body := old.body; new.trashed := old.trashed;
-    new.archived := old.archived;
+    new.title := old.title; new.body := old.body; new.recipe := old.recipe;
+    new.trashed := old.trashed; new.archived := old.archived;
     new.ts := old.ts; new.org := old.org;
   end if;
   -- Samme unntak som for notatboken: en flytting `v_moved` allerede har
@@ -2904,6 +2975,81 @@ create trigger notes_parent_guard before insert on public.notes
 drop trigger if exists note_folders_cascade on public.note_folders;
 create trigger note_folders_cascade after update on public.note_folders
   for each row execute function public.note_folders_after_update();
+
+-- ---- Notat eller oppskrift: `kind` følger treet (docs/oppskrifter.md) ----
+-- Kokebokens `kind` er fasit og kan ikke endres etter opprettelsen. Et kapittel
+-- og en oppskrift ARVER den fra kokeboken de står i: verdien utledes ved
+-- innsetting (klienten trenger ikke engang sende den), og en FLYTTING til en
+-- bokhylle av den andre sorten avvises — et notat kan ikke havne i en kokebok,
+-- og en oppskrift ikke i en bokhylle. Utledningen speiler `notes_fix_parent`:
+-- forelderen kan komme senere i samme transaksjon (fremmednøkkelen er
+-- `deferrable`), og da tar den utsatte kontrollen under det ved commit.
+--
+-- Navnene er valgt for rekkefølgen (BEFORE-triggere fyrer i navnerekkefølge):
+-- `*_sync_kind` kjører etter gravsteinsvakten, LWW-vakten og (for notater)
+-- `notes_parent_guard`, så `kind` utledes av den ferdige forelderen.
+create or replace function public.note_projects_kind_freeze()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  new.kind := old.kind;
+  return new;
+end;
+$$;
+
+create or replace function public.note_child_kind()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare v_kind text;
+begin
+  select p.kind into v_kind from public.note_projects p where p.id = new.project_id;
+  if tg_op = 'UPDATE' then
+    if v_kind is not null and v_kind is distinct from old.kind then
+      raise exception 'kan ikke flytte mellom notater og oppskrifter'
+        using errcode = 'check_violation';
+    end if;
+    new.kind := old.kind;
+    return new;
+  end if;
+  if v_kind is not null then new.kind := v_kind; end if;
+  return new;
+end;
+$$;
+
+-- Den utsatte kontrollen: ved commit skal raden og bokhyllen/kokeboken den står
+-- i være av samme sort. Leser raden PÅ NYTT — den kan ha endret seg etter
+-- hendelsen som satte kontrollen i kø.
+create or replace function public.note_kind_consistent()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare v_kind text; v_parent text;
+begin
+  execute format('select t.kind, p.kind from public.%I t
+                    join public.note_projects p on p.id = t.project_id
+                   where t.id = $1', tg_table_name)
+    into v_kind, v_parent using new.id;
+  if v_kind is not null and v_parent is not null and v_kind is distinct from v_parent then
+    raise exception 'kan ikke blande notater og oppskrifter i samme bok'
+      using errcode = 'check_violation';
+  end if;
+  return null;
+end;
+$$;
+
+drop trigger if exists note_projects_kind_guard on public.note_projects;
+create trigger note_projects_kind_guard before update on public.note_projects
+  for each row execute function public.note_projects_kind_freeze();
+drop trigger if exists note_folders_sync_kind on public.note_folders;
+create trigger note_folders_sync_kind before insert or update on public.note_folders
+  for each row execute function public.note_child_kind();
+drop trigger if exists notes_sync_kind on public.notes;
+create trigger notes_sync_kind before insert or update on public.notes
+  for each row execute function public.note_child_kind();
+drop trigger if exists note_folders_kind_check on public.note_folders;
+create constraint trigger note_folders_kind_check after insert or update on public.note_folders
+  deferrable initially deferred
+  for each row execute function public.note_kind_consistent();
+drop trigger if exists notes_kind_check on public.notes;
+create constraint trigger notes_kind_check after insert or update on public.notes
+  deferrable initially deferred
+  for each row execute function public.note_kind_consistent();
 
 -- ---- Medlemskaps-/rolle-vakter ----
 -- Rollen er MUTABEL, men kun gjennom set_member_role()/accept_share_invite()
@@ -6162,7 +6308,7 @@ begin
         'id', np.id, 'creator', np.owner_id, 'createdByMe', np.owner_id = uid,
         'role', np.my_role, 'personalPos', np.personal_pos,
         'name', np.name, 'collapsed', np.collapsed, 'trashed', np.trashed,
-        'archived', np.archived,
+        'archived', np.archived, 'kind', np.kind,
         'locked', np.locked, 'unlocked', np.unlocked, 'invitePolicy', np.invite_policy,
         'ts', np.ts, 'org', np.org,
         'pos', np.pos, 'posTs', np.pos_ts, 'posOrg', np.pos_org,
@@ -6175,7 +6321,7 @@ begin
         'project', nf.project_id, 'free', nf.free,
         'role', nf.direct_role, 'personalPos', nf.personal_pos,
         'name', nf.name, 'trashed', nf.trashed,
-        'archived', nf.archived,
+        'archived', nf.archived, 'kind', nf.kind,
         'locked', nf.locked, 'unlocked', nf.unlocked, 'invitePolicy', nf.invite_policy,
         'ts', nf.ts, 'org', nf.org,
         'pos', nf.pos, 'posTs', nf.pos_ts, 'posOrg', nf.pos_org,
@@ -6187,7 +6333,7 @@ begin
         'project', n.project_id, 'folder', n.folder_id, 'free', n.free,
         'role', n.direct_role, 'personalPos', n.personal_pos,
         'title', n.title, 'body', n.body, 'trashed', n.trashed,
-        'archived', n.archived,
+        'archived', n.archived, 'kind', n.kind, 'recipe', n.recipe,
         'locked', n.locked, 'unlocked', n.unlocked, 'invitePolicy', n.invite_policy,
         'ts', n.ts, 'org', n.org,
         'pos', n.pos, 'posTs', n.pos_ts, 'posOrg', n.pos_org,
@@ -6212,6 +6358,10 @@ begin
         'id', s.id,
         'type', public.invite_type(s),
         'role', s.role,
+        -- Notat eller oppskrift: det samme objektet heter noe annet i UI-et.
+        'kind', coalesce((select kind from public.note_projects where id = s.note_project_id),
+                         (select kind from public.note_folders where id = s.note_folder_id),
+                         (select kind from public.notes where id = s.note_id)),
         'name', coalesce((select name from public.universes where id = s.universe_id),
                          (select name from public.groups    where id = s.group_id),
                          (select name from public.note_projects where id = s.note_project_id),
@@ -6838,6 +6988,215 @@ end;
 $$;
 
 -- ------------------------------------------------------------
+-- 9f. OFFENTLIGE OPPSKRIFTSLENKER (docs/oppskrifter.md)
+--
+--    Tre RPC-er for den som EIER objektet (lage, lese, trekke tilbake), og én
+--    for alle — også uten innlogging — som leser innholdet bak en nøkkel.
+--    Rettighetene ligger HER, ikke i klienten: tabellen er stengt, og hver
+--    funksjon sjekker selv.
+--
+--    HVEM: den som kan administrere medlemmene på objektet
+--    (`can_manage_members` — eier på nivået eller over). En offentlig lenke
+--    gir hele verden lesetilgang, så den krever minst like mye som å invitere
+--    en eier. Lenken lever bare så lenge den som laget den FORTSATT har den
+--    myndigheten: mister hen eierskapet, dør lenken med det samme.
+--
+--    HVA: bare det delte objektet og det som ligger UNDER det, uten søppel —
+--    en kokebok med kapitlene og oppskriftene, et kapittel med oppskriftene,
+--    eller én oppskrift. Ingen id-er, ingen brukeropplysninger, ingen
+--    tidsstempler og ingenting fra nivået over (et delt kapittel avslører ikke
+--    kokebokens navn).
+-- ------------------------------------------------------------
+
+-- Er objektet en LEVENDE oppskriftsrad? Slettet (i søppelkassen), arkivert,
+-- eller under en forelder som er det, teller som borte — en lenke skal aldri
+-- vise noe eieren selv ikke ser.
+create or replace function public.recipe_obj_live(p_type text, p_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce(case p_type
+    when 'note_project' then (
+      select p.kind = 'recipe' and not p.trashed and not p.archived
+        from public.note_projects p where p.id = p_id)
+    when 'note_folder' then (
+      select f.kind = 'recipe' and not f.trashed and not f.archived
+             and not p.trashed and not p.archived
+        from public.note_folders f
+        join public.note_projects p on p.id = f.project_id
+       where f.id = p_id)
+    when 'note' then (
+      select n.kind = 'recipe' and not n.trashed and not n.archived
+             and not p.trashed and not p.archived
+             and (f.id is null or (not f.trashed and not f.archived))
+        from public.notes n
+        join public.note_projects p on p.id = n.project_id
+        left join public.note_folders f on f.id = n.folder_id
+       where n.id = p_id)
+  end, false);
+$$;
+
+-- Lenkeraden for et objekt (høyst én, se de unike indeksene).
+create or replace function public.recipe_link_row(p_type text, p_id uuid)
+returns setof public.recipe_links language sql stable security definer set search_path = public as $$
+  select l.* from public.recipe_links l
+   where case p_type
+           when 'note_project' then l.note_project_id = p_id
+           when 'note_folder'  then l.note_folder_id = p_id
+           when 'note'         then l.note_id = p_id
+           else false end;
+$$;
+
+-- Kalleren må kunne administrere objektet, og objektet må være en oppskrift.
+create or replace function public.recipe_link_authorize(p_type text, p_id uuid)
+returns uuid language plpgsql stable security definer set search_path = public as $$
+declare uid uuid := auth.uid();
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  if p_type is null or p_type not in ('note_project', 'note_folder', 'note') then
+    raise exception 'ukjent type: %', p_type;
+  end if;
+  if not public.can_manage_members(p_type, p_id, uid) then
+    raise exception 'bare en eier kan styre den offentlige lenken'
+      using errcode = 'insufficient_privilege';
+  end if;
+  if not exists (
+    select 1 from public.note_projects where p_type = 'note_project' and id = p_id and kind = 'recipe'
+    union all
+    select 1 from public.note_folders where p_type = 'note_folder' and id = p_id and kind = 'recipe'
+    union all
+    select 1 from public.notes where p_type = 'note' and id = p_id and kind = 'recipe'
+  ) then
+    raise exception 'bare kokebøker, kapitler og oppskrifter kan få en offentlig lenke';
+  end if;
+  return uid;
+end;
+$$;
+
+-- Den aktive nøkkelen, eller null. En rad hvis oppretter har mistet
+-- myndigheten er en død lenke: den ryddes bort her, så neste «Lag lenke» gir
+-- en ny nøkkel i stedet for å vekke den gamle.
+create or replace function public.recipe_link_get(p_type text, p_id uuid)
+returns text language plpgsql security definer set search_path = public as $$
+declare l public.recipe_links;
+begin
+  perform public.recipe_link_authorize(p_type, p_id);
+  select * into l from public.recipe_link_row(p_type, p_id);
+  if not found then return null; end if;
+  if not public.can_manage_members(p_type, p_id, l.created_by) then
+    delete from public.recipe_links where token = l.token;
+    return null;
+  end if;
+  return l.token;
+end;
+$$;
+
+create or replace function public.recipe_link_create(p_type text, p_id uuid)
+returns text language plpgsql security definer set search_path = public as $$
+declare uid uuid; v_token text;
+begin
+  uid := public.recipe_link_authorize(p_type, p_id);
+  if not public.recipe_obj_live(p_type, p_id) then
+    raise exception 'objektet er slettet';
+  end if;
+  v_token := public.recipe_link_get(p_type, p_id);
+  if v_token is not null then return v_token; end if;
+  v_token := translate(rtrim(encode(extensions.gen_random_bytes(24), 'base64'), '='), '+/', '-_');
+  insert into public.recipe_links (token, note_project_id, note_folder_id, note_id, created_by)
+  values (v_token,
+          case when p_type = 'note_project' then p_id end,
+          case when p_type = 'note_folder' then p_id end,
+          case when p_type = 'note' then p_id end,
+          uid)
+  on conflict do nothing;
+  -- To eiere som trykket samtidig: den andre får den førstes nøkkel.
+  select l.token into v_token from public.recipe_link_row(p_type, p_id) l;
+  return v_token;
+end;
+$$;
+
+create or replace function public.recipe_link_revoke(p_type text, p_id uuid)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  perform public.recipe_link_authorize(p_type, p_id);
+  delete from public.recipe_links l
+   where case p_type
+           when 'note_project' then l.note_project_id = p_id
+           when 'note_folder'  then l.note_folder_id = p_id
+           else l.note_id = p_id end;
+  get diagnostics n = row_count;
+  return n > 0;
+end;
+$$;
+
+-- Én oppskrift slik den offentlige visningen får den: tittel og innhold, intet
+-- annet.
+create or replace function public.recipe_public_item(p_title text, p_recipe jsonb)
+returns jsonb language sql immutable set search_path = public as $$
+  select jsonb_build_object('title', coalesce(p_title, ''),
+                            'recipe', coalesce(p_recipe, '{}'::jsonb));
+$$;
+
+-- De levende oppskriftene på ÉN plassering: rett i kokeboken (p_folder null)
+-- eller i et kapittel.
+create or replace function public.recipe_public_items(p_project uuid, p_folder uuid)
+returns jsonb language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(public.recipe_public_item(n.title, n.recipe) order by n.pos, n.id),
+                  '[]'::jsonb)
+    from public.notes n
+   where n.project_id = p_project and n.kind = 'recipe'
+     and not n.trashed and not n.archived
+     and (case when p_folder is null then n.folder_id is null else n.folder_id = p_folder end);
+$$;
+
+/* DEN OFFENTLIGE INNGANGEN. Kallbar for `anon`. Ukjent, tilbaketrukket og død
+   lenke gir det SAMME svaret — null — så nøkkelen ikke kan prøves ut for å
+   lære noe om hva som finnes. Svarets form:
+     { type: 'book'|'chapter'|'recipe', name,
+       chapters: [{ name, recipes: [{title, recipe}] }],
+       recipes:  [{ title, recipe }] }        -- rett i boken / den ene */
+create or replace function public.recipe_public_get(p_token text)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  l public.recipe_links;
+  v_type text; v_id uuid;
+  p public.note_projects; f public.note_folders; n public.notes;
+begin
+  if p_token is null or length(p_token) < 32 or length(p_token) > 128 then return null; end if;
+  select * into l from public.recipe_links where token = p_token;
+  if not found then return null; end if;
+  v_type := case when l.note_project_id is not null then 'note_project'
+                 when l.note_folder_id is not null then 'note_folder' else 'note' end;
+  v_id := coalesce(l.note_project_id, l.note_folder_id, l.note_id);
+  if not public.recipe_obj_live(v_type, v_id)
+     or not public.can_manage_members(v_type, v_id, l.created_by) then
+    return null;
+  end if;
+  if v_type = 'note_project' then
+    select * into p from public.note_projects where id = v_id;
+    return jsonb_build_object(
+      'type', 'book', 'name', p.name,
+      'chapters', coalesce((
+        select jsonb_agg(jsonb_build_object(
+                 'name', cf.name,
+                 'recipes', public.recipe_public_items(p.id, cf.id)) order by cf.pos, cf.id)
+          from public.note_folders cf
+         where cf.project_id = p.id and cf.kind = 'recipe'
+           and not cf.trashed and not cf.archived), '[]'::jsonb),
+      'recipes', public.recipe_public_items(p.id, null));
+  elsif v_type = 'note_folder' then
+    select * into f from public.note_folders where id = v_id;
+    return jsonb_build_object(
+      'type', 'chapter', 'name', f.name, 'chapters', '[]'::jsonb,
+      'recipes', public.recipe_public_items(f.project_id, f.id));
+  end if;
+  select * into n from public.notes where id = v_id;
+  return jsonb_build_object(
+    'type', 'recipe', 'name', n.title, 'chapters', '[]'::jsonb,
+    'recipes', jsonb_build_array(public.recipe_public_item(n.title, n.recipe)));
+end;
+$$;
+
+-- ------------------------------------------------------------
 -- 10. import_doc(p_doc) — migrering av dagens (lokale) doc inn som
 --     den innloggede brukerens egne data. Klienten normaliserer
 --     doc-et først (samme migreringssteg som i dag) og sender
@@ -7218,7 +7577,8 @@ revoke all on public.profiles, public.universes, public.groups, public.cards,
               public.object_links, public.memberships, public.share_invites,
               public.tombstones, public.notifications,
               public.notification_prefs, public.push_subscriptions,
-              public.device_sessions, public.native_notif_devices from anon;
+              public.device_sessions, public.native_notif_devices,
+              public.recipe_links from anon;
 
 -- profiles: e-posten speiles KUN fra auth.users (triggerne over) og er
 -- skrivebeskyttet for klienter — ellers kunne en bruker kapre ventende
@@ -7353,6 +7713,10 @@ revoke all on public.device_sessions from public, anon, authenticated;
 -- native_notif_touch(). En direkte vei ville latt en klient skrive en rad for
 -- en annen brukers enhet — eller slå av varslene på en enhet hen ikke eier.
 revoke all on public.native_notif_devices from public, anon, authenticated;
+-- recipe_links: de offentlige oppskriftslenkene. INGEN direkte vei for noen —
+-- nøklene er hemmeligheter, og alt går gjennom recipe_link_get/_create/_revoke
+-- (eiere) og recipe_public_get (alle), som sjekker selv (seksjon 9f).
+revoke all on public.recipe_links from public, anon, authenticated;
 
 do $$
 declare fn text;
@@ -7393,7 +7757,10 @@ begin
     'public.notif_revoke_others(text, text, text)',
     'public.session_touch(text, text, text, text)',
     'public.list_my_devices(text, text, text)',
-    'public.revoke_my_session(uuid)'
+    'public.revoke_my_session(uuid)',
+    'public.recipe_link_get(text, uuid)',
+    'public.recipe_link_create(text, uuid)',
+    'public.recipe_link_revoke(text, uuid)'
   ] loop
     execute format('revoke execute on function %s from public, anon', fn);
     execute format('grant execute on function %s to authenticated', fn);
@@ -7429,6 +7796,16 @@ revoke all on function public.native_notif_active(uuid) from public, anon, authe
 -- de er byggeklosser inne i RPC-ene — ikke en RPC klienten skal kalle selv.
 revoke all on function public.session_alive(uuid) from public, anon, authenticated;
 revoke all on function public.current_session_id() from public, anon, authenticated;
+-- Oppskriftslenkenes byggeklosser svarer på spørsmål om VILKÅRLIGE id-er
+-- (finnes den, er den slettet, hvem lenken tilhører) uten egen sjekk.
+revoke all on function public.recipe_obj_live(text, uuid) from public, anon, authenticated;
+revoke all on function public.recipe_link_row(text, uuid) from public, anon, authenticated;
+revoke all on function public.recipe_link_authorize(text, uuid) from public, anon, authenticated;
+revoke all on function public.recipe_public_items(uuid, uuid) from public, anon, authenticated;
+-- DEN ENE funksjonen anon får kalle: lesingen bak en offentlig lenke. Den
+-- sjekker nøkkelen selv og svarer null på alt annet (seksjon 9f).
+revoke all on function public.recipe_public_get(text) from public;
+grant execute on function public.recipe_public_get(text) to anon, authenticated;
 
 -- TRIGGERFUNKSJONENE er ikke RPC-er. Alle er `security definer` og gjør
 -- privilegerte ting (vakter, gravsteiner, kaskader) uten en egen

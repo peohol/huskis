@@ -124,6 +124,8 @@
     if (!Array.isArray(db.notes)) db.notes = [];
     if (!Array.isArray(db.note_updates)) db.note_updates = [];
     if (!Array.isArray(db.note_versions)) db.note_versions = [];
+    // De offentlige oppskriftslenkene (docs/oppskrifter.md).
+    if (!Array.isArray(db.recipe_links)) db.recipe_links = [];
     if (typeof db.note_mark !== 'number') db.note_mark = 1;
     return migrateRoles(db);
   }
@@ -1491,6 +1493,7 @@
           id: p.id, creator: p.owner_id, createdByMe: p.owner_id === uid, name: p.name,
           role: m ? m.role : null, personalPos: m ? m.pos : 0,
           collapsed: !!p.collapsed, trashed: !!p.trashed, archived: !!p.archived,
+          kind: p.kind || 'note',
           locked: !!p.locked, unlocked: !!p.unlocked,
           invitePolicy: p.invite_policy || 'inherit',
           ts: p.ts, org: p.org, pos: p.pos, posTs: p.pos_ts, posOrg: p.pos_org,
@@ -1509,6 +1512,7 @@
           free: !myNPIds[f.project_id],
           role: m ? m.role : null, personalPos: m ? m.pos : 0,
           name: f.name, trashed: !!f.trashed, archived: !!f.archived,
+          kind: f.kind || 'note',
           locked: !!f.locked, unlocked: !!f.unlocked,
           invitePolicy: f.invite_policy || 'inherit',
           ts: f.ts, org: f.org, pos: f.pos, posTs: f.pos_ts, posOrg: f.pos_org,
@@ -1527,6 +1531,7 @@
           free: !myNPIds[n.project_id] && !(n.folder_id && myNFIds[n.folder_id]),
           role: m ? m.role : null, personalPos: m ? m.pos : 0,
           title: n.title, body: n.body, trashed: !!n.trashed, archived: !!n.archived,
+          kind: n.kind || 'note', recipe: n.recipe == null ? null : clone(n.recipe),
           locked: !!n.locked, unlocked: !!n.unlocked,
           invitePolicy: n.invite_policy || 'inherit',
           ts: n.ts, org: n.org, pos: n.pos, posTs: n.pos_ts, posOrg: n.pos_org,
@@ -1549,7 +1554,10 @@
         return s.status === 'pending' && (s.invitee_id === uid ||
           (email && String(s.invitee_email).toLowerCase() === email.toLowerCase()));
       }).map(function (s) {
+        var mål = s.note_project_id ? findNP(db, s.note_project_id)
+          : s.note_folder_id ? findNF(db, s.note_folder_id) : s.note_id ? findN(db, s.note_id) : null;
         return { id: s.id, type: inviteType(s), role: s.role || 'member', name: inviteName(db, s),
+                 kind: mål ? (mål.kind || 'note') : null,
                  from: emailOf(db, s.inviter_id), from_name: nameOf(db, s.inviter_id),
                  created_at: s.created_at };
       }),
@@ -1927,6 +1935,18 @@
            hverandre, ellers ville en kaskade fra feil bokhylle tatt notatet. */
         if (mappe) row.project_id = mappe.project_id;
       }
+      /* Notat eller oppskrift (docs/oppskrifter.md): kokebokens `kind` er
+         fasit, og kapitler og oppskrifter ARVER den — som note_child_kind i
+         users-and-sharing.sql. Utledes, avvises ikke. */
+      if (table === 'note_projects' || table === 'note_folders' || table === 'notes') {
+        var kindFra = table === 'note_projects' ? null : findNP(db, row.project_id);
+        row.kind = kindFra ? (kindFra.kind || 'note') : (row.kind === 'recipe' ? 'recipe' : 'note');
+        if (table === 'notes' && row.recipe != null &&
+            (typeof row.recipe !== 'object' || Array.isArray(row.recipe))) {
+          throw new Error('new row for relation "notes" violates check constraint "notes_recipe_chk"');
+        }
+        if (table === 'notes' && !('recipe' in row)) row.recipe = null;
+      }
       // Nye objekter arver invitasjonspolicy dynamisk → lagres som 'inherit'.
       if (!row.invite_policy && (table === 'universes' || table === 'groups'
           || table === 'note_projects' || table === 'note_folders' || table === 'notes')) {
@@ -2036,6 +2056,17 @@
           ? ('project_id' in patch && patch.project_id !== row.project_id)
           : (table === 'notes' && (('folder_id' in patch && (patch.folder_id || null) !== (row.folder_id || null))
              || (!row.folder_id && !patch.folder_id && 'project_id' in patch && patch.project_id !== row.project_id)));
+        /* Ingen flytting mellom notater og oppskrifter (note_child_kind).
+           `kind` selv er uforanderlig — en patch på den overses. */
+        if (table !== 'note_projects') {
+          var maalProsjekt = 'folder_id' in patch && patch.folder_id && findNF(db, patch.folder_id)
+            ? findNF(db, patch.folder_id).project_id
+            : ('project_id' in patch ? patch.project_id : row.project_id);
+          var maal = findNP(db, maalProsjekt);
+          if (maal && (maal.kind || 'note') !== (row.kind || 'note')) {
+            throw new Error('kan ikke flytte mellom notater og oppskrifter');
+          }
+        }
         if (flyttet) {
           if (!canMoveNoteObject(db, ntype, row.id, uid)) throw new Error('mangler myndighet til å flytte');
           var okMaal = table === 'note_folders'
@@ -2047,7 +2078,11 @@
         var nContent = canEditContent(db, ntype, row.id, uid);
         var nReorder = canReorderInParent(db, ntype, row.id, uid);
         if (nContent && regNewer(patch.ts, patch.org, row.ts, row.org)) {
-          ['name', 'title', 'body', 'collapsed', 'trashed', 'archived'].forEach(function (k) {
+          if ('recipe' in patch && patch.recipe != null &&
+              (typeof patch.recipe !== 'object' || Array.isArray(patch.recipe))) {
+            throw new Error('new row for relation "notes" violates check constraint "notes_recipe_chk"');
+          }
+          ['name', 'title', 'body', 'recipe', 'collapsed', 'trashed', 'archived'].forEach(function (k) {
             if (k in patch) row[k] = patch[k];
           });
           row.ts = patch.ts; row.org = patch.org;
@@ -2481,8 +2516,116 @@
       .reduce(function (a, m) { return Math.max(a, m.pos || 0); }, 0) + 1;
   }
 
+  /* ---------------- Offentlige oppskriftslenker (docs/oppskrifter.md) ----------------
+     Speiler seksjon 9f i users-and-sharing.sql: eiere lager, leser og trekker
+     tilbake; alle (også uten innlogging) leser innholdet bak en gyldig
+     nøkkel. En lenke lever bare så lenge målet finnes, ikke ligger i
+     søppelkassen, og oppretteren fortsatt er eier. */
+  var LINK_COL = { note_project: 'note_project_id', note_folder: 'note_folder_id', note: 'note_id' };
+  function liveRow(r) { return !!r && !r.trashed && !r.archived; }
+  function recipeObjLive(db, type, id) {
+    if (type === 'note_project') {
+      var p = findNP(db, id);
+      return liveRow(p) && p.kind === 'recipe';
+    }
+    if (type === 'note_folder') {
+      var f = findNF(db, id);
+      return liveRow(f) && f.kind === 'recipe' && liveRow(findNP(db, f.project_id));
+    }
+    if (type === 'note') {
+      var n = findN(db, id);
+      return liveRow(n) && n.kind === 'recipe' && liveRow(findNP(db, n.project_id)) &&
+        (!n.folder_id || !findNF(db, n.folder_id) || liveRow(findNF(db, n.folder_id)));
+    }
+    return false;
+  }
+  function recipeLinkRow(db, type, id) {
+    var col = LINK_COL[type];
+    return col ? (db.recipe_links || []).find(function (l) { return l[col] === id; }) || null : null;
+  }
+  function recipeLinkAuthorize(db, type, id, uid) {
+    if (!LINK_COL[type]) throw new Error('ukjent type: ' + type);
+    if (!canManageMembers(db, type, id, uid)) {
+      var e = new Error('bare en eier kan styre den offentlige lenken'); e.code = '42501'; throw e;
+    }
+    var o = type === 'note_project' ? findNP(db, id) : type === 'note_folder' ? findNF(db, id) : findN(db, id);
+    if (!o || o.kind !== 'recipe') throw new Error('bare kokebøker, kapitler og oppskrifter kan få en offentlig lenke');
+  }
+  function recipeLinkGet(db, type, id, uid) {
+    recipeLinkAuthorize(db, type, id, uid);
+    var l = recipeLinkRow(db, type, id);
+    if (!l) return null;
+    if (!canManageMembers(db, type, id, l.created_by)) {
+      db.recipe_links = db.recipe_links.filter(function (x) { return x !== l; });
+      return null;
+    }
+    return l.token;
+  }
+  function recipeToken() {
+    var a = new Uint8Array(24);
+    crypto.getRandomValues(a);
+    return btoa(String.fromCharCode.apply(null, a)).replace(/=+$/, '')
+      .replace(/\+/g, '-').replace(/\//g, '_');
+  }
+  function recipeLinkCreate(db, type, id, uid) {
+    recipeLinkAuthorize(db, type, id, uid);
+    if (!recipeObjLive(db, type, id)) throw new Error('objektet er slettet');
+    var t = recipeLinkGet(db, type, id, uid);
+    if (t) return t;
+    var row = { token: recipeToken(), note_project_id: null, note_folder_id: null, note_id: null,
+                created_by: uid, created_at: Date.now() };
+    row[LINK_COL[type]] = id;
+    db.recipe_links.push(row);
+    return row.token;
+  }
+  function recipeLinkRevoke(db, type, id, uid) {
+    recipeLinkAuthorize(db, type, id, uid);
+    var col = LINK_COL[type];
+    var før = db.recipe_links.length;
+    db.recipe_links = db.recipe_links.filter(function (l) { return l[col] !== id; });
+    return db.recipe_links.length < før;
+  }
+  function recipePublicItem(n) { return { title: n.title || '', recipe: clone(n.recipe || {}) }; }
+  function recipePublicItems(db, projectId, folderId) {
+    return (db.notes || []).filter(function (n) {
+      return n.project_id === projectId && n.kind === 'recipe' && liveRow(n) &&
+        (folderId ? n.folder_id === folderId : !n.folder_id);
+    }).sort(function (a, b) { return (a.pos - b.pos) || (a.id < b.id ? -1 : 1); }).map(recipePublicItem);
+  }
+  function recipePublicGet(db, token) {
+    if (typeof token !== 'string' || token.length < 32 || token.length > 128) return null;
+    var l = (db.recipe_links || []).find(function (x) { return x.token === token; });
+    if (!l) return null;
+    var type = l.note_project_id ? 'note_project' : l.note_folder_id ? 'note_folder' : 'note';
+    var id = l.note_project_id || l.note_folder_id || l.note_id;
+    if (!recipeObjLive(db, type, id) || !canManageMembers(db, type, id, l.created_by)) return null;
+    if (type === 'note_project') {
+      var p = findNP(db, id);
+      return {
+        type: 'book', name: p.name || '',
+        chapters: (db.note_folders || []).filter(function (f) {
+          return f.project_id === id && f.kind === 'recipe' && liveRow(f);
+        }).sort(function (a, b) { return (a.pos - b.pos) || (a.id < b.id ? -1 : 1); }).map(function (f) {
+          return { name: f.name || '', recipes: recipePublicItems(db, id, f.id) };
+        }),
+        recipes: recipePublicItems(db, id, null),
+      };
+    }
+    if (type === 'note_folder') {
+      var f = findNF(db, id);
+      return { type: 'chapter', name: f.name || '', chapters: [],
+               recipes: recipePublicItems(db, f.project_id, f.id) };
+    }
+    var n = findN(db, id);
+    return { type: 'recipe', name: n.title || '', chapters: [], recipes: [recipePublicItem(n)] };
+  }
+
   function rpcHandlers(db, uid) {
     return {
+      recipe_link_get: function (p) { return recipeLinkGet(db, p.p_type, p.p_id, uid); },
+      recipe_link_create: function (p) { return recipeLinkCreate(db, p.p_type, p.p_id, uid); },
+      recipe_link_revoke: function (p) { return recipeLinkRevoke(db, p.p_type, p.p_id, uid); },
+      recipe_public_get: function (p) { return recipePublicGet(db, p.p_token); },
       get_my_doc: function () { return getMyDoc(db, uid); },
       note_crdt_load: function (p) { return noteCrdtLoad(db, p.p_note, uid, null); },
       note_crdt_since: function (p) { return noteCrdtLoad(db, p.p_note, uid, p.p_mark); },
@@ -2798,6 +2941,8 @@
         var now = Date.now();
         var heir = function (uni) { return survivingOwner(db, uni, uid); };
 
+        // 0. de offentlige oppskriftslenkene jeg har laget (`created_by` kaskaderer)
+        db.recipe_links = (db.recipe_links || []).filter(function (l) { return l.created_by !== uid; });
         // 1. invitasjoner begge veier (også de som bare er adressert til e-posten)
         db.share_invites = db.share_invites.filter(function (s) {
           return !(s.inviter_id === uid || s.invitee_id === uid ||
@@ -3170,6 +3315,10 @@
       rpc: function (name, params) {
         return serverCall(function () {
           var u = getSess();
+          // Den ENE RPC-en anon får kalle: lesingen bak en offentlig lenke.
+          if (!u && name === 'recipe_public_get') {
+            return { data: recipePublicGet(loadDB(), (params || {}).p_token), error: null };
+          }
           if (!u) return { data: null, error: { message: 'ikke innlogget' } };
           /* Databasen leses FØRST når kallet «når serveren» (etter
              forsinkelsen), så serialiserte kall ser hverandres skrivinger — som

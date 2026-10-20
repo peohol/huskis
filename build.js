@@ -94,7 +94,12 @@ function deployKind(env) {
 }
 
 // Filene index.html laster lokalt, og som derfor får `?b=<build-ID>`.
-const VERSIONED = ['theme.js', 'config.js', 'icons.js', 'i18n.js', 'app.js', 'update-check.js', 'styles.css'];
+const VERSIONED = ['theme.js', 'config.js', 'icons.js', 'i18n.js', 'recipe-core.js', 'app.js', 'update-check.js',
+  'recipe-public.js', 'styles.css'];
+// Sider ved siden av appen, som får den samme behandlingen av testmodusen og
+// filversjonene — men ingen build-identitet (de har ingen oppdateringssjekk).
+// Den offentlige lesevisningen for delte oppskrifter: docs/oppskrifter.md.
+const EXTRA_PAGES = ['oppskrift.html'];
 
 function sanitize(s) {
   return String(s || '').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 100);
@@ -186,11 +191,18 @@ function stampHtml(html, ids, keep) {
   // og dermed noe ingen klient kan lese som en ekte release.
   out = stampMeta(out, 'huskis-release', ids.releaseId || 'dev');
   out = stampMeta(out, 'huskis-deploy', ids.deploy || deployKind());
+  return stampAssets(out, ids.buildId);
+}
+function stampAssets(html, buildId) {
+  let out = html;
   for (const f of VERSIONED) {
     const re = new RegExp('((?:src|href)=")' + reEscape(f) + '(")', 'g');
-    out = out.replace(re, (m, a, b) => a + f + '?b=' + ids.buildId + b);
+    out = out.replace(re, (m, a, b) => a + f + '?b=' + buildId + b);
   }
   return out;
+}
+function stampPage(html, buildId, keep) {
+  return stampAssets(keep ? html : stripDevOnly(html), buildId);
 }
 
 function build(outDir) {
@@ -209,6 +221,10 @@ function build(outDir) {
 
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   fs.writeFileSync(path.join(out, 'index.html'), stampHtml(html, { buildId, releaseId, deploy }, keep));
+  for (const page of EXTRA_PAGES) {
+    const src = fs.readFileSync(path.join(ROOT, page), 'utf8');
+    fs.writeFileSync(path.join(out, page), stampPage(src, buildId, keep));
+  }
 
   /* Feltene er ADDITIVE: en telefon kan kjøre en gammel release lenge
      (arkitekturregel 7 i docs/mobilapp-plan.md), og den leser denne fila. Nye
@@ -233,4 +249,5 @@ if (require.main === module) {
     (v.testMode ? ' — preview: testmodus (?mock=1) er MED' : ''));
 }
 
-module.exports = { build, makeBuildId, makeReleaseId, stampHtml, stripDevOnly, keepTestMode, VERSIONED };
+module.exports = { build, makeBuildId, makeReleaseId, stampHtml, stampPage, stripDevOnly, keepTestMode,
+  VERSIONED, EXTRA_PAGES };

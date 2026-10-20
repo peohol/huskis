@@ -558,7 +558,8 @@ check('workflowen laster opp det sammenslåtte manifestet som artifact',
    brukeren har slått på varsler i nettleseren (docs/varsler.md). Den KOPIERES
    likevel ut av build.js og kjører i produksjon, så den skal skannes som
    enhver annen produksjonskilde. */
-const WEB_KILDE = ['index.html', 'app.js', 'config.js', 'i18n.js', 'theme.js', 'icons.js', 'update-check.js', 'styles.css', 'sw.js'];
+const WEB_KILDE = ['index.html', 'app.js', 'config.js', 'i18n.js', 'theme.js', 'icons.js', 'update-check.js', 'styles.css', 'sw.js',
+  'recipe-core.js', 'oppskrift.html', 'recipe-public.js'];
 const NEVNER_CAP = /\bCapacitor\b|@capacitor|capacitor\.js|cordova/i;
 /* Alle andre web-kildefiler enn app.js skal fortsatt være helt uvitende om at
    det finnes en native runtime. */
