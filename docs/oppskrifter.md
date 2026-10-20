@@ -18,12 +18,20 @@ kapittelet forsvinner, og oppskriftene i det blir liggende rett i kokeboken, i
 samme rekkefølge. Ingen oppskrift slettes av det.
 
 Oppløsningen er en sletting av kapittelet OG en flytting av hver oppskrift til
-kokeboken, og serveren spør om begge. Den tilbys derfor bare når alt går: retten
-til å slette kapittelet, retten til å legge oppskrifter rett i den ekte
-kokeboken og flytteretten på hver oppskrift i kapittelet. Et kapittel som er
-delt direkte med en eier uten tilgang til kokeboken (det står i «Delt med
-meg»), kan slettes, men ikke løses opp — ellers ville kapittelet forsvinne mens
-oppskriftene ble avvist, en halv oppløsning (`canDissolveRecipeChapter`).
+kokeboken, og den er **alt eller ingenting**: den går som ÉN operasjon på
+serveren, `recipe_chapter_dissolve(kapittel, ts, org)`, som i én transaksjon
+låser kapittelet og oppskriftene, sjekker retten til å slette kapittelet,
+retten til å legge oppskrifter rett i kokeboken og flytteretten på hver
+oppskrift mot databasens faktiske tilstand — og så flytter alle og sletter
+kapittelet. Mangler én rettighet, også om den forsvant et øyeblikk før, endres
+ingenting. Klienten endrer heller ingenting før svaret er der; svaret er de nye
+posisjonene, og visningen blir nøyaktig det databasen gjorde. Et nei gir en
+melding om at ingenting ble endret.
+
+Menyraden vises bare når klienten ser at alt går (`canDissolveRecipeChapter`) —
+det er UX, ikke sikkerhet. Et kapittel som er delt direkte med en eier uten
+tilgang til kokeboken (det står i «Delt med meg»), kan derfor slettes, men ikke
+løses opp.
 
 Sletter man et kapittel, går oppskriftene i det med i søppelkassen som én enhet
 (og kommer tilbake med det). Skal oppskriftene beholdes, er det «Løs opp
@@ -186,6 +194,13 @@ delingsmodalen: `https://huskis.no/oppskrift.html#<nøkkel>`.
   tilbake, eller flyttes objektet tilbake, er den gamle lenken fortsatt død; en
   ny lenke får en ny nøkkel. Sjekken i `recipe_link_get`/`recipe_public_get`
   står i tillegg.
+- Det gjelder også under samtidighet. Alt som kan skape eller drepe en lenke i
+  en kokebok — `recipe_link_create` og de tre triggerne — tar den samme
+  rådgivende låsen per kokebok (`recipe_links_lock`) FØR det leser
+  rettighetene. En opprettelse og en degradering eller flytting som skjer
+  samtidig, ser derfor alltid hverandre: enten avvises opprettelsen, eller
+  triggeren rydder lenken etter den. Forutsetter READ COMMITTED, som er
+  Supabase/PostgREST sin standard.
 - En oppskrift som flyttes ut av en delt kokebok/et delt kapittel, følger ikke
   lenken. En som flyttes inn, gjør det.
 
@@ -231,4 +246,10 @@ tekst-treff etter navnetreffene, som notatenes. Se
   slipp), oppløsning, lesevisning, redigering, søk, deling med arv og den
   offentlige lenken (nettleser, desktop + mobil).
 - `supabase/tests/test-recipes.sql` — `kind`-vaktene og lenkene: hvem som kan
-  lage dem, hva anon får se, og når de dør.
+  lage dem, hva anon får se, og når de dør; og at «Løs opp kapittelet» er alt
+  eller ingenting.
+- `supabase/tests/test-recipe-race.sh` — det én økt ikke kan bevise, med to
+  ekte tilkoblinger: en lenke som skulle vært død, overlever aldri et kappløp
+  med en degradering eller flytting (i begge rekkefølger), og en oppløsning
+  mot en samtidig låsing blir enten helt gjort eller ikke gjort i det hele
+  tatt.

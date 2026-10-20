@@ -2598,6 +2598,36 @@
     db.recipe_links = db.recipe_links.filter(function (l) { return l[col] !== id; });
     return db.recipe_links.length < før;
   }
+  /* LØS OPP ET KAPITTEL — speiler `recipe_chapter_dissolve`: alle
+     rettighetene sjekkes FØR noe endres, og en avvisning kaster, så `transact`
+     ikke skriver noe (alt eller ingenting). */
+  function recipeChapterDissolve(db, folderId, ts, org, uid) {
+    var nekt = function (msg) { var e = new Error(msg); e.code = '42501'; return e; };
+    var f = findNF(db, folderId);
+    if (!f || f.kind !== 'recipe') throw new Error('kapittelet finnes ikke');
+    if (f.trashed || f.archived) throw new Error('kapittelet ligger i søppelkassen');
+    if (!canDeleteObject(db, 'note_folder', f.id, uid)) throw nekt('mangler myndighet til å løse opp kapittelet');
+    if (!canCreateNote(db, f.project_id, null, uid)) throw nekt('mangler tilgang til å legge oppskrifter rett i kokeboken');
+    var members = db.notes.filter(function (n) { return n.folder_id === f.id; });
+    if (members.some(function (n) { return !canMoveNoteObject(db, 'note', n.id, uid); })) {
+      throw nekt('mangler myndighet til å flytte alle oppskriftene i kapittelet');
+    }
+    var p = db.notes.filter(function (n) { return n.project_id === f.project_id && !n.folder_id; })
+      .reduce(function (m, n) { return Math.max(m, n.pos || 0); }, 0);
+    var out = members.sort(function (a, b) { return (a.pos - b.pos) || (a.id < b.id ? -1 : 1); })
+      .map(function (n) {
+        n.folder_id = null;
+        n.pos = ++p;
+        n.pos_ts = Math.max(ts || 0, (n.pos_ts || 0) + 1);
+        n.pos_org = org || '';
+        return { id: n.id, pos: n.pos, posTs: n.pos_ts, posOrg: n.pos_org };
+      });
+    db.note_folders = db.note_folders.filter(function (x) { return x !== f; });
+    writeTombstone(db, 'note_folder', f.id);
+    db.memberships = db.memberships.filter(function (m) { return m.note_folder_id !== f.id; });
+    db.recipe_links = (db.recipe_links || []).filter(function (l) { return l.note_folder_id !== f.id; });
+    return out;
+  }
   function recipePublicItem(n) { return { title: n.title || '', recipe: clone(n.recipe || {}) }; }
   function recipePublicItems(db, projectId, folderId) {
     return (db.notes || []).filter(function (n) {
@@ -2639,6 +2669,9 @@
       recipe_link_create: function (p) { return recipeLinkCreate(db, p.p_type, p.p_id, uid); },
       recipe_link_revoke: function (p) { return recipeLinkRevoke(db, p.p_type, p.p_id, uid); },
       recipe_public_get: function (p) { return recipePublicGet(db, p.p_token); },
+      recipe_chapter_dissolve: function (p) {
+        return recipeChapterDissolve(db, p.p_folder, p.p_ts, p.p_org, uid);
+      },
       get_my_doc: function () { return getMyDoc(db, uid); },
       note_crdt_load: function (p) { return noteCrdtLoad(db, p.p_note, uid, null); },
       note_crdt_since: function (p) { return noteCrdtLoad(db, p.p_note, uid, p.p_mark); },

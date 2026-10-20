@@ -959,7 +959,8 @@ Det oppskriftene har i tillegg, er en **offentlig lenke**, og den gir
 * Lenken dør når den slås av, når objektet havner i søppelkassen/arkivet eller
   slettes, og når den som laget den mister retten til å styre medlemmene —
   varig: en trigger sletter lenken i det øyeblikket, så den gjenoppstår ikke
-  om retten kommer tilbake.
+  om retten kommer tilbake. Opprettelsen og triggerne deler én lås per
+  kokebok, så heller ikke et samtidig kappløp kan etterlate en slik lenke.
   Innholdet er alltid slik det er nå; en oppskrift som flyttes ut av en delt
   kokebok, er ikke lenger med.
 

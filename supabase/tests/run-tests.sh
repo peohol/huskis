@@ -49,6 +49,11 @@ tests/test-push-race.sh
 # bevises fra én økt.
 tests/test-note-version-race.sh
 
+# Oppskriftene: en offentlig lenke som skulle vært død, kan aldri gjenoppstå
+# gjennom et kappløp med en rolleendring eller flytting, og «Løs opp
+# kapittelet» er alt eller ingenting også når rettighetene endres midt i.
+tests/test-recipe-race.sh
+
 # Smoke-testen som produksjonsdeployen henger på (release.yml) må bevises her:
 # den skal være GRØNN mot et ferdig migrert skjema. Er den det ikke lokalt,
 # blokkerer den deployen i produksjon uten at noe faktisk er galt.

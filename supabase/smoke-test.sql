@@ -419,7 +419,8 @@ begin
     'public.revoke_my_session(uuid)',
     'public.recipe_link_get(text, uuid)',
     'public.recipe_link_create(text, uuid)',
-    'public.recipe_link_revoke(text, uuid)'
+    'public.recipe_link_revoke(text, uuid)',
+    'public.recipe_chapter_dissolve(uuid, bigint, text)'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
@@ -736,7 +737,8 @@ begin
   foreach t in array array['public.recipe_obj_live(text, uuid)', 'public.recipe_link_row(text, uuid)',
                            'public.recipe_link_authorize(text, uuid)',
                            'public.recipe_public_items(uuid, uuid)',
-                           'public.recipe_links_sweep(uuid, uuid, uuid)'] loop
+                           'public.recipe_obj_book(text, uuid)', 'public.recipe_links_lock(uuid)',
+                           'public.recipe_links_sweep(uuid)', 'public.recipe_links_settle(uuid, uuid)'] loop
     if to_regprocedure(t) is null then
       feil := array_append(feil, 'funksjon ' || t || ' mangler');
     elsif has_function_privilege('anon', to_regprocedure(t), 'EXECUTE')

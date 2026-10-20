@@ -7092,8 +7092,22 @@ $$;
 
 create or replace function public.recipe_link_create(p_type text, p_id uuid)
 returns text language plpgsql security definer set search_path = public as $$
-declare uid uuid; v_token text;
+declare uid uuid; v_token text; v_book uuid; v_now uuid;
 begin
+  /* Kokebokens lås FØR rettighetene leses (se «VARIG DØD» under): en
+     samtidig degradering eller flytting er da enten ferdig og synlig her,
+     eller venter til denne er committet og rydder etter den. Objektet kan ha
+     flyttet til en annen kokebok mens vi ventet — da gjelder den bokens lås. */
+  v_book := public.recipe_obj_book(p_type, p_id);
+  for i in 1 .. 5 loop
+    perform public.recipe_links_lock(v_book);
+    v_now := public.recipe_obj_book(p_type, p_id);
+    exit when v_now is not distinct from v_book;
+    v_book := v_now;
+  end loop;
+  if v_now is distinct from v_book then
+    raise exception 'objektet flyttes akkurat nå — prøv igjen' using errcode = '40001';
+  end if;
   uid := public.recipe_link_authorize(p_type, p_id);
   if not public.recipe_obj_live(p_type, p_id) then
     raise exception 'objektet er slettet';
@@ -7126,6 +7140,74 @@ begin
            else l.note_id = p_id end;
   get diagnostics n = row_count;
   return n > 0;
+end;
+$$;
+
+/* LØS OPP ET KAPITTEL — én transaksjon, alt eller ingenting.
+   Oppløsningen er en sletting av kapittelet PLUSS en flytting av hver
+   oppskrift i det til «Uten kapittel» i den samme kokeboken. Gjort som
+   separate skrivinger kunne slettingen gått gjennom mens en flytting ble
+   avvist (rettighetene endret seg imellom, eller kalleren hadde dem aldri):
+   kapittelet borte, oppskriftene hengende. Her sjekkes ALLE rettighetene mot
+   databasens faktiske tilstand, og alle endringene gjøres, i én transaksjon:
+   feiler én ting, ruller alt tilbake.
+     * kapittelet låses først (`for update`): en oppskrift som legges inn i det
+       samtidig, tar en KEY SHARE-lås på raden og er derfor enten ferdig og
+       med i flyttingen, eller venter til kapittelet er borte;
+     * deretter låses oppskriftene, og flytteretten sjekkes på hver av dem —
+       pluss retten til å slette kapittelet og til å legge oppskrifter rett i
+       kokeboken — FØR noe endres;
+     * flyttingene går gjennom `notes_before_update`, som håndhever det samme
+       en gang til, og en flytting vakten likevel rullet tilbake stopper alt.
+   `p_ts`/`p_org` er klientens posisjonsregister; det heves over hver
+   oppskrifts eget, så flyttingen aldri tapes for en eldre skriving. Svaret er
+   de nye posisjonene, så klienten kan vise nøyaktig det databasen gjorde. */
+create or replace function public.recipe_chapter_dissolve(p_folder uuid, p_ts bigint, p_org text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  f public.note_folders;
+  v_pos double precision;
+  v_out jsonb := '[]'::jsonb;
+  r record;
+  v_row jsonb;
+begin
+  if uid is null then raise exception 'ikke innlogget'; end if;
+  select * into f from public.note_folders where id = p_folder for update;
+  if not found or f.kind <> 'recipe' then raise exception 'kapittelet finnes ikke'; end if;
+  if f.trashed or f.archived then raise exception 'kapittelet ligger i søppelkassen'; end if;
+  if not public.can_delete_object('note_folder', f.id, uid) then
+    raise exception 'mangler myndighet til å løse opp kapittelet' using errcode = 'insufficient_privilege';
+  end if;
+  if not public.can_create_note(f.project_id, null, uid) then
+    raise exception 'mangler tilgang til å legge oppskrifter rett i kokeboken'
+      using errcode = 'insufficient_privilege';
+  end if;
+  perform 1 from public.notes n where n.folder_id = f.id order by n.id for update;
+  if exists (select 1 from public.notes n
+              where n.folder_id = f.id and not public.can_move_note_object('note', n.id, uid)) then
+    raise exception 'mangler myndighet til å flytte alle oppskriftene i kapittelet'
+      using errcode = 'insufficient_privilege';
+  end if;
+  select coalesce(max(n.pos), 0) into v_pos
+    from public.notes n where n.project_id = f.project_id and n.folder_id is null;
+  for r in select n.id, n.pos_ts from public.notes n
+            where n.folder_id = f.id order by n.pos, n.id loop
+    v_pos := v_pos + 1;
+    update public.notes
+       set folder_id = null, pos = v_pos,
+           pos_ts = greatest(coalesce(p_ts, 0), r.pos_ts + 1), pos_org = coalesce(p_org, '')
+     where id = r.id
+    returning jsonb_build_object('id', id, 'pos', pos, 'posTs', pos_ts, 'posOrg', pos_org,
+                                 'moved', folder_id is null)
+      into v_row;
+    if not (v_row ->> 'moved')::boolean then
+      raise exception 'flyttingen av en oppskrift ble avvist' using errcode = 'insufficient_privilege';
+    end if;
+    v_out := v_out || jsonb_build_array(v_row - 'moved');
+  end loop;
+  delete from public.note_folders where id = f.id;
+  return v_out;
 end;
 $$;
 
@@ -7204,24 +7286,88 @@ $$;
    raden i det øyeblikket myndigheten forsvinner — og myndigheten
    (`can_manage_members`: eier på nivået eller over) avhenger av nøyaktig to
    ting: rollene i `memberships`, og hvor objektet står i treet. Begge får en
-   AFTER-trigger som rydder de lenkene endringen kan ha drept. */
-create or replace function public.recipe_links_sweep(p_creator uuid, p_folder uuid, p_note uuid)
+   AFTER-trigger som rydder lenkene i den kokeboken endringen gjelder.
+
+   SAMTIDIGHET. En trigger ser bare det som er committet (eller dens egen
+   transaksjon), så uten mer ville et kappløp fortsatt latt en lenke overleve:
+     A  `recipe_link_create`: B er eier → setter inn lenken (ikke committet)
+     B  degraderes; triggeren rydder — men ser ikke As lenke
+     A  committer   ← en lenke hvis oppretter ikke lenger er eier
+   og omvendt (degraderingen er ikke committet når opprettelsen sjekker).
+   Alt som kan skape eller drepe en lenke i en kokebok tar derfor den SAMME
+   rådgivende låsen (`recipe_links_lock`, én per kokebok) FØR det leser
+   rettighetene: opprettelsen før den sjekker, triggerne før de rydder. Låsen
+   varer transaksjonen ut, så den som kommer sist venter til den første har
+   committet — og leser da (READ COMMITTED: hver setning får et nytt
+   øyeblikksbilde) det den andre gjorde. Bevist med to ekte økter i
+   tests/test-recipe-race.sh. Låsen er rådgivende, ikke en radlås, så den
+   kommer ikke i veien for vanlige innholdsskrivinger. */
+create or replace function public.recipe_obj_book(p_type text, p_id uuid)
+returns uuid language sql stable security definer set search_path = public as $$
+  select case p_type
+    when 'note_project' then (select id from public.note_projects where id = p_id)
+    when 'note_folder'  then (select project_id from public.note_folders where id = p_id)
+    when 'note'         then (select project_id from public.notes where id = p_id)
+  end;
+$$;
+
+create or replace function public.recipe_links_lock(p_book uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if p_book is not null then
+    perform pg_advisory_xact_lock(hashtextextended('recipe_links:' || p_book::text, 0));
+  end if;
+end;
+$$;
+
+-- Rydd de døde lenkene i ÉN kokebok. Kalles bare med låsen holdt.
+create or replace function public.recipe_links_sweep(p_book uuid)
 returns void language sql security definer set search_path = public as $$
   delete from public.recipe_links l
-   where (p_creator is null or l.created_by = p_creator)
-     and (p_folder is null or l.note_folder_id = p_folder)
-     and (p_note is null or l.note_id = p_note)
+   where p_book is not null
+     and public.recipe_obj_book(
+           case when l.note_project_id is not null then 'note_project'
+                when l.note_folder_id is not null then 'note_folder' else 'note' end,
+           coalesce(l.note_project_id, l.note_folder_id, l.note_id)) = p_book
      and not public.can_manage_members(
            case when l.note_project_id is not null then 'note_project'
                 when l.note_folder_id is not null then 'note_folder' else 'note' end,
            coalesce(l.note_project_id, l.note_folder_id, l.note_id), l.created_by);
 $$;
 
--- En rolle på notatsiden er fjernet eller endret: personens lenker.
+-- Lås og rydd én eller to kokebøker (en flytting har en kilde og et mål).
+-- Alltid i samme rekkefølge, så to flyttinger hver sin vei ikke kan låse
+-- hverandre fast.
+create or replace function public.recipe_links_settle(p_a uuid, p_b uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare lo uuid := least(p_a, p_b); hi uuid := greatest(p_a, p_b);
+begin
+  perform public.recipe_links_lock(lo);
+  if hi is distinct from lo then perform public.recipe_links_lock(hi); end if;
+  -- Ny setning ⇒ nytt øyeblikksbilde: det en transaksjon vi ventet på har
+  -- committet, er med.
+  perform public.recipe_links_sweep(lo);
+  if hi is distinct from lo then perform public.recipe_links_sweep(hi); end if;
+end;
+$$;
+
+-- En rolle på notatsiden er fjernet eller endret: kokeboken den gjelder.
 create or replace function public.recipe_links_after_membership()
 returns trigger language plpgsql security definer set search_path = public as $$
+declare v_book uuid;
 begin
-  perform public.recipe_links_sweep(old.user_id, null, null);
+  -- Bare en endret ROLLE (eller en fjernet rad) kan ta myndigheten — ikke den
+  -- personlige rekkefølgen (`pos`), som også ligger på raden.
+  if tg_op = 'UPDATE' and old.role is not distinct from new.role
+     and old.user_id is not distinct from new.user_id then
+    return null;
+  end if;
+  v_book := coalesce(old.note_project_id,
+                     (select f.project_id from public.note_folders f where f.id = old.note_folder_id),
+                     (select n.project_id from public.notes n where n.id = old.note_id));
+  if exists (select 1 from public.note_projects p where p.id = v_book and p.kind = 'recipe') then
+    perform public.recipe_links_settle(v_book, v_book);
+  end if;
   return null;
 end;
 $$;
@@ -7231,27 +7377,24 @@ create trigger memberships_recipe_links after update or delete on public.members
   when (old.note_project_id is not null or old.note_folder_id is not null or old.note_id is not null)
   execute function public.recipe_links_after_membership();
 
--- Et kapittel eller en oppskrift har flyttet: lenkene på det. (Oppskriftene i
--- et kapittel som flytter, får sin egen runde når kaskaden retter `project_id`.)
+-- Et kapittel eller en oppskrift har flyttet: kilde- og målkokeboken. (Oppskriftene
+-- i et kapittel som flytter, får sin egen runde når kaskaden retter `project_id`.)
 create or replace function public.recipe_links_after_move()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  if tg_table_name = 'note_folders' then
-    perform public.recipe_links_sweep(null, new.id, null);
-  else
-    perform public.recipe_links_sweep(null, null, new.id);
-  end if;
+  perform public.recipe_links_settle(old.project_id, new.project_id);
   return null;
 end;
 $$;
 drop trigger if exists note_folders_recipe_links on public.note_folders;
 create trigger note_folders_recipe_links after update of project_id on public.note_folders
-  for each row when (old.project_id is distinct from new.project_id)
+  for each row when (new.kind = 'recipe' and old.project_id is distinct from new.project_id)
   execute function public.recipe_links_after_move();
 drop trigger if exists notes_recipe_links on public.notes;
 create trigger notes_recipe_links after update of project_id, folder_id on public.notes
   for each row
-  when (old.project_id is distinct from new.project_id or old.folder_id is distinct from new.folder_id)
+  when (new.kind = 'recipe'
+        and (old.project_id is distinct from new.project_id or old.folder_id is distinct from new.folder_id))
   execute function public.recipe_links_after_move();
 
 -- ------------------------------------------------------------
@@ -7818,7 +7961,8 @@ begin
     'public.revoke_my_session(uuid)',
     'public.recipe_link_get(text, uuid)',
     'public.recipe_link_create(text, uuid)',
-    'public.recipe_link_revoke(text, uuid)'
+    'public.recipe_link_revoke(text, uuid)',
+    'public.recipe_chapter_dissolve(uuid, bigint, text)'
   ] loop
     execute format('revoke execute on function %s from public, anon', fn);
     execute format('grant execute on function %s to authenticated', fn);
@@ -7858,7 +8002,10 @@ revoke all on function public.current_session_id() from public, anon, authentica
 -- (finnes den, er den slettet, hvem lenken tilhører) uten egen sjekk.
 revoke all on function public.recipe_obj_live(text, uuid) from public, anon, authenticated;
 revoke all on function public.recipe_link_row(text, uuid) from public, anon, authenticated;
-revoke all on function public.recipe_links_sweep(uuid, uuid, uuid) from public, anon, authenticated;
+revoke all on function public.recipe_obj_book(text, uuid) from public, anon, authenticated;
+revoke all on function public.recipe_links_lock(uuid) from public, anon, authenticated;
+revoke all on function public.recipe_links_sweep(uuid) from public, anon, authenticated;
+revoke all on function public.recipe_links_settle(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.recipe_links_after_membership() from public, anon, authenticated;
 revoke all on function public.recipe_links_after_move() from public, anon, authenticated;
 revoke all on function public.recipe_link_authorize(text, uuid) from public, anon, authenticated;

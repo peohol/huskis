@@ -19,6 +19,11 @@
 --      gjenoppstår ikke når eierskapet kommer tilbake, eller når objektet
 --      flytter ut av oppretterens myndighet og inn igjen
 --   6. anon når INGENTING annet enn lesingen bak en gyldig nøkkel
+--   7. «Løs opp kapittelet» er alt eller ingenting (4b): mangler ÉN rettighet
+--      — et direkte delt kapittel uten boktilgang, én låst oppskrift — endres
+--      ingenting; ellers flyttes alle oppskriftene og kapitlet slettes
+--
+-- Samtidigheten (to økter) bevises i tests/test-recipe-race.sh.
 --
 -- Fire brukere:
 --   A = eier kokeboken
@@ -212,6 +217,70 @@ select public.t_check('en leser (låst kokebok) kan ikke endre oppskriften',
   (select recipe ->> 'desc' from public.notes where id = :'R1') = 'Klassiker');
 reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
 select public.set_locked('note_project', :'K', false);
+
+-- ---------- 4b. Løs opp et kapittel: alt eller ingenting ----------
+-- `recipe_chapter_dissolve` er én transaksjon: slettingen av kapitlet og
+-- flyttingen av hver oppskrift sjekkes og gjøres sammen, eller ikke i det hele
+-- tatt. KC er et nytt kapittel i K med to oppskrifter.
+\set KC '7e000000-7777-0000-0000-00000000000d'
+\set R6 '7e000000-7777-0000-0000-00000000000e'
+\set R7 '7e000000-7777-0000-0000-00000000000f'
+reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+insert into public.note_folders (id, owner_id, project_id, name, ts, org, pos, pos_ts, pos_org)
+  values (:'KC', :'A', :'K', 'Supper', 1, 'a', 3, 1, 'a');
+insert into public.notes (id, owner_id, project_id, folder_id, title, recipe, ts, org, pos, pos_ts, pos_org)
+  values (:'R6', :'A', :'K', :'KC', 'Tomatsuppe', '{"v":1}', 1, 'a', 1, 1, 'a'),
+         (:'R7', :'A', :'K', :'KC', 'Løksuppe', '{"v":1}', 1, 'a', 2, 1, 'a');
+
+-- C får EIERSKAP til kapitlet KA direkte — uten tilgang til kokeboken over.
+select public.create_share_invite('note_folder', :'KA', 'opp-c@example.com', 'owner') ->> 'id' as inv_co \gset
+reset role; select set_config('request.jwt.claim.sub', :'C', false); set role authenticated;
+select public.accept_share_invite(:'inv_co'::uuid) is not null as c_owner;
+select public.t_check('C eier kapitlet direkte og kan slette det, men kan ikke legge oppskrifter rett i kokeboken',
+  public.can_delete_object('note_folder', :'KA', :'C')
+  and not public.can_create_note(:'K', null, :'C'));
+select public.t_fails('et direkte delt kapittel med egen eier uten boktilgang kan ikke løses opp',
+  format('select public.recipe_chapter_dissolve(%L, 100, %L)', :'KA', 'c'));
+reset role;
+select public.t_check('… og ingenting ble endret: kapitlet står, og oppskriften ligger fortsatt i det',
+  exists (select 1 from public.note_folders where id = :'KA')
+  and (select folder_id from public.notes where id = :'R1') = :'KA');
+
+-- B (medlem) mangler flytteretten på ÉN av oppskriftene: A har låst den.
+select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+select public.set_locked('note', :'R7', true);
+reset role; select set_config('request.jwt.claim.sub', :'B', false); set role authenticated;
+select public.t_fails('et medlem kan ikke løse opp et kapittel der én oppskrift er låst for hen',
+  format('select public.recipe_chapter_dissolve(%L, 100, %L)', :'KC', 'b'));
+reset role;
+select public.t_check('… og da flyttes INGEN av oppskriftene, og kapitlet står (ingen halv oppløsning)',
+  exists (select 1 from public.note_folders where id = :'KC')
+  and (select folder_id from public.notes where id = :'R6') = :'KC'
+  and (select folder_id from public.notes where id = :'R7') = :'KC');
+
+select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+select public.set_locked('note', :'R7', false);
+reset role; select set_config('request.jwt.claim.sub', :'B', false); set role authenticated;
+select public.recipe_chapter_dissolve(:'KC', 100, 'b')::text as dis \gset
+reset role;
+select public.t_check('når alt er lov: kapitlet er borte, og oppskriftene ligger sist rett i kokeboken i samme rekkefølge',
+  not exists (select 1 from public.note_folders where id = :'KC')
+  and (select folder_id is null and project_id = :'K' from public.notes where id = :'R6')
+  and (select folder_id is null and project_id = :'K' from public.notes where id = :'R7')
+  and (select pos from public.notes where id = :'R6') > (select pos from public.notes where id = :'R2')
+  and (select pos from public.notes where id = :'R7') > (select pos from public.notes where id = :'R6'));
+select public.t_check('… med et nyere posisjonsregister enn oppskriftenes eget, og en gravstein for kapitlet',
+  (select pos_ts = 100 and pos_org = 'b' from public.notes where id = :'R6')
+  and exists (select 1 from public.tombstones where resource_type = 'note_folder' and resource_id = :'KC'));
+select public.t_check('… og svaret er de nye posisjonene, slik klienten skal vise dem',
+  jsonb_array_length(:'dis'::jsonb) = 2
+  and (:'dis'::jsonb -> 0 ->> 'id') = :'R6'
+  and (:'dis'::jsonb -> 0 ->> 'pos')::float = (select pos from public.notes where id = :'R6')
+  and (:'dis'::jsonb -> 0 ->> 'posTs')::bigint = 100);
+set role anon;
+select public.t_fails('anon kan ikke løse opp et kapittel',
+  format('select public.recipe_chapter_dissolve(%L, 100, %L)', :'KA', 'x'));
+reset role;
 
 -- ---------- 5. Offentlige lenker ----------
 -- Bare en eier lager dem.

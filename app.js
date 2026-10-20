@@ -23476,16 +23476,20 @@
 
   /* OPPLØS ET KAPITTEL: kapittelet forsvinner, oppskriftene blir. De legges
      sist blant bokens oppskrifter uten kapittel, i den rekkefølgen de hadde —
-     som radene i en oppløst kategori. Kapittelet får gravstein (det finnes
-     ingenting å gjenopprette), og serverens `on delete set null` gjør det
-     samme med pekerne som vi allerede har gjort her. */
+     som radene i en oppløst kategori.
+
+     Oppløsningen er en sletting av kapittelet OG en flytting av hver oppskrift,
+     og den går som ÉN operasjon på serveren (`recipe_chapter_dissolve`), som
+     sjekker alle rettighetene mot databasens faktiske tilstand og gjør alt
+     eller ingenting. Klienten endrer derfor ingenting før svaret er der: som
+     separate synkskrivinger kunne slettingen gått gjennom mens flyttingene ble
+     avvist. Svaret er de nye posisjonene, så visningen blir nøyaktig det
+     databasen gjorde. `canDissolveRecipeChapter` er bare UX — den skjuler
+     menyraden når det åpenbart ikke går. */
   const chapterMembers = (c) => allRecipes().filter((n) => n.folder === c.id).sort(posCmp);
-  /* Oppløsningen er en sletting OG en flytting av hver oppskrift til boken —
-     og serveren spør om begge. Den er derfor bare lov når ALT går: retten til
-     å slette kapittelet, retten til å legge oppskrifter rett i den ekte boken
-     (aldri den virtuelle «delt med meg»-kokeboken) og flytteretten på hver
-     eneste oppskrift. Ellers ville kapittelet forsvinne mens oppskriftene ble
-     avvist én for én — en halv oppløsning. */
+  /* Det serveren spør om: retten til å slette kapittelet, retten til å legge
+     oppskrifter rett i den ekte boken (aldri den virtuelle «delt med meg»-
+     kokeboken) og flytteretten på hver eneste oppskrift i det. */
   function canDissolveRecipeChapter(c) {
     const b = c ? findRecipeBook(c.project) : null;
     return !!b && !b._virtual && recipeCanDelete(c) && canAddNote(b, null) &&
@@ -23494,23 +23498,69 @@
   function dissolveRecipeChapter(id) {
     const c = findRecipeChapter(id);
     if (!canDissolveRecipeChapter(c)) return;
-    const b = findRecipeBook(c.project);
-    if (!trashModalOpen()) keepFocus(focusTargetAfterRemoval('recipeChapter', id, null));
-    const members = chapterMembers(c);
-    let p = maxPos(allRecipes().filter((n) => n.project === b.id && !n.folder));
-    members.forEach((n) => {
-      n.folder = null;
-      n.pos = ++p;
-      stampPos(n);
+    const key = 'dissolve:' + id;
+    if (opQueue.hasPending(key)) return;
+    const name = c.name;
+    const stamp = tick();
+    opQueue.enqueue({
+      key,
+      // Kapittelet og oppskriftene i det må finnes på serveren først — ellers
+      // avviser den («finnes ikke»), eller lar en ny oppskrift stå igjen.
+      waitFor: () => {
+        const live = findRecipeChapter(id);
+        return !live || (rowKnownToServer(id) && chapterMembers(live).every((n) => rowKnownToServer(n.id)));
+      },
+      run: async () => {
+        const { data, error } = await acli().rpc('recipe_chapter_dissolve',
+          { p_folder: id, p_ts: stamp, p_org: deviceId });
+        if (error) throw error;
+        return data;
+      },
+      onDone: (rows) => applyRecipeChapterDissolved(id, Array.isArray(rows) ? rows : [], name),
+      onError: (e) => {
+        // Serveren sa nei, og ingenting ble endret — verken der eller her.
+        showToast(tr(e && e.code === '42501' ? 'recipes.dissolveDenied' : 'recipes.dissolveFailed'));
+        scheduleCloud(0); // hent de nye rettighetene, så menyen viser dem
+      },
     });
-    tombSubtree(c, 'noteFolder');
-    const i = b.folders.indexOf(c);
-    if (i > -1) b.folders.splice(i, 1);
+  }
+  // Serveren har løst opp kapittelet: speil nøyaktig det den gjorde.
+  function applyRecipeChapterDissolved(id, rows, name) {
+    const c = findRecipeChapter(id);
+    const b = c ? findRecipeBook(c.project) : null;
+    if (c && !trashModalOpen()) keepFocus(focusTargetAfterRemoval('recipeChapter', id, null));
+    const done = new Map(rows.map((r) => [r.id, r]));
+    allRecipes().forEach((n) => {
+      const r = done.get(n.id);
+      if (!r) return;
+      n.folder = null;
+      n.pos = r.pos;
+      n.posTs = r.posTs;
+      n.posOrg = r.posOrg;
+    });
+    /* En oppskrift som ble lagt i kapittelet HER etter at operasjonen startet,
+       og som serveren derfor ikke flyttet, blir fri i boken på vanlig måte —
+       ellers ville den pekt på et kapittel som ikke finnes. */
+    if (b) {
+      let p = maxPos(allRecipes().filter((n) => n.project === b.id && !n.folder));
+      allRecipes().filter((n) => n.folder === id).sort(posCmp).forEach((n) => {
+        n.folder = null;
+        n.pos = ++p;
+        stampPos(n);
+      });
+    }
+    if (c) {
+      tombSubtree(c, 'noteFolder');
+      const i = b ? b.folders.indexOf(c) : -1;
+      if (i > -1) b.folders.splice(i, 1);
+    }
     validateActiveNotes(state);
     save();
     renderRecipesNav();
     renderRecipes();
-    showToast(tr('recipes.chapterDissolved', { name: quoted(c.name), what: countWord('recipe', members.length) }));
+    showToast(tr('recipes.chapterDissolved', { name: quoted(name), what: countWord('recipe', rows.length) }));
+    cloudBase = null;
+    scheduleCloud(0);
   }
 
   /* «Flytt til …» — tastaturets og menyens motstykke til draget: en oppskrift

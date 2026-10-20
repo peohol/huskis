@@ -34,7 +34,10 @@
        ingenting — ingen halv oppløsning der kapittelet forsvinner mens
        oppskriftene ikke kan flyttes. En offentlig lenke eieren laget, dør
        varig når hen mister eierskapet, også om det kommer tilbake.
-   13. Ingen JS-feil
+   13. Rettighetene endres mellom klientens sjekk og serverens: en oppskrift i
+       kapittelet låses mens medlemmet løser det opp. Serveren avviser HELE
+       oppløsningen, og verken databasen eller visningen er halvveis endret.
+   14. Ingen JS-feil
 
   Kjøres på BÅDE desktop- og mobil-viewport (dra-og-slipp og layout); delingen
   og den offentlige lenken på desktop.
@@ -214,7 +217,9 @@ async function runOwner(navn, viewport, touch) {
   await p.click('#recipes-nav-board .recipe-chapter[data-id="' + ids.C1 + '"] .cat-cog');
   await p.waitForTimeout(250);
   await p.click('.obj-menu-row:has-text("Løs opp kapittelet")');
-  await p.waitForTimeout(400);
+  // Oppløsningen går som ÉN operasjon på serveren; visningen følger svaret.
+  await p.waitForFunction((id) => !document.querySelector('#recipes-nav-board .recipe-chapter[data-id="' + id + '"]'),
+    ids.C1, { timeout: 8000, polling: 150 }).catch(() => {});
   const løst = await p.evaluate((ids) => ({
     chapter: !!document.querySelector('#recipes-nav-board .recipe-chapter[data-id="' + ids.C1 + '"]'),
     r1: window.__huskis.findRecipe(ids.R1), r2: window.__huskis.findRecipe(ids.R2),
@@ -614,6 +619,13 @@ async function runSharedChapterOwner() {
   await c.evaluate((id) => window.__huskis.dissolveRecipeChapter(id), ids.C2);
   await sync(c);
   await settle(c);
+  // Og serveren selv — klientens skjuling er bare UX.
+  const rpc = await c.evaluate(async (id) => {
+    const r = await window.HK_MOCK.createClient().rpc('recipe_chapter_dissolve', { p_folder: id, p_ts: Date.now(), p_org: 'x' });
+    return { data: r.data, error: r.error && r.error.message };
+  }, ids.C2);
+  log('kapitteleier uten boktilgang: serveren avviser oppløsningen',
+    !rpc.data && /mangler/.test(rpc.error || ''), JSON.stringify(rpc));
   const etter = await c.evaluate((ids) => {
     const db = JSON.parse(localStorage.getItem('hk-mock-db'));
     const f = db.note_folders.find((x) => x.id === ids.C2);
@@ -648,11 +660,62 @@ async function runSharedChapterOwner() {
   await browser.close();
 }
 
+/* 13. Rettighetene endres mens klienten står med gammel tilstand (desktop).
+   Bo er medlem og har lov til å løse opp «Supper» — slik klienten hans ser
+   det. Før kallet når serveren, låser Alice oppskriften i kapittelet, så Bo
+   ikke lenger får flytte den. Serveren skal avvise HELE oppløsningen:
+   kapittelet står, oppskriften ligger i det, og Bos visning er urørt. */
+async function runDissolveStale() {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+  const errs = [];
+  const { db, ids } = buildDB();
+  const b = await ctx.newPage();
+  b.on('pageerror', (e) => errs.push('B: ' + e.message));
+  await seed(b, db);
+  await loginAs(b, ids.uB, 'b@x.no');
+  await b.evaluate(() => { window.__huskis.setMainTab('recipes'); window.__huskis.openRecipesNav(); });
+  await b.waitForSelector('#recipes-nav-board .recipe-chapter[data-id="' + ids.C1 + '"] .cat-cog', { timeout: 8000 });
+  await b.click('#recipes-nav-board .recipe-chapter[data-id="' + ids.C1 + '"] .cat-cog');
+  await b.waitForSelector('.obj-menu-row', { timeout: 8000 });
+  const tilbys = await b.evaluate(() => [...document.querySelectorAll('.obj-menu-row')].some((e) => /Løs opp/.test(e.textContent)));
+  log('foreldet klient: medlemmet får tilbud om å løse opp kapittelet (alt er lov ennå)', tilbys);
+
+  // Låsingen og klikket i SAMME tikk: klienten rekker ikke å hente de nye
+  // rettighetene, så det er serveren som må stoppe det.
+  await b.evaluate(async (id) => {
+    await window.HK_MOCK._edit((db) => { db.notes.find((n) => n.id === id).locked = true; });
+  }, ids.R1);
+  await b.click('.obj-menu-row:has-text("Løs opp kapittelet")');
+  const avvist = await b.waitForFunction(() => {
+    const t = document.querySelector('.toast, #toast');
+    return t && /ikke lov til å flytte alle oppskriftene.*Ingenting ble endret/.test(t.textContent);
+  }, null, { timeout: 8000, polling: 150 }).then(() => true, () => false);
+  await settle(b);
+  const etter = await b.evaluate((ids) => {
+    const db = JSON.parse(localStorage.getItem('hk-mock-db'));
+    const r1 = db.notes.find((x) => x.id === ids.R1);
+    const lokal = window.__huskis.findRecipe(ids.R1);
+    return { rad: db.note_folders.some((f) => f.id === ids.C1),
+             grav: (db.tombstones || []).some((t) => t.resource_id === ids.C1),
+             folder: r1 && r1.folder_id === ids.C1,
+             lokaltKapittel: !!window.__huskis.findRecipeChapter(ids.C1),
+             lokaltFolder: lokal && lokal.folder === ids.C1 };
+  }, ids);
+  log('foreldet klient: serveren avviser hele oppløsningen, og brukeren får beskjed', avvist, '');
+  log('foreldet klient: ingenting er endret — verken i databasen eller i visningen',
+    etter.rad && !etter.grav && etter.folder && etter.lokaltKapittel && etter.lokaltFolder, JSON.stringify(etter));
+
+  log('foreldet klient: ingen JS-feil', errs.length === 0, errs.slice(0, 3).join(' | '));
+  await browser.close();
+}
+
 (async () => {
   await runOwner('desktop', { width: 1200, height: 900 }, false);
   await runOwner('mobil', { width: 390, height: 780 }, true);
   await runSharing();
   await runSharedChapterOwner();
+  await runDissolveStale();
   const ok = results.filter(Boolean).length;
   console.log('\n==== ' + ok + '/' + results.length + ' PASS ====');
   process.exit(ok === results.length ? 0 : 1);
