@@ -249,6 +249,7 @@
       var før = localStorage.getItem(DB_KEY);
       var db = loadDB();
       var ut = run(db);
+      sweepRecipeLinks(db);
       // Ingen `await` mellom sjekken og skrivingen: den optimistiske sjekken
       // fanger den som skrev UTENOM låsen — en test som redigerer databasen
       // direkte med `_loadDB`/`_saveDB` mens en runde er i lufta.
@@ -2542,6 +2543,18 @@
   function recipeLinkRow(db, type, id) {
     var col = LINK_COL[type];
     return col ? (db.recipe_links || []).find(function (l) { return l[col] === id; }) || null : null;
+  }
+  /* Speiler triggerne `memberships_recipe_links`, `note_folders_recipe_links`
+     og `notes_recipe_links`: en lenke hvis oppretter ikke lenger er eier av
+     objektet, dør MED EN GANG — også om eierskapet kommer tilbake senere.
+     Alle skrivinger går gjennom `transact`, så feiingen etter hver runde
+     treffer det samme øyeblikket som triggerne. */
+  function sweepRecipeLinks(db) {
+    if (!Array.isArray(db.recipe_links) || !db.recipe_links.length) return;
+    db.recipe_links = db.recipe_links.filter(function (l) {
+      var type = l.note_project_id ? 'note_project' : l.note_folder_id ? 'note_folder' : 'note';
+      return canManageMembers(db, type, l.note_project_id || l.note_folder_id || l.note_id, l.created_by);
+    });
   }
   function recipeLinkAuthorize(db, type, id, uid) {
     if (!LINK_COL[type]) throw new Error('ukjent type: ' + type);

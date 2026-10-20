@@ -569,6 +569,9 @@ begin
     'note_projects:note_projects_kind_guard',
     'note_folders:note_folders_sync_kind', 'notes:notes_sync_kind',
     'note_folders:note_folders_kind_check', 'notes:notes_kind_check',
+    -- En offentlig oppskriftslenke dør VARIG når oppretteren mister myndigheten.
+    'memberships:memberships_recipe_links', 'note_folders:note_folders_recipe_links',
+    'notes:notes_recipe_links',
     'object_links:object_links_tombstone', 'object_links:object_links_insert_guard',
     'universes:universes_owner_seed', 'groups:groups_owner_seed',
     'note_projects:note_projects_owner_seed', 'note_folders:note_folders_owner_seed',
@@ -732,7 +735,8 @@ begin
   end if;
   foreach t in array array['public.recipe_obj_live(text, uuid)', 'public.recipe_link_row(text, uuid)',
                            'public.recipe_link_authorize(text, uuid)',
-                           'public.recipe_public_items(uuid, uuid)'] loop
+                           'public.recipe_public_items(uuid, uuid)',
+                           'public.recipe_links_sweep(uuid, uuid, uuid)'] loop
     if to_regprocedure(t) is null then
       feil := array_append(feil, 'funksjon ' || t || ' mangler');
     elsif has_function_privilege('anon', to_regprocedure(t), 'EXECUTE')

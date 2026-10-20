@@ -15,7 +15,9 @@
 --   4. deling med medlemmer: arven går bare nedover
 --   5. offentlige lenker: hvem som kan lage dem, hva de viser (og ikke viser),
 --      at de følger innholdet, og at de dør når de trekkes tilbake, når
---      objektet slettes og når oppretteren mister eierskapet
+--      objektet slettes og når oppretteren mister eierskapet — VARIG: de
+--      gjenoppstår ikke når eierskapet kommer tilbake, eller når objektet
+--      flytter ut av oppretterens myndighet og inn igjen
 --   6. anon når INGENTING annet enn lesingen bak en gyldig nøkkel
 --
 -- Fire brukere:
@@ -330,6 +332,36 @@ select public.set_member_role('note_project', :'K', :'B', 'member');
 reset role; set role anon;
 select public.t_check('… og dør når hen ikke lenger er eier',
   public.recipe_public_get(:'tok_b') is null);
+-- … VARIG: B blir eier igjen uten at noen har kalt recipe_link_get imellom.
+-- Den gamle nøkkelen skal ikke gjenoppstå.
+reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+select public.create_share_invite('note_project', :'K', 'opp-b@example.com', 'owner') ->> 'id' as inv_bo2 \gset
+reset role; select set_config('request.jwt.claim.sub', :'B', false); set role authenticated;
+select public.accept_share_invite(:'inv_bo2'::uuid) is not null as b_owner_igjen;
+reset role; set role anon;
+select public.t_check('en lenke som døde da oppretteren mistet eierskapet, gjenoppstår ikke når hen får det tilbake',
+  public.recipe_public_get(:'tok_b') is null);
+reset role;
+select public.t_check('… for raden ble slettet i det øyeblikket eierskapet forsvant',
+  not exists (select 1 from public.recipe_links where token = :'tok_b'));
+
+-- Det samme når OBJEKTET flytter bort fra oppretterens myndighet og tilbake:
+-- B (eier av K) lager en lenke på R5; A flytter R5 til sin private K2, der B
+-- ikke er eier, og så tilbake.
+\set R5 '7e000000-7777-0000-0000-00000000000c'
+select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+insert into public.notes (id, owner_id, project_id, title, recipe, ts, org, pos, pos_ts, pos_org)
+  values (:'R5', :'A', :'K', 'Pannekaker', '{"v":1}', 1, 'a', 9, 1, 'a');
+reset role; select set_config('request.jwt.claim.sub', :'B', false); set role authenticated;
+select public.recipe_link_create('note', :'R5') as tok_b5 \gset
+reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+update public.notes set project_id = :'K2', pos_ts = 51, pos_org = 'a' where id = :'R5';
+update public.notes set project_id = :'K', pos_ts = 52, pos_org = 'a' where id = :'R5';
+reset role; set role anon;
+select public.t_check('en lenke dør varig når objektet flytter ut av oppretterens myndighet, også om det flytter tilbake',
+  public.recipe_public_get(:'tok_b5') is null);
+reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+select public.set_member_role('note_project', :'K', :'B', 'member');
 reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
 select public.t_check('den døde lenken ryddes, og eieren kan lage en ny',
   public.recipe_link_get('note', :'R1') is null

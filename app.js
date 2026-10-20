@@ -23479,12 +23479,24 @@
      som radene i en oppløst kategori. Kapittelet får gravstein (det finnes
      ingenting å gjenopprette), og serverens `on delete set null` gjør det
      samme med pekerne som vi allerede har gjort her. */
+  const chapterMembers = (c) => allRecipes().filter((n) => n.folder === c.id).sort(posCmp);
+  /* Oppløsningen er en sletting OG en flytting av hver oppskrift til boken —
+     og serveren spør om begge. Den er derfor bare lov når ALT går: retten til
+     å slette kapittelet, retten til å legge oppskrifter rett i den ekte boken
+     (aldri den virtuelle «delt med meg»-kokeboken) og flytteretten på hver
+     eneste oppskrift. Ellers ville kapittelet forsvinne mens oppskriftene ble
+     avvist én for én — en halv oppløsning. */
+  function canDissolveRecipeChapter(c) {
+    const b = c ? findRecipeBook(c.project) : null;
+    return !!b && !b._virtual && recipeCanDelete(c) && canAddNote(b, null) &&
+      chapterMembers(c).every((n) => cap(n, 'move', !frozen(n)));
+  }
   function dissolveRecipeChapter(id) {
     const c = findRecipeChapter(id);
-    const b = c ? findRecipeBook(c.project) : null;
-    if (!c || !b || !recipeCanDelete(c)) return;
+    if (!canDissolveRecipeChapter(c)) return;
+    const b = findRecipeBook(c.project);
     if (!trashModalOpen()) keepFocus(focusTargetAfterRemoval('recipeChapter', id, null));
-    const members = allRecipes().filter((n) => n.folder === c.id).sort(posCmp);
+    const members = chapterMembers(c);
     let p = maxPos(allRecipes().filter((n) => n.project === b.id && !n.folder));
     members.forEach((n) => {
       n.folder = null;
@@ -23579,7 +23591,7 @@
           label: tr('recipes.copyText'),
           fn: () => copyRecipeText(id),
         } : null,
-        kind === 'recipeChapter' && canDel ? {
+        kind === 'recipeChapter' && canDissolveRecipeChapter(obj) ? {
           icon: ICONS.bubbleBurst,
           label: tr('recipes.dissolveChapter'),
           hint: tr('recipes.dissolveChapterHint'),
@@ -31081,7 +31093,7 @@
     // Oppskriftene (docs/oppskrifter.md) — oppsett og inspeksjon i testene.
     openRecipesNav, closeRecipesNav, openRecipe, closeRecipe, setRecipeEditing, flushRecipeSave,
     addRecipeBook, addRecipeChapter, addRecipe, setRecipePlace, dissolveRecipeChapter, recipePublicUrl,
-    deleteRecipeObject, findRecipe, recipesIn,
+    deleteRecipeObject, findRecipe, findRecipeChapter, recipesIn,
     get recipeOpenId() { return recipeOpenId; },
     addNoteProject, addNoteFolder, addNote,
     setActiveProject, setActiveNoteFolder,

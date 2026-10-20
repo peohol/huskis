@@ -17,6 +17,14 @@ angre), sorteres, flyttes og deles. Et kapittel kan i tillegg **løses opp**:
 kapittelet forsvinner, og oppskriftene i det blir liggende rett i kokeboken, i
 samme rekkefølge. Ingen oppskrift slettes av det.
 
+Oppløsningen er en sletting av kapittelet OG en flytting av hver oppskrift til
+kokeboken, og serveren spør om begge. Den tilbys derfor bare når alt går: retten
+til å slette kapittelet, retten til å legge oppskrifter rett i den ekte
+kokeboken og flytteretten på hver oppskrift i kapittelet. Et kapittel som er
+delt direkte med en eier uten tilgang til kokeboken (det står i «Delt med
+meg»), kan slettes, men ikke løses opp — ellers ville kapittelet forsvinne mens
+oppskriftene ble avvist, en halv oppløsning (`canDissolveRecipeChapter`).
+
 Sletter man et kapittel, går oppskriftene i det med i søppelkassen som én enhet
 (og kommer tilbake med det). Skal oppskriftene beholdes, er det «Løs opp
 kapittelet» som gjelder.
@@ -172,6 +180,12 @@ delingsmodalen: `https://huskis.no/oppskrift.html#<nøkkel>`.
   objektet ligger i søppelkassen eller arkivet, når det slettes for godt
   (kaskade), og når den som laget den ikke lenger kan styre medlemmene på
   objektet.
+- Det siste er VARIG: triggerne på `memberships` (rollen endres eller fjernes)
+  og på `note_folders`/`notes` (objektet flyttes) sletter med en gang hver
+  lenke hvis oppretter ikke lenger er eier av objektet. Får hen eierskapet
+  tilbake, eller flyttes objektet tilbake, er den gamle lenken fortsatt død; en
+  ny lenke får en ny nøkkel. Sjekken i `recipe_link_get`/`recipe_public_get`
+  står i tillegg.
 - En oppskrift som flyttes ut av en delt kokebok/et delt kapittel, følger ikke
   lenken. En som flyttes inn, gjør det.
 

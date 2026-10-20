@@ -326,6 +326,9 @@ LWW-stemplet sammen med tittelen.
 uten grant, så bare `SECURITY DEFINER`-funksjonene når den.
 `recipe_link_get/_create/_revoke` krever `can_manage_members`;
 `recipe_public_get` er den eneste funksjonen `anon` har `EXECUTE` på.
+Triggerne `memberships_recipe_links`, `note_folders_recipe_links` og
+`notes_recipe_links` sletter en lenke med en gang oppretter ikke lenger er eier
+av objektet (`recipe_links_sweep`), så en lenke dør varig.
 Autoritativt: [oppskrifter.md](oppskrifter.md).
 
 ### Roller (`memberships`)

@@ -29,7 +29,12 @@
        lenke slutter å virke; et fragment som byttes midt i en henting viser
        den nye lenken, en tvetydig tittel gir innholdslisten, og lenken i
        testmodus peker på adressen appen kjører på
-   12. Ingen JS-feil
+   12. Et kapittel delt DIREKTE med en egen eier som ikke har tilgang til
+       kokeboken: «Løs opp kapittelet» vises ikke, og et direkte kall endrer
+       ingenting — ingen halv oppløsning der kapittelet forsvinner mens
+       oppskriftene ikke kan flyttes. En offentlig lenke eieren laget, dør
+       varig når hen mister eierskapet, også om det kommer tilbake.
+   13. Ingen JS-feil
 
   Kjøres på BÅDE desktop- og mobil-viewport (dra-og-slipp og layout); delingen
   og den offentlige lenken på desktop.
@@ -575,10 +580,79 @@ async function runSharing() {
   await browser.close();
 }
 
+/* 12. Direkte delt kapittel med egen eier, uten boktilgang (desktop). */
+async function runSharedChapterOwner() {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+  const errs = [];
+  const { db, ids } = buildDB();
+  const C2own = { id: U(), user_id: ids.uC, universe_id: null, group_id: null, note_project_id: null,
+    note_folder_id: ids.C2, note_id: null, role: 'owner', pos: 0, created_at: 1 };
+  db.memberships.push(C2own);
+  const c = await ctx.newPage();
+  c.on('pageerror', (e) => errs.push('C: ' + e.message));
+  await seed(c, db);
+  await loginAs(c, ids.uC, 'c@x.no');
+
+  const ser = await c.evaluate((ids) => {
+    const H = window.__huskis;
+    const ch = H.findRecipeChapter(ids.C2);
+    return { chapter: !!ch, book: !!H.state.noteProjects.find((x) => x.id === ids.B), recipe: !!H.findRecipe(ids.R3) };
+  }, ids);
+  log('kapitteleier uten boktilgang: ser kapittelet og oppskriften, men ikke kokeboken',
+    ser.chapter && ser.recipe && !ser.book, JSON.stringify(ser));
+
+  await c.evaluate(() => { window.__huskis.setMainTab('recipes'); window.__huskis.openRecipesNav(); });
+  await c.waitForSelector('#recipes-nav-board .recipe-chapter[data-id="' + ids.C2 + '"] .cat-cog', { timeout: 8000 });
+  await c.click('#recipes-nav-board .recipe-chapter[data-id="' + ids.C2 + '"] .cat-cog');
+  await c.waitForSelector('.obj-menu-row', { timeout: 8000 });
+  const rader = await c.evaluate(() => [...document.querySelectorAll('.obj-menu-row')].map((e) => e.textContent.trim()));
+  log('kapitteleier uten boktilgang: menyen har ikke «Løs opp kapittelet» (men har «Slett»)',
+    !rader.some((t) => /Løs opp/.test(t)) && rader.some((t) => /Slett/.test(t)), JSON.stringify(rader));
+  await c.keyboard.press('Escape');
+
+  await c.evaluate((id) => window.__huskis.dissolveRecipeChapter(id), ids.C2);
+  await sync(c);
+  await settle(c);
+  const etter = await c.evaluate((ids) => {
+    const db = JSON.parse(localStorage.getItem('hk-mock-db'));
+    const f = db.note_folders.find((x) => x.id === ids.C2);
+    const r = db.notes.find((x) => x.id === ids.R3);
+    return { lokalt: !!window.__huskis.findRecipeChapter(ids.C2), rad: !!f && !f.trashed,
+      grav: (db.tombstones || []).some((t) => t.id === ids.C2), folder: r && r.folder_id === ids.C2 };
+  }, ids);
+  log('kapitteleier uten boktilgang: et direkte kall løser ikke opp kapittelet — alt står urørt',
+    etter.lokalt && etter.rad && !etter.grav && etter.folder, JSON.stringify(etter));
+
+  // Lenken: lages av kapitteleieren, dør når hen mister eierskapet og
+  // gjenoppstår ikke når det kommer tilbake (ingen lesing imellom).
+  const tok = await c.evaluate(async (id) => {
+    const r = await window.HK_MOCK.createClient().rpc('recipe_link_create', { p_type: 'note_folder', p_id: id });
+    return r.data;
+  }, ids.C2);
+  const setRole = (role) => c.evaluate(async ({ mid, role }) => {
+    await window.HK_MOCK._edit((db) => { db.memberships.find((m) => m.id === mid).role = role; });
+  }, { mid: C2own.id, role });
+  const lesLenke = () => c.evaluate(async (t) => {
+    const r = await window.HK_MOCK.createClient().rpc('recipe_public_get', { p_token: t });
+    return r.data ? r.data.type : null;
+  }, tok);
+  const før = await lesLenke();
+  await setRole('member');
+  await setRole('owner');
+  const gjenoppstått = await lesLenke();
+  log('kapitteleier: en lenke som døde da eierskapet falt bort, gjenoppstår ikke når det kommer tilbake',
+    !!tok && før === 'chapter' && gjenoppstått === null, 'før=' + før + ' etter=' + gjenoppstått);
+
+  log('kapitteleier: ingen JS-feil', errs.length === 0, errs.slice(0, 3).join(' | '));
+  await browser.close();
+}
+
 (async () => {
   await runOwner('desktop', { width: 1200, height: 900 }, false);
   await runOwner('mobil', { width: 390, height: 780 }, true);
   await runSharing();
+  await runSharedChapterOwner();
   const ok = results.filter(Boolean).length;
   console.log('\n==== ' + ok + '/' + results.length + ' PASS ====');
   process.exit(ok === results.length ? 0 : 1);

@@ -957,7 +957,9 @@ Det oppskriftene har i tillegg, er en **offentlig lenke**, og den gir
   `recipe_public_get(nøkkel)`, som returnerer navn, titler og
   oppskriftsinnhold — ingen id-er, personer eller noe utenfor det delte.
 * Lenken dør når den slås av, når objektet havner i søppelkassen/arkivet eller
-  slettes, og når den som laget den mister retten til å styre medlemmene.
+  slettes, og når den som laget den mister retten til å styre medlemmene —
+  varig: en trigger sletter lenken i det øyeblikket, så den gjenoppstår ikke
+  om retten kommer tilbake.
   Innholdet er alltid slik det er nå; en oppskrift som flyttes ut av en delt
   kokebok, er ikke lenger med.
 

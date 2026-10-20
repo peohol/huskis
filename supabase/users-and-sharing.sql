@@ -7072,8 +7072,9 @@ end;
 $$;
 
 -- Den aktive nøkkelen, eller null. En rad hvis oppretter har mistet
--- myndigheten er en død lenke: den ryddes bort her, så neste «Lag lenke» gir
--- en ny nøkkel i stedet for å vekke den gamle.
+-- myndigheten er en død lenke. Triggerne under rydder den bort i det
+-- øyeblikket det skjer; sjekken her er et ekstra lag, så neste «Lag lenke»
+-- aldri kan vekke en gammel nøkkel.
 create or replace function public.recipe_link_get(p_type text, p_id uuid)
 returns text language plpgsql security definer set search_path = public as $$
 declare l public.recipe_links;
@@ -7195,6 +7196,63 @@ begin
     'recipes', jsonb_build_array(public.recipe_public_item(n.title, n.recipe)));
 end;
 $$;
+
+/* VARIG DØD NÅR MYNDIGHETEN FORSVINNER. `recipe_public_get` sjekker
+   oppretterens myndighet ved hver lesing, men det alene ville latt en lenke
+   GJENOPPSTÅ: mister oppretteren eierskapet og får det tilbake uten at noen
+   leste lenken imellom, ville den gamle nøkkelen virke igjen. Derfor slettes
+   raden i det øyeblikket myndigheten forsvinner — og myndigheten
+   (`can_manage_members`: eier på nivået eller over) avhenger av nøyaktig to
+   ting: rollene i `memberships`, og hvor objektet står i treet. Begge får en
+   AFTER-trigger som rydder de lenkene endringen kan ha drept. */
+create or replace function public.recipe_links_sweep(p_creator uuid, p_folder uuid, p_note uuid)
+returns void language sql security definer set search_path = public as $$
+  delete from public.recipe_links l
+   where (p_creator is null or l.created_by = p_creator)
+     and (p_folder is null or l.note_folder_id = p_folder)
+     and (p_note is null or l.note_id = p_note)
+     and not public.can_manage_members(
+           case when l.note_project_id is not null then 'note_project'
+                when l.note_folder_id is not null then 'note_folder' else 'note' end,
+           coalesce(l.note_project_id, l.note_folder_id, l.note_id), l.created_by);
+$$;
+
+-- En rolle på notatsiden er fjernet eller endret: personens lenker.
+create or replace function public.recipe_links_after_membership()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  perform public.recipe_links_sweep(old.user_id, null, null);
+  return null;
+end;
+$$;
+drop trigger if exists memberships_recipe_links on public.memberships;
+create trigger memberships_recipe_links after update or delete on public.memberships
+  for each row
+  when (old.note_project_id is not null or old.note_folder_id is not null or old.note_id is not null)
+  execute function public.recipe_links_after_membership();
+
+-- Et kapittel eller en oppskrift har flyttet: lenkene på det. (Oppskriftene i
+-- et kapittel som flytter, får sin egen runde når kaskaden retter `project_id`.)
+create or replace function public.recipe_links_after_move()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_table_name = 'note_folders' then
+    perform public.recipe_links_sweep(null, new.id, null);
+  else
+    perform public.recipe_links_sweep(null, null, new.id);
+  end if;
+  return null;
+end;
+$$;
+drop trigger if exists note_folders_recipe_links on public.note_folders;
+create trigger note_folders_recipe_links after update of project_id on public.note_folders
+  for each row when (old.project_id is distinct from new.project_id)
+  execute function public.recipe_links_after_move();
+drop trigger if exists notes_recipe_links on public.notes;
+create trigger notes_recipe_links after update of project_id, folder_id on public.notes
+  for each row
+  when (old.project_id is distinct from new.project_id or old.folder_id is distinct from new.folder_id)
+  execute function public.recipe_links_after_move();
 
 -- ------------------------------------------------------------
 -- 10. import_doc(p_doc) — migrering av dagens (lokale) doc inn som
@@ -7800,6 +7858,9 @@ revoke all on function public.current_session_id() from public, anon, authentica
 -- (finnes den, er den slettet, hvem lenken tilhører) uten egen sjekk.
 revoke all on function public.recipe_obj_live(text, uuid) from public, anon, authenticated;
 revoke all on function public.recipe_link_row(text, uuid) from public, anon, authenticated;
+revoke all on function public.recipe_links_sweep(uuid, uuid, uuid) from public, anon, authenticated;
+revoke all on function public.recipe_links_after_membership() from public, anon, authenticated;
+revoke all on function public.recipe_links_after_move() from public, anon, authenticated;
 revoke all on function public.recipe_link_authorize(text, uuid) from public, anon, authenticated;
 revoke all on function public.recipe_public_items(uuid, uuid) from public, anon, authenticated;
 -- DEN ENE funksjonen anon får kalle: lesingen bak en offentlig lenke. Den
