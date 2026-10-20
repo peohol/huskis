@@ -540,7 +540,7 @@
     'search.scope.all':    ['Alt', 'All'],
     'search.scope.lists':  ['Lister', 'Lists'],
     'search.scope.notes':  ['Notater', 'Notes'],
-    'search.scope.recipes': ['Oppskrifter', 'Recipes'],
+    'search.scope.recipes': ['Opp\u00ADskrifter', 'Recipes'],
     'search.hint.all':     ['Søket dekker alt du har tilgang til — i Lister, Notater og Oppskrifter.',
                             'Search covers everything you have access to — in Lists, Notes and Recipes.'],
     'search.hint.recipes': ['Søket dekker kokebøker, kapitler, oppskriftstitler og selve oppskriftene.',

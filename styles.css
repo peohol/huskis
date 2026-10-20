@@ -5695,6 +5695,29 @@ body.no-auth .corner-controls { display: none; }
 .topbar-row-tabs { justify-content: center; align-items: center; }
 .main-tab { padding: 7px 14px; }
 .main-tab > .icon { width: 20px; height: 20px; flex: none; }
+/* TRE FANER PÅ EN TELEFON. Ikon + «Oppskrifter» + polstring er ~145 px, og
+   sporet er en tredjedel av bryteren: 133 px på 430 px, 120 på 390, 97 på 320.
+   På telefonbredde står etiketten derfor alene (ikonet er `aria-hidden` pynt —
+   etiketten er navnet), med knappere polstring; da får den plass helt ned til
+   320 px. Under det KORTES den av i stedet for å legge seg over
+   nabosegmentet: `min-width: 0` lar den krympe i flex-raden, og den lille
+   ekstra høyden holder underlengdene («pp») innenfor klippet. */
+.main-tab > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0.2em 1px;
+  margin: -0.2em -1px;
+}
+@media (max-width: 480px) {
+  .main-tab { padding-inline: 6px; }
+  .main-tab > .icon { display: none; }
+}
+/* 320 px, den smaleste telefonen i bruk: sporet er 97 px og «Oppskrifter»
+   91, så polstringen må ned for at ordet skal stå helt. */
+@media (max-width: 340px) {
+  .main-tab { padding-inline: 2px; }
+}
 
 /* NOTATKORTET er et LISTEKORT: samme `.card`-flate, samme korthode, samme
    palettfarge fra posisjonen (colorForIndex/paintCardColor), og innholdet på
@@ -6098,6 +6121,14 @@ body.note-editing .corner-controls { display: none; }
 /* Scopevelgeren i søket er `.seg` i sin minste bruk — formen står ved
    hovedbryteren i header-seksjonen, og her settes bare plasseringen. */
 .search-scope { margin: 0 auto 2px; }
+/* FIRE scope i en telefonbred modal: sporet blir ~76 px på 390 px, og
+   «Oppskrifter» er 89. Bryteren tar da hele bredden, og etiketten BREKKER
+   (ved den myke bindestreken i ordboken, «Opp-skrifter») i stedet for å renne
+   inn i naboen — samme grep som tidshorisonten i «Kommende hendelser». */
+@media (max-width: 480px) {
+  .search-scope { display: grid; width: 100%; }
+  .search-scope .seg-btn { white-space: normal; padding-inline: 4px; text-align: center; }
+}
 
 /* Utdraget fra notatteksten under et treff: sitatet som forklarer HVORFOR
    notatet står i lista. Det brytes over inntil to linjer og kappes så — raden
