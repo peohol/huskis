@@ -314,6 +314,27 @@ SECURITY DEFINER). `device_sessions` er bare et sidebord med det som gjør en ø
 gjenkjennelig for eieren — nettleser, plattform, vert, enhets-id. Hverken IP
 eller hele user-agenten forlater databasen.
 
+### Oppskriftene (`kind`, `notes.recipe`, `recipe_links`)
+
+Oppskriftene bor i notattabellene: `note_projects.kind`, `note_folders.kind` og
+`notes.kind` er `'note'` eller `'recipe'`, og triggerne `note_child_kind` /
+`note_kind_consistent` holder et tre ensartet (barnet arver kokebokens verdi, og
+en flytting på tvers avvises). `notes.recipe` er oppskriftsdokumentet (jsonb),
+LWW-stemplet sammen med tittelen.
+
+`recipe_links` holder de offentlige lenkene (én per objekt): RLS uten policy og
+uten grant, så bare `SECURITY DEFINER`-funksjonene når den.
+`recipe_link_get/_create/_revoke` krever `can_manage_members`;
+`recipe_public_get` er den eneste funksjonen `anon` har `EXECUTE` på.
+Triggerne `memberships_recipe_links`, `note_folders_recipe_links` og
+`notes_recipe_links` sletter en lenke med en gang oppretter ikke lenger er eier
+av objektet (`recipe_links_sweep`), så en lenke dør varig; de og
+`recipe_link_create` tar den samme rådgivende låsen per kokebok
+(`recipe_links_lock`) før de leser rettighetene, så et samtidig kappløp ikke
+kan etterlate en død lenke. `recipe_chapter_dissolve` løser opp et kapittel
+atomisk (alle flyttinger + slettingen, eller ingenting).
+Autoritativt: [oppskrifter.md](oppskrifter.md).
+
 ### Roller (`memberships`)
 
 Én rad = én brukers ROLLE på ETT delbart objekt (område **eller** mappe):
@@ -531,6 +552,7 @@ Full modell: [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
 | `create_share_invite(type, id, email, role)` / `accept_share_invite(invite)` / `decline_share_invite` / `revoke_share_invite` | delingsflyt, medlem eller eierskap; aksept krever ingen plassering |
 | `revoke_share` / `set_member_role` / `leave_share` / `set_locked` / `set_unlocked` / `set_invite_policy` / `get_members` | administrasjon (roller, låsing + unntak, invitasjonspolicy; `get_members` gir `viewer.caps`) |
 | `move_group(group, universe, cat, pos)` | ATOMISK mappeflytting: reorder / reparent / kopier-og-slett med id-mapping |
+| `recipe_chapter_dissolve(folder, ts, org)` | ATOMISK oppløsning av et kapittel: alle oppskriftene til «Uten kapittel» + slett kapittelet, eller ingenting |
 | `notify_record(rows, cursor)` / `notify_set_prefs(prefs)` | varselhistorikken: logg passerte terskler idempotent (unik `(user_id, key)`) og flytt generator-markøren; de fire av/på-valgene (`varsler.md`) |
 | `update memberships set pos` (egen rad) | personlig rekkefølge (toppnivå-områder + frie mapper) |
 | Realtime `postgres_changes` på tabellene | live-oppdatering (tabellene ligger i `supabase_realtime`-publikasjonen) |

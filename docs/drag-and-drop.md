@@ -42,6 +42,13 @@ er hvilket state-tre man slår opp i (`boardScope` / `navScope` / `ideaScope` /
 | `notesNavCardBoard` | `#notes-nav-board .card` (bokhyller) | `#notes-nav-board .board-col` | `.card-head` | `#note-project-trash-btn`, `#note-project-archive-btn` |
 | `notesNavRowBoard` | `#notes-nav-board .item` (notatbøker) | `#notes-nav-board .items-container` | `.item` | `.note-folder-trash-btn`, `.note-folder-archive-btn` |
 
+**Oppskriftsfanen har tre board-er til**, i sine egne scope
+(`recipesScope`, `recipesNavScope`, `recipeEditScope`): `recipesCardBoard`
+(oppskriftskortene på flaten), `recipesNavCardBoard` (kokebokmenyen —
+kokebøker som kort, kapitler og oppskrifter som rader) og `recipeEditBoard`
+(ingrediensene, stegene og underinndelingene i redigeringen). Hva som kan
+slippes hvor, står i [oppskrifter.md](oppskrifter.md); limkoden er den samme.
+
 **Notat-scopene har ingen kategorier og ingen ekstrahering**, så et slipp kan
 bety tre ting: ny plass i rekka (for en notatbok i tillegg en ny bokhylle),
 SLETTING når det lander i kassen, eller ARKIVERING når det lander i arkivet.

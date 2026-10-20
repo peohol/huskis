@@ -938,6 +938,32 @@ fila og etterlater databasen halvmigrert.
 
 ---
 
+### Oppskriftene: den samme modellen, pluss en offentlig lenke
+
+Kokebok › kapittel › oppskrift ER bokhylle › notatbok › notat
+(`kind = 'recipe'`, [oppskrifter.md](oppskrifter.md)). Alt over gjelder dem
+uendret — roller, arv nedover, låser, capabilities, sletting og «Delt med
+meg». Databasen holder de to trærne fra hverandre: en oppskrift kan ikke
+flyttes inn i en bokhylle eller omvendt.
+
+Det oppskriftene har i tillegg, er en **offentlig lenke**, og den gir
+**utelukkende lesetilgang**:
+
+* Bare den som kan styre medlemmene (`can_manage_members`) kan lage, se og
+  slå av lenken. Klienten viser kontrollen bare når serveren har sagt det
+  (feiler lukket).
+* Lenken peker på en nøkkel på 192 tilfeldige bit, laget av serveren.
+  Tabellen er ikke lesbar for noen klient; anonym tilgang går bare gjennom
+  `recipe_public_get(nøkkel)`, som returnerer navn, titler og
+  oppskriftsinnhold — ingen id-er, personer eller noe utenfor det delte.
+* Lenken dør når den slås av, når objektet havner i søppelkassen/arkivet eller
+  slettes, og når den som laget den mister retten til å styre medlemmene —
+  varig: en trigger sletter lenken i det øyeblikket, så den gjenoppstår ikke
+  om retten kommer tilbake. Opprettelsen og triggerne deler én lås per
+  kokebok, så heller ikke et samtidig kappløp kan etterlate en slik lenke.
+  Innholdet er alltid slik det er nå; en oppskrift som flyttes ut av en delt
+  kokebok, er ikke lenger med.
+
 ## 15. Testdekning
 
 * `supabase/tests/test-roles-and-sharing.sql` — roller, medlemslister,

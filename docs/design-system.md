@@ -363,12 +363,15 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   (bare navn, uten ikoner, på flate-mønsteret; `.crumb-name` med ellipsis);
   `.crumb-sep` er ›-skilletegnet mellom dem. Notatfanen har sin egen
   (`#notes-crumb`, `[bokhylle] › [notatbok]`) med nøyaktig den samme klassen.
-- `.main-tabs` + `.main-tab`: hovedbryteren `Lister ↔ Notater` — `.seg` (under)
-  i header-størrelse, sentrert på panelets FØRSTE rad (`.topbar-row-tabs`), i
-  hele bredden. Hjørnegruppen skyves ned under den (`--main-tabs-h`, målt i
-  `syncTopChrome`), så bryteren ligger alene øverst. Semantisk er den fortsatt
-  en `tablist` med to `tab`-er (`docs/tilgjengelighet.md`). `.topbar-row` er
-  den aktive fanens egen rad.
+- `.main-tabs` + `.main-tab`: hovedbryteren `Lister ↔ Notater ↔ Oppskrifter`
+  — `.seg` (under) i header-størrelse, sentrert på panelets FØRSTE rad
+  (`.topbar-row-tabs`), i hele bredden. Hjørnegruppen skyves ned under den
+  (`--main-tabs-h`, målt i `syncTopChrome`), så bryteren ligger alene øverst.
+  Semantisk er den fortsatt en `tablist` med tre `tab`-er
+  (`docs/tilgjengelighet.md`). På telefonbredde (≤ 480 px) står etikettene
+  uten ikon og med knappere polstring, så tre faner får plass; under 320 px
+  kortes etiketten av med ellipse i stedet for å renne inn i naboen.
+  `.topbar-row` er den aktive fanens egen rad.
 - `.note-card`: notatkortet ER et listekort — samme `.card`-flate, samme
   `.card-head` (notatikon + tittel til venstre, «sist endret» som `.meta-chip`
   til høyre) og samme posisjonsbaserte palettfarge fra `paintCardColor`.
@@ -378,7 +381,8 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   fjerde linjen stå synlig i bunnpolstringen. Hele kortet er klikkflate og
   dra-sone, så det har pekehånd og `:focus-visible`-ring.
 - `.seg` + `.seg-btn`: den GENERELLE segmenterte bryteren — hovedbryteren
-  (`.main-tabs`), søkets scopevelger (`Alt | Lister | Notater`) og
+  (`.main-tabs`), søkets scopevelger (`Alt | Lister | Notater | Oppskrifter`,
+  der etiketten brekker ved en myk bindestrek på telefon) og
   tidshorisonten i «Kommende hendelser» (`1 uke | 1 måned | Alle`) er den samme
   kontrollen i tre bruk. Den er en EKTE bryter: markeringen er ÉN flate
   som GLIR mellom segmentene (`::before` på beholderen), ikke en bakgrunn som

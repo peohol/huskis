@@ -507,4 +507,52 @@ window.ICONS = {
     '<path d="M10 13.5a3.6 3.6 0 0 0 5.1 0l2.6-2.6a3.6 3.6 0 0 0-5.1-5.1L11.4 7"></path>' +
     '<path d="M14 10.5a3.6 3.6 0 0 0-5.1 0l-2.6 2.6a3.6 3.6 0 0 0 5.1 5.1L12.6 17"></path>' +
     '</svg>',
+
+  // Oppskrift: en KOKEGRYTE i terrakotta med lokk og damp — oppskriftenes
+  // eget motiv, slik arket er notatenes. Den står på hovedfanen, på
+  // oppskriftskortene og -radene og i oppskriftsflatens tittel
+  // (docs/oppskrifter.md). Motivet finnes også innlimt i `index.html`
+  // (fanen og «＋ Oppskrift») — endres det ene, endre det andre.
+  recipe: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M4.5 11h15v6a3 3 0 0 1-3 3h-9a3 3 0 0 1-3-3Z" fill="#c96b45"></path>' +
+    '<path d="M3.5 9.6h17"></path>' +
+    '<path d="M2.5 12.5h2"></path><path d="M19.5 12.5h2"></path>' +
+    '<path d="M10.5 9.6a1.5 1.5 0 0 1 3 0"></path>' +
+    '<path d="M9 7c-.6-.8-.6-1.7 0-2.5"></path><path d="M12 6.5c-.6-.8-.6-1.7 0-2.5"></path>' +
+    '<path d="M15 7c-.6-.8-.6-1.7 0-2.5"></path>' +
+    '</svg>',
+
+  // Kokebok: oppskriftenes ØVERSTE nivå, slik bokhyllen er notatenes. En bok
+  // med terrakotta perm (grytas farge) og en hvit tallerken på forsiden — en
+  // bok, men ikke til å forveksle med notatboken (`noteFolder`, rød perm).
+  cookbook: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v18H6.5A1.5 1.5 0 0 1 5 19.5Z" fill="#c96b45"></path>' +
+    '<path d="M7.5 3v18"></path>' +
+    '<circle cx="13.25" cy="11" r="3.4" fill="#ffffff"></circle>' +
+    '<circle cx="13.25" cy="11" r="1.7"></circle>' +
+    '</svg>',
+
+  // Kapittel: et ark med et gult bokmerke — en del av boken, ikke en egen bok.
+  chapter: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M5.5 3.5h13v17h-13Z" fill="#ffffff"></path>' +
+    '<path d="M13 3.5v7l2-1.6 2 1.6v-7Z" fill="#e8bd3e"></path>' +
+    '<path d="M8 13.5h8"></path><path d="M8 16.5h5"></path>' +
+    '</svg>',
+
+  // Porsjoner: en hvit tallerken — porsjonsvelgerens og porsjonschipens ikon.
+  servings: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="12" r="8" fill="#ffffff"></circle>' +
+    '<circle cx="12" cy="12" r="4.6"></circle>' +
+    '</svg>',
+
+  // Minus: porsjonsvelgerens «færre», samme strek som ＋.
+  minus: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M4.5 12h15"></path></svg>',
+
+  // Grep: dra-håndtaket på linjene og underinndelingene i redigeringsmodus.
+  grip: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="9" cy="7" r="0.9" fill="#111" stroke="none"></circle><circle cx="15" cy="7" r="0.9" fill="#111" stroke="none"></circle>' +
+    '<circle cx="9" cy="12" r="0.9" fill="#111" stroke="none"></circle><circle cx="15" cy="12" r="0.9" fill="#111" stroke="none"></circle>' +
+    '<circle cx="9" cy="17" r="0.9" fill="#111" stroke="none"></circle><circle cx="15" cy="17" r="0.9" fill="#111" stroke="none"></circle>' +
+    '</svg>',
 };

@@ -200,6 +200,11 @@
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h7.5L19 8.5V21H6Z" fill="#ffffff"></path><path d="M13.5 3v5.5H19"></path><path d="M8.8 12.5h6.4"></path><path d="M8.8 15.5h6.4"></path><path d="M8.8 18.5h3.6"></path></svg>
         <span data-i18n="tabs.notes">Notater</span>
       </button>
+      <button class="main-tab seg-btn" id="tab-recipes" type="button" role="tab"
+              data-tab="recipes" aria-selected="false" aria-controls="recipes-board" tabindex="-1">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 11h15v6a3 3 0 0 1-3 3h-9a3 3 0 0 1-3-3Z" fill="#c96b45"></path><path d="M3.5 9.6h17"></path><path d="M2.5 12.5h2"></path><path d="M19.5 12.5h2"></path><path d="M10.5 9.6a1.5 1.5 0 0 1 3 0"></path><path d="M9 7c-.6-.8-.6-1.7 0-2.5"></path><path d="M12 6.5c-.6-.8-.6-1.7 0-2.5"></path><path d="M15 7c-.6-.8-.6-1.7 0-2.5"></path></svg>
+        <span data-i18n="tabs.recipes">Oppskrifter</span>
+      </button>
     </div>
     </div>
     <!-- Listefanens rad: breadcrumb + listefunksjoner. -->
@@ -236,6 +241,21 @@
         <button class="btn-add btn-solid btn-green" id="add-note-btn" type="button" data-i18n-title="notes.newNote" data-i18n-aria-label="notes.newNote"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg> <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h7.5L19 8.5V21H6Z" fill="#ffffff"></path><path d="M13.5 3v5.5H19"></path><path d="M8.8 12.5h6.4"></path><path d="M8.8 15.5h6.4"></path><path d="M8.8 18.5h3.6"></path></svg></button>
       </div>
     </div>
+    <!-- Oppskriftsfanens rad: kokebok › kapittel + «＋ Oppskrift». Samme
+         oppbygning som notatfanens (docs/oppskrifter.md). -->
+    <div class="topbar-row" id="topbar-row-recipes" hidden>
+      <nav class="breadcrumb" data-i18n-aria-label="crumb.youAreHere">
+        <button class="crumb-btn nav-crumb" id="recipes-crumb" type="button"
+                data-i18n-title="recipes.crumbTitle" aria-haspopup="dialog">
+          <span class="crumb-name" id="crumb-book-name" data-i18n="kind.recipeBook">Kokebok</span>
+          <span class="crumb-sep" aria-hidden="true">›</span>
+          <span class="crumb-name" id="crumb-chapter-name" data-i18n="recipes.bookLevel">Uten kapittel</span>
+        </button>
+      </nav>
+      <div class="panel-actions toolbar">
+        <button class="btn-add btn-solid btn-green" id="add-recipe-btn" type="button" data-i18n-title="recipes.newRecipe" data-i18n-aria-label="recipes.newRecipe"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg> <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 11h15v6a3 3 0 0 1-3 3h-9a3 3 0 0 1-3-3Z" fill="#c96b45"></path><path d="M3.5 9.6h17"></path><path d="M2.5 12.5h2"></path><path d="M19.5 12.5h2"></path><path d="M10.5 9.6a1.5 1.5 0 0 1 3 0"></path><path d="M9 7c-.6-.8-.6-1.7 0-2.5"></path><path d="M12 6.5c-.6-.8-.6-1.7 0-2.5"></path><path d="M15 7c-.6-.8-.6-1.7 0-2.5"></path></svg></button>
+      </div>
+    </div>
   </header>
 
   <main class="app-main">
@@ -244,6 +264,9 @@
     <!-- Notatfanens flate: notatkortene i de samme kolonnene som listene. -->
     <section class="board notes-board dnd-surface" id="notes-board" aria-live="polite"
              role="tabpanel" aria-labelledby="tab-notes" hidden></section>
+    <!-- Oppskriftsfanens flate: oppskriftskortene i de samme kolonnene. -->
+    <section class="board notes-board recipes-board dnd-surface" id="recipes-board" aria-live="polite"
+             role="tabpanel" aria-labelledby="tab-recipes" hidden></section>
   </main>
 
   <!-- SØPPELKASSENE (og notatenes arkiv) i en FAST fot nederst på siden — samme
@@ -282,6 +305,18 @@
               data-i18n-title="notes.trashNotesTitle">
         <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
         <span class="trashcan-count" id="note-trash-count">0</span>
+      </button>
+    </span>
+  </div>
+
+  <!-- Oppskriftsfanens fot: ÉN søppelkasse for alle tre nivåene. -->
+  <div class="drop-dock" id="recipes-dock" hidden>
+    <span class="item-trash" id="recipe-trash" hidden>
+      <button class="trashcan" id="recipe-trash-btn" type="button"
+              data-dnd-zone="recipe-trash"
+              data-i18n-title="recipes.trashTitle" data-i18n-aria-label="recipes.trashTitle">
+        <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
+        <span class="trashcan-count" id="recipe-trash-count">0</span>
       </button>
     </span>
   </div>
@@ -368,6 +403,35 @@
                   data-i18n-title="notes.trashProjectsTitle">
             <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
             <span class="trashcan-count" id="note-project-trash-count">0</span>
+          </button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- KOKEBOKMENYEN: hele oppskriftstreet i én modal. Hver kokebok er et
+       farget kort, kapitlene står i den som kategoriene i en liste, og
+       oppskriftene er rader — i et kapittel eller rett i boken. Se
+       docs/oppskrifter.md. -->
+  <div class="modal-overlay" id="recipes-nav-modal" hidden>
+    <div class="modal menu-modal nav-modal" role="dialog" aria-modal="true" aria-labelledby="recipes-nav-title">
+      <header class="modal-head">
+        <h2 id="recipes-nav-title">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v18H6.5A1.5 1.5 0 0 1 5 19.5Z" fill="#c96b45"></path><path d="M7.5 3v18"></path><circle cx="13.25" cy="11" r="3.4" fill="#ffffff"></circle><circle cx="13.25" cy="11" r="1.7"></circle></svg>
+          <span data-i18n="recipes.navTitle">Kokebøker</span>
+        </h2>
+        <button class="icon-btn" id="recipes-nav-close" type="button" data-i18n-title="common.close" data-i18n-aria-label="common.close"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 17.5 17.5"></path><path d="M17.5 6.5 6.5 17.5"></path></svg></button>
+      </header>
+      <div class="modal-body menu-body nav-body" id="recipes-nav-body">
+        <section class="board nav-board dnd-surface" id="recipes-nav-board" aria-live="polite"></section>
+      </div>
+      <footer class="modal-foot nav-foot">
+        <div class="item-trash" id="recipe-nav-trash" hidden>
+          <button class="trashcan" id="recipe-nav-trash-btn" type="button"
+                  data-dnd-zone="recipe-nav-trash"
+                  data-i18n-title="recipes.trashTitle" data-i18n-aria-label="recipes.trashTitle">
+            <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
+            <span class="trashcan-count" id="recipe-nav-trash-count">0</span>
           </button>
         </div>
       </footer>
@@ -683,9 +747,11 @@
                   aria-selected="false" tabindex="-1" data-i18n="search.scope.lists">Lister</button>
           <button class="seg-btn" type="button" role="tab" data-scope="notes"
                   aria-selected="false" tabindex="-1" data-i18n="search.scope.notes">Notater</button>
+          <button class="seg-btn" type="button" role="tab" data-scope="recipes"
+                  aria-selected="false" tabindex="-1" data-i18n="search.scope.recipes">Opp&shy;skrifter</button>
         </div>
         <!-- Tomt felt gir ingen resultatdump — bare en linje som sier hva som skjer. -->
-        <p class="search-note" id="search-hint" data-i18n="search.hint.all">Søket dekker alt du har tilgang til: områder, mapper, lister, kategorier, listepunkter, bokhyller, notatbøker og notater.</p>
+        <p class="search-note" id="search-hint" data-i18n="search.hint.all">Søket dekker alt du har tilgang til — i Lister, Notater og Oppskrifter.</p>
         <p class="search-note" id="search-empty" hidden></p>
         <ul class="search-results" id="search-results" role="listbox"
             data-i18n-aria-label="search.resultsLabel"></ul>
@@ -1135,6 +1201,74 @@
     </li>
   </template>
 
+  <!-- Kokebok (Kokebokmenyen): et LISTEKORT. Kapitlene står i den første
+       containeren som kategoriene i en liste, og oppskriftene som ikke hører
+       til noe kapittel i den andre — nærmest den grønne ＋-knappen som lager
+       dem. Gul knapp lager et kapittel, som den gule kategoriknappen i en
+       liste. Hodet er et trekkspill. -->
+  <template id="recipe-book-template">
+    <article class="card uni-card recipe-book-card" tabindex="-1">
+      <header class="card-head" role="button" tabindex="0" aria-expanded="true">
+        <span class="kind-icon uni-icon" aria-hidden="true"></span>
+        <span class="share-badge" hidden aria-hidden="true"></span>
+        <div class="card-title-wrap">
+          <div class="title-line">
+            <h2 class="card-title" data-i18n-title="edit.clickToRename"></h2>
+            <span class="collapse-count" aria-hidden="true" hidden></span>
+          </div>
+        </div>
+        <button class="card-cog obj-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false"></button>
+      </header>
+      <div class="card-body">
+        <!-- «Uten kapittel»-raden (bygges i app.js) står først, rett over
+             oppskriftene den gjelder; kapitlene kommer etter. -->
+        <ul class="items-container recipe-free"></ul>
+        <ul class="items-container recipe-chapters"></ul>
+        <div class="add-item-row">
+          <button class="btn-add btn-solid btn-green icon-only add-item-btn" type="button" data-i18n-title="recipes.addRecipe" data-i18n-aria-label="recipes.addRecipe"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+          <button class="btn-add btn-solid btn-yellow icon-only add-cat-btn" type="button" data-i18n-title="recipes.addChapter" data-i18n-aria-label="recipes.addChapter"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <!-- Kapittel: kategori-raden fra listene, med oppskriftene i hyllen. -->
+  <template id="recipe-chapter-template">
+    <li class="category recipe-chapter">
+      <div class="cat-head">
+        <span class="cat-drag-icon" aria-hidden="true"></span>
+        <span class="kind-icon chapter-icon" aria-hidden="true"></span>
+        <span class="share-badge" hidden aria-hidden="true"></span>
+        <div class="cat-title-wrap">
+          <div class="title-line">
+            <h3 class="cat-title" data-i18n-title="edit.clickToRename"></h3>
+            <span class="collapse-count chapter-count" aria-hidden="true"></span>
+          </div>
+        </div>
+        <button class="cat-cog obj-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false"></button>
+      </div>
+      <ul class="cat-items">
+        <li class="cat-add">
+          <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" data-i18n-title="recipes.addRecipeInChapter" data-i18n-aria-label="recipes.addRecipeInChapter"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+        </li>
+      </ul>
+    </li>
+  </template>
+
+  <!-- Oppskrift (rad i Kokebokmenyen): mapperaden. Klikk åpner oppskriften. -->
+  <template id="recipe-row-template">
+    <li class="item group-row recipe-row" role="button" tabindex="0">
+      <span class="kind-icon recipe-row-icon" aria-hidden="true"></span>
+      <span class="share-badge" hidden aria-hidden="true"></span>
+      <div class="item-main">
+        <div class="title-line">
+          <span class="item-text"></span>
+        </div>
+      </div>
+      <button class="item-cog obj-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false"></button>
+    </li>
+  </template>
+
   <!-- OBJEKTMENYEN: én meny for ALLE seks objekttypene (område, mappe,
        mappekategori, liste, listepunkt, kategori). Popover ved menyknappen på
        desktop, sentrert ark på mobil — samme .switcher-*-skall som ansvarlig-
@@ -1480,6 +1614,45 @@
     </div>
   </div>
 
+  <!-- OPPSKRIFTSFLATEN: notat-editorens fullskjermsbilde, med oppskriften
+       på arket. Visningsmodus er for kjøkkenet (store linjer, porsjonsvelger,
+       ingen redigeringskontroller); «Rediger» i verktøylinjen bytter til
+       redigeringsmodus for den som har skriverett. Innholdet bygges i
+       app.js (renderRecipeSheet). Se docs/oppskrifter.md. -->
+  <div class="note-editor recipe-view" id="recipe-view" hidden>
+    <header class="note-editor-bar">
+      <button class="btn btn-ghost btn-small note-back" id="recipe-back" type="button"
+              data-i18n-title="notes.back" data-i18n-aria-label="notes.back">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5 8 12l7 7"></path></svg>
+        <span data-i18n="notes.back">Tilbake</span>
+      </button>
+      <div class="note-tools recipe-tools" role="toolbar" data-i18n-aria-label="recipes.toolbar">
+        <button class="btn btn-solid btn-small btn-accent recipe-edit-btn" id="recipe-edit-btn" type="button" aria-pressed="false">
+          <span class="recipe-edit-icon" aria-hidden="true"></span>
+          <span class="recipe-edit-label" data-i18n="recipes.edit">Rediger</span>
+        </button>
+      </div>
+      <div class="note-editor-aside">
+        <span class="note-save-status" id="recipe-save-status" role="status" aria-live="polite"></span>
+        <button class="corner-btn note-editor-btn" id="recipe-theme-btn" type="button"></button>
+        <button class="corner-btn note-editor-btn obj-menu-btn" id="recipe-menu-btn" type="button"
+                aria-haspopup="menu" aria-expanded="false"
+                data-i18n-title="recipes.recipeMenu" data-i18n-aria-label="recipes.recipeMenu"></button>
+      </div>
+    </header>
+    <div class="note-editor-body recipe-body" id="recipe-body">
+      <div class="note-sheet-wrap recipe-sheet-wrap">
+        <div class="note-title-row">
+          <span class="kind-icon note-title-icon recipe-title-icon" aria-hidden="true"></span>
+          <h1 class="recipe-title" id="recipe-title"></h1>
+          <input class="note-title-input recipe-title-input" id="recipe-title-input" type="text" hidden
+                 data-i18n-placeholder="recipes.titlePlaceholder" data-i18n-aria-label="recipes.titleLabel" />
+        </div>
+        <div class="note-sheet recipe-sheet" id="recipe-sheet"></div>
+      </div>
+    </div>
+  </div>
+
   <script src="vendor/supabase-js-2.111.0.js"></script>
   <!-- Dra-og-slipp-motoren (Smett over dnd-kit), samme opplegg som Supabase:
        en innsjekket kopi i repoet, versjonen i filnavnet, ingen CDN. Filen er
@@ -1505,6 +1678,10 @@
   <!-- Språket i UI-et (norsk/engelsk): ordbok + `t()`. MÅ lastes før app.js,
        som slår opp hver eneste brukerrettede tekst der. Se docs/sprak.md. -->
   <script src="i18n.js"></script>
+  <!-- Oppskriftenes rene logikk (mengder, porsjoner, underinndelinger) — den
+       SAMME fila som den offentlige lesevisningen og node-testene bruker.
+       MÅ lastes før app.js. Se docs/oppskrifter.md. -->
+  <script src="recipe-core.js"></script>
   <script src="app.js"></script>
   <!-- Oppdager en nyere produksjonsdeploy og laster klienten på nytt når det er
        trygt (app.js → __huskis.updateSafety()). Avslått uten en ekte build-ID. -->

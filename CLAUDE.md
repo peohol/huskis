@@ -3,7 +3,7 @@
 ## Prosjekt
 
 Huskis er en statisk vanilla-JS-app uten bundler eller rammeverk. Appen har én
-segmentert hovedbryter øverst — **Lister ↔ Notater** — og toppkontrollene
+segmentert hovedbryter øverst — **Lister ↔ Notater ↔ Oppskrifter** — og toppkontrollene
 (varsler, kalender, søk, idéer, drakt, konto) tilhører hele appen, ikke én fane.
 
 Listefanens innhold er hierarkisk: **Område > Mappe > Liste > Listepunkt**, der
@@ -12,6 +12,13 @@ tre — **Bokhylle > Notatbok > Notat** — bygget av de samme komponentene og d
 samme synken; autoritativt: `docs/notater-plan.md`. Identifikatorene i koden og
 databasen heter fortsatt `note_projects`/`note_folders`, som `universe`/`group`
 for de norske ordene «område» og «mappe».
+
+Oppskriftsfanen — **Kokebok > Kapittel > Oppskrift** — bor i de SAMME
+notattabellene, skilt med `kind = 'recipe'`, så deling, roller og synk er
+notatenes. Oppskriftsdokumentet og porsjonsskaleringen eies av `recipe-core.js`,
+og en kokebok, et kapittel eller en oppskrift kan deles med en offentlig,
+skrivebeskyttet lenke (`oppskrift.html`, uten innlogging). Autoritativt:
+`docs/oppskrifter.md`.
 
 De to øverste nivåene er bygget av samme komponenter som de to nederste: et
 område ER et kort, en mappe ER en rad. Dra-og-slipp kjører i to scope —

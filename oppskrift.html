@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <!-- Den SAMME innholdssikkerhetspolicyen som index.html (docs/sikkerhetsheadere.md);
+       tests/security-headers.test.js holder dem like. Siden har ingen inline-kode. -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'none';
+    base-uri 'none';
+    object-src 'none';
+    script-src 'self' 'sha256-6Q3JDVUTmctJuF9ScsOY9kCKBmqaIbjWdZMf/B2lgNc=';
+    style-src 'self' 'sha256-E7zJXfkufcgTIQG1Th6iYnoGis+rTfZd044bgiM1kr4=';
+    font-src 'self';
+    img-src 'self' data: blob:;
+    connect-src 'self' https://bmkynefxgklxzcofflqu.supabase.co wss://bmkynefxgklxzcofflqu.supabase.co https://huskis.no;
+    worker-src 'self';
+    form-action 'self'
+  " />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#667788" />
+  <!-- En delt oppskrift er ikke en offentlig nettside: den skal ikke indekseres. -->
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Huskis</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="theme.js"></script>
+</head>
+<!-- DEN OFFENTLIGE LESEVISNINGEN for en delt kokebok, et kapittel eller en
+     oppskrift: oppskrift.html#<nøkkel>. Kun lesing, ingen innlogging. Alt
+     innhold tegnes av recipe-public.js med den samme lesevisningen som appen
+     (recipe-core.js). Se docs/oppskrifter.md. -->
+<body class="pub-page">
+  <header class="note-editor-bar pub-bar">
+    <span class="pub-brand">
+      <span class="kind-icon pub-brand-icon" id="pub-brand-icon" aria-hidden="true"></span>
+      <span class="pub-brand-name">Huskis</span>
+    </span>
+    <span class="pub-readonly" data-i18n="public.readOnly">Delt med lenke · kun lesing</span>
+    <span class="note-editor-aside">
+      <button class="corner-btn note-editor-btn" id="pub-theme" type="button"></button>
+    </span>
+  </header>
+  <main class="note-editor-body pub-main" id="pub-main" aria-live="polite" aria-busy="true">
+    <p class="pub-loading" data-i18n="public.loading">Henter …</p>
+  </main>
+
+  <script src="vendor/supabase-js-2.111.0.js"></script>
+  <script src="config.js"></script>
+  <!-- huskis:kun-dev:start — mock-backenden (?mock=1), som i index.html. Fjernes
+       av build.js sammen med filene den peker på. -->
+  <script src="dev-mock.js"></script>
+  <!-- huskis:kun-dev:slutt -->
+  <script src="icons.js"></script>
+  <script src="i18n.js"></script>
+  <script src="recipe-core.js"></script>
+  <script src="recipe-public.js"></script>
+</body>
+</html>

@@ -334,6 +334,12 @@ aldri unntaket.
 3. **Klienten feiler lukket.** `useMock()` i `app.js` krever at `window.HK_MOCK`
    FAKTISK er lastet. Uten backenden gjør `?mock=1` ingenting i det hele tatt.
 
+Den offentlige oppskriftssiden `oppskrift.html` har den SAMME `<meta>`-policyen
+som `index.html`, ingen inline-kode og `noindex`, og dens `kun-dev`-blokk rives
+ut av den samme `stripDevOnly()` (`EXTRA_PAGES` i `build.js`). Siden kaller bare
+én anonym funksjon i databasen; hva den får se, står i
+[oppskrifter.md](oppskrifter.md).
+
 I kildetreet — lokal utvikling og nettlesertestene — er alt uendret: `?mock=1`
 laster `dev-mock.js`, som laster `mock-backend.js` før `app.js` starter.
 

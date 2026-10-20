@@ -99,6 +99,15 @@ const bid = a.version.buildId;
 check('index.html laster styles.css med ?b=<build-ID>', a.html.indexOf('href="styles.css?b=' + bid + '"') > -1);
 check('ingen uversjonerte app.js/styles.css-referanser igjen',
   !/(src|href)="(app\.js|styles\.css|icons\.js|i18n\.js|theme\.js|config\.js|update-check\.js)"/.test(a.html));
+/* Den offentlige oppskriftssiden (docs/oppskrifter.md) får de samme
+   versjonerte URL-ene, og testmodusen rives ut av den også. */
+const pubHtml = fs.readFileSync(path.join(outA, 'oppskrift.html'), 'utf8');
+['config.js', 'icons.js', 'i18n.js', 'theme.js', 'recipe-core.js', 'recipe-public.js'].forEach((f) => {
+  check('oppskrift.html laster ' + f + ' med ?b=<build-ID>', pubHtml.indexOf('src="' + f + '?b=' + bid + '"') > -1);
+});
+check('oppskrift.html laster styles.css med ?b=<build-ID>', pubHtml.indexOf('href="styles.css?b=' + bid + '"') > -1);
+check('testmodusen er revet ut av oppskrift.html',
+  pubHtml.indexOf('dev-mock.js') === -1 && pubHtml.indexOf('kun-dev') === -1);
 
 // 5) Unikhet + Vercels deploy-ID.
 const b = runBuild(outB);
@@ -170,7 +179,7 @@ check('ingen tooling-filer noe sted i dist/ [' + (lekkasjer.join(', ') || 'ingen
   lekkasjer.length === 0);
 
 ['app.js', 'styles.css', 'icons.js', 'i18n.js', 'theme.js', 'config.js', 'update-check.js',
-  'favicon.svg', 'sw.js', 'assets', 'vendor']
+  'recipe-core.js', 'recipe-public.js', 'oppskrift.html', 'favicon.svg', 'sw.js', 'assets', 'vendor']
   .forEach((n) => check('publiserer ' + n, names.indexOf(n) > -1));
 
 /* Og INGENTING ELLERS. Nektelistene over fanger bare det de nevner ved navn,
@@ -181,7 +190,8 @@ check('ingen tooling-filer noe sted i dist/ [' + (lekkasjer.join(', ') || 'ingen
    preview-deploy (`security-headers`, `csp-enforced`). Legger du til en ekte
    kildefil, hører den hjemme her. */
 const FASIT = ['index.html', 'version.json', 'favicon.svg', 'app.js', 'styles.css',
-  'icons.js', 'i18n.js', 'theme.js', 'config.js', 'update-check.js', 'sw.js', 'assets', 'vendor'];
+  'icons.js', 'i18n.js', 'theme.js', 'config.js', 'update-check.js', 'sw.js', 'assets', 'vendor',
+  'recipe-core.js', 'recipe-public.js', 'oppskrift.html'];
 const uventet = names.filter((n) => FASIT.indexOf(n) === -1);
 check('publiserer ingenting utenom kildekoden [' + (uventet.join(', ') || 'ingen') + ']',
   uventet.length === 0);
@@ -204,8 +214,10 @@ check('/version.json caches heller ikke på CDN-et', ((vc.headers || [])
   .find((h) => h.source === '/version.json').headers || [])
   .some((x) => x.key === 'CDN-Cache-Control' && /no-store/.test(x.value)));
 check('HTML-en revalideres (reload henter ny side)',
-  /must-revalidate/.test(headerFor('/')) && /must-revalidate/.test(headerFor('/index.html')));
-['/app.js', '/icons.js', '/i18n.js', '/theme.js', '/config.js', '/update-check.js', '/styles.css'].forEach((s) => {
+  /must-revalidate/.test(headerFor('/')) && /must-revalidate/.test(headerFor('/index.html')) &&
+  /must-revalidate/.test(headerFor('/oppskrift.html')));
+['/app.js', '/icons.js', '/i18n.js', '/theme.js', '/config.js', '/update-check.js', '/styles.css',
+  '/recipe-core.js', '/recipe-public.js'].forEach((s) => {
   check('langtidscache på ' + s, /immutable/.test(headerFor(s)) && /max-age=31536000/.test(headerFor(s)));
 });
 // vendor/ får ikke ?b=<build-ID>: versjonen står i filnavnet, så URL-en endrer

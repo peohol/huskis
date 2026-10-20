@@ -103,7 +103,14 @@ testmodusen (`dev-mock.js`, `mock-backend.js` og `kun-dev`-blokken i HTML-en —
 alt unntatt i preview-deployer, se
 [`sikkerhetsheadere.md`](sikkerhetsheadere.md)), skriver `version.json`, og
 stempler `index.html` — de to meta-taggene + `?b=<build-ID>` på `app.js`, `icons.js`,
-`i18n.js`, `theme.js`, `config.js`, `update-check.js` og `styles.css`.
+`i18n.js`, `theme.js`, `config.js`, `update-check.js`, `recipe-core.js`,
+`recipe-public.js` og `styles.css` (listen `VERSIONED`).
+
+Sidene i `EXTRA_PAGES` — i dag den offentlige oppskriftssiden
+`oppskrift.html` ([oppskrifter.md](oppskrifter.md)) — får den samme
+behandlingen av testmodusen og de samme `?b=`-URL-ene, men ingen
+build-identitet: de har ingen oppdateringssjekk, og `/oppskrift.html` står på
+`max-age=0, must-revalidate` som `index.html`.
 
 `SKIP`-listen i `build.js` holder også byggetoolingen ute: `package.json`,
 lockfila, `capacitor.config.json` og de native mappene (`android/`, senere

@@ -180,6 +180,23 @@ check('ingen inline hendelseshåndterere (on…=) i index.html',
 check('ingen <style>-blokk eller style="…" i index.html',
   !/<style[\s>]/i.test(html) && !/\sstyle\s*=\s*["']/i.test(html));
 
+/* ================= 6b) Den offentlige oppskriftssiden ================= */
+/* oppskrift.html (docs/oppskrifter.md) er den ene siden som åpnes UTEN
+   innlogging, av hvem som helst med en lenke. Den skal stå under nøyaktig den
+   samme policyen, uten noe inline, og ikke indekseres. */
+const pub = fs.readFileSync(path.join(ROOT, 'oppskrift.html'), 'utf8');
+const pubMeta = /<meta\s+http-equiv="Content-Security-Policy"\s+content="([\s\S]*?)"\s*\/?>/.exec(pub);
+check('oppskrift.html har den samme CSP-meta-taggen som index.html',
+  !!pubMeta && cspText(parseCsp(pubMeta[1])) === cspText(metaCsp));
+check('oppskrift.html har ingen inline-<script>, on…= eller style',
+  ![...pub.matchAll(/<script(\s[^>]*)?>/g)].some((m) => !/\bsrc\s*=/.test(m[1] || '')) &&
+  !/\son[a-z]+\s*=\s*["']/i.test(pub.replace(/<!--[\s\S]*?-->/g, '')) &&
+  !/<style[\s>]/i.test(pub) && !/\sstyle\s*=\s*["']/i.test(pub));
+check('oppskrift.html ber søkemotorer la være å indeksere den',
+  /<meta\s+name="robots"\s+content="noindex/.test(pub));
+check('oppskrift.html laster bare egne skript',
+  [...pub.matchAll(/<script\s+src="([^"]+)"/g)].every((m) => !/^(https?:)?\/\//.test(m[1])));
+
 /* ================= 7) connect-src === Supabase-prosjektet ================= */
 // config.js er en ren tilordning til window.SUPABASE_CONFIG; hent URL-en
 // derfra i stedet for å gjenta prosjektreferansen i testen.

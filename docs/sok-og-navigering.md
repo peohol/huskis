@@ -69,7 +69,7 @@ flate OG en pilspiss i enden av raden.
 
 Søket er ÉN global Huskis-funksjon, ikke to søkesystemer ved siden av
 hverandre: én indeks, én rangering, én resultatliste. Scopevalget
-`Alt | Lister | Notater` er et FILTER over den samme indeksen
+`Alt | Lister | Notater | Oppskrifter` er et FILTER over den samme indeksen
 (`searchObjects(q, index, scope)`), og `Alt` er standard.
 
 Valget nullstilles ikke mellom åpninger, men det lagres heller ikke: det ligger
@@ -80,6 +80,10 @@ innstilling som skal følge kontoen.
 Selve kontrollen er den samme segmenterte pillen som hovedbryteren øverst
 (`.seg`/`.seg-btn`, `role="tablist"` med piltaster), så det finnes bare én
 segmentert kontroll i appen.
+
+Oppskriftene er med på samme måte — kokebøker, kapitler og oppskrifter, med
+oppskriftens tekst (beskrivelse, ingredienser, steg) som tekst-treff. Et treff
+åpner oppskriftsfanen der objektet står ([oppskrifter.md](oppskrifter.md)).
 
 ## Hva som søkes
 

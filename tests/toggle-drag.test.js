@@ -3,7 +3,7 @@
 
   Begge bryterformene er den samme kontrollen sett to ganger — én akse med n
   gyldige stopp og én flate som står på et av dem. Den segmenterte (`.seg`,
-  hovedbryteren Lister ↔ Notater, søkets scopevelger og tidshorisonten i
+  hovedbryteren Lister ↔ Notater ↔ Oppskrifter, søkets scopevelger og tidshorisonten i
   «Kommende hendelser») har n segmenter;
   av/på-bryteren (`.toggle-switch`, varseltypene) har to. Gesten er derfor delt:
   ta tak, følg fingeren, slipp, snap til nærmeste stopp.
@@ -32,6 +32,8 @@
        dragets geometri regner `100% / n`, så ulike spor gjør begge feil. Og
        tidshorisontens etikett beholder luften inn til segmentkanten i stedet
        for å legge seg kant i kant med naboen.
+    9b. Søkets scopevelger (fire segmenter) renner heller ikke ut på en
+       telefon: den lange etiketten brekker.
 
   Kjøres på BÅDE desktop- og mobil-viewport (mus og finger er den samme
   pekerkoden, men terskelen og `touch-action` er ikke det).
@@ -112,8 +114,12 @@ async function run(label, viewport, mobile) {
   await register(p);
 
   /* ---------- 1) Segmentert: dra fra Lister til Notater ---------- */
+  // Midten av segment i, som brøk av bryteren — regnet av antallet faner, så
+  // testen ikke hviler på at det er nettopp to eller tre.
+  const n = await p.evaluate(() => document.querySelectorAll('#main-tabs .main-tab').length);
+  const midtAv = (i) => (i + 0.5) / n;
   log(label + ' 1: står på Lister til å begynne med', (await aktivFane(p)) === 'lists', String(await aktivFane(p)));
-  const midt = await dragToggle(p, '#main-tabs', 0.25, 0.85, { midtveisVar: '--seg-drag' });
+  const midt = await dragToggle(p, '#main-tabs', midtAv(0), midtAv(1), { midtveisVar: '--seg-drag' });
   const etter1 = await aktivFane(p);
   log(label + ' 1: et drag mot høyre bytter til Notater', etter1 === 'notes', String(etter1));
   const brøk = parseFloat(midt && midt.verdi);
@@ -124,12 +130,12 @@ async function run(label, viewport, mobile) {
     hvile1.drag === '' && hvile1.klasse === false, JSON.stringify(hvile1));
 
   /* ---------- 2) … og tilbake igjen ---------- */
-  await dragToggle(p, '#main-tabs', 0.85, 0.15);
+  await dragToggle(p, '#main-tabs', midtAv(1), midtAv(0));
   const etter2 = await aktivFane(p);
   log(label + ' 2: et drag mot venstre bytter tilbake til Lister', etter2 === 'lists', String(etter2));
 
   /* ---------- 3) Et drag som ender der det startet, endrer ingenting ---------- */
-  await dragToggle(p, '#main-tabs', 0.2, 0.4);       // fortsatt nærmest segment 0
+  await dragToggle(p, '#main-tabs', midtAv(0), midtAv(0) + 0.3 / n);  // fortsatt nærmest segment 0
   const etter3 = await aktivFane(p);
   const hvile3 = await segRest(p);
   log(label + ' 3: et drag som snapper tilbake bytter ingen fane',
@@ -316,6 +322,28 @@ async function run(label, viewport, mobile) {
   await p.setViewportSize(viewport);
   await p.waitForTimeout(250);
   await p.evaluate(() => window.__huskis.closeEventsModal());
+  await p.waitForTimeout(250);
+
+  /* 9b) SØKETS SCOPEVELGER har FIRE segmenter (Alt | Lister | Notater |
+     Oppskrifter), og «Oppskrifter» er bredere enn sporet på en telefon. Den
+     skal brekke (myk bindestrek), ikke renne inn i naboen. Måles på de ekte
+     telefonbreddene. */
+  await p.click('#search-btn');
+  await p.waitForSelector('#search-scope', { state: 'visible' });
+  for (const bredde of [390, 320]) {
+    await p.setViewportSize({ width: bredde, height: 780 });
+    await p.waitForTimeout(250);
+    const scope = await p.evaluate(() => {
+      const el = document.getElementById('search-scope');
+      const b = [...el.children].map((k) => Math.round(k.getBoundingClientRect().width));
+      return { b, likeBrede: Math.max(...b) - Math.min(...b) <= 1,
+        renner: [el, ...el.children].some((k) => k.scrollWidth > Math.ceil(k.getBoundingClientRect().width)) };
+    });
+    log(label + ' 9b @' + bredde + 'px: søkets scopevelger har like brede segmenter, og ingen etikett renner ut',
+      scope.likeBrede && !scope.renner, JSON.stringify(scope));
+  }
+  await p.setViewportSize(viewport);
+  await p.keyboard.press('Escape');
   await p.waitForTimeout(250);
 
   log(label + ': ingen JS-feil', errs.length === 0, errs.slice(0, 3).join(' | '));

@@ -80,18 +80,25 @@ const isDynamic = (k) => DYNAMIC_PREFIXES.some((p) => k.indexOf(p) === 0);
 const appSrc = read('app.js');
 const htmlSrc = read('index.html');
 const updSrc = read('update-check.js');
+// Oppskriftene: den delte logikken (som også tegner lesevisningen) og den
+// offentlige siden bak en delt lenke (docs/oppskrifter.md).
+const recipeSrc = read('recipe-core.js');
+const pubSrc = read('recipe-public.js');
+const pubHtml = read('oppskrift.html');
 
 // Alt som SER UT som en nøkkel i JS-kildene ('felt.underfelt'), pluss
 // data-i18n*-attributtene i HTML-en.
 const KEY_RE = /^[a-z][A-Za-z0-9]*(?:\.[A-Za-z0-9]+)+$/;
 const used = new Set();
-[appSrc, updSrc].forEach((src) => {
+[appSrc, updSrc, recipeSrc, pubSrc].forEach((src) => {
   // `(?:[^'\n\\]|\\.)*` og ikke `[^'\n\\]+`: en TOM streng («''») må
   // konsumere begge anførselstegnene sine, ellers spiser mønsteret det
   // avsluttende og løper videre inn i nabo-strengen.
   for (const m of src.matchAll(/'((?:[^'\n\\]|\\.)*)'/g)) if (KEY_RE.test(m[1])) used.add(m[1]);
 });
-for (const m of htmlSrc.matchAll(/data-i18n(?:-[a-z-]+)?="([^"]+)"/g)) used.add(m[1]);
+[htmlSrc, pubHtml].forEach((src) => {
+  for (const m of src.matchAll(/data-i18n(?:-[a-z-]+)?="([^"]+)"/g)) used.add(m[1]);
+});
 
 // «Ser ut som en nøkkel» treffer også ekte filnavn og MIME-typer; kun de som
 // faktisk finnes i ordboken teller som brukt, og resten sjekkes mot at de ikke
@@ -144,8 +151,9 @@ function norwegianLiterals(file, src) {
   });
   return out;
 }
-const strayJs = norwegianLiterals('app.js', appSrc).concat(norwegianLiterals('update-check.js', updSrc));
-check('ingen norsk brukertekst skrevet rett inn i app.js/update-check.js',
+const strayJs = norwegianLiterals('app.js', appSrc).concat(norwegianLiterals('update-check.js', updSrc),
+  norwegianLiterals('recipe-public.js', pubSrc));
+check('ingen norsk brukertekst skrevet rett inn i app.js/update-check.js/recipe-public.js',
   strayJs.length === 0, strayJs.slice(0, 8).join(' | '));
 
 /* update-check.js laster uten å kunne ta for gitt at ordboken er der (den er en

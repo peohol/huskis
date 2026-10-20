@@ -558,7 +558,8 @@ check('workflowen laster opp det sammenslåtte manifestet som artifact',
    brukeren har slått på varsler i nettleseren (docs/varsler.md). Den KOPIERES
    likevel ut av build.js og kjører i produksjon, så den skal skannes som
    enhver annen produksjonskilde. */
-const WEB_KILDE = ['index.html', 'app.js', 'config.js', 'i18n.js', 'theme.js', 'icons.js', 'update-check.js', 'styles.css', 'sw.js'];
+const WEB_KILDE = ['index.html', 'app.js', 'config.js', 'i18n.js', 'theme.js', 'icons.js', 'update-check.js', 'styles.css', 'sw.js',
+  'recipe-core.js', 'oppskrift.html', 'recipe-public.js'];
 const NEVNER_CAP = /\bCapacitor\b|@capacitor|capacitor\.js|cordova/i;
 /* Alle andre web-kildefiler enn app.js skal fortsatt være helt uvitende om at
    det finnes en native runtime. */
@@ -2194,7 +2195,8 @@ if (fs.existsSync(SYNKET)) {
      i den kopierte katalogen (`cordova.js`, `cordova_plugins.js` …). De dekkes
      av mønsterskanningen over, som før — en ukjent fil skal ikke gi rød CI bare
      for å være Capacitors egen. */
-  const GENERERT = new Set(['index.html', 'version.json']);
+  const { EXTRA_PAGES, stampPage } = require(path.join(ROOT, 'build.js'));
+  const GENERERT = new Set(['index.html', 'version.json', ...EXTRA_PAGES]);
   const avvik = [];
   let sammenlignet = 0;
   const alleSynkede = (function les(dir) {
@@ -2225,8 +2227,20 @@ if (fs.existsSync(SYNKET)) {
       catch (e) { return false; }
     });
     if (!passer) avvik.push('index.html (er ikke stampHtml(kilden, "' + id + '"/"' + pakketRelease + '"))');
+    /* Sidene ved siden av appen (EXTRA_PAGES) har ingen egen build-ID, men får
+       den samme `?b=`-stemplingen og den samme fjerningen av testmodusen. */
+    for (const side of EXTRA_PAGES) {
+      const pakketSide = path.join(SYNKET, side);
+      if (!fs.existsSync(pakketSide)) continue;
+      sammenlignet++;
+      const kilde = fs.readFileSync(path.join(ROOT, side), 'utf8');
+      const pakket2 = fs.readFileSync(pakketSide, 'utf8');
+      if (![false, true].some((keep) => stampPage(kilde, id, keep) === pakket2)) {
+        avvik.push(side + ' (er ikke stampPage(kilden, "' + id + '"))');
+      }
+    }
   }
-  check('de synkede web-assetene er byte for byte kildene (index.html modulo build- og release-ID)',
+  check('de synkede web-assetene er byte for byte kildene (index.html og sidene i EXTRA_PAGES modulo build- og release-ID)',
     sammenlignet > 0 && avvik.length === 0,
     avvik.join(', ') || sammenlignet + ' filer identiske med kilden');
 

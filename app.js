@@ -366,18 +366,26 @@
      `project` (alltid satt) og `folder` (null = fritt notat rett i
      prosjektet). Et fritt notat har ingen mappe å ligge under, så nøsting
      hadde krevd en syntetisk beholder på hvert eneste prosjekt. */
-  function makeNoteProject(name) {
+  /* OPPSKRIFTENE (docs/oppskrifter.md) bor i DE SAMME tre radtypene: en
+     kokebok er en bokhylle, et kapittel en notatbok og en oppskrift et notat —
+     med `kind: 'recipe'`. Hele synken, delingen og søppelkassen gjelder dermed
+     uendret; bare visningen skiller dem. */
+  const RECIPE = window.HUSKIS_RECIPE;
+  const noteKindOfTree = (kind) => (kind === 'recipe' ? 'recipe' : 'note');
+  const isRecipeObj = (o) => !!o && o.kind === 'recipe';
+  function makeNoteProject(name, kind) {
     return {
-      id: uid(), name, trashed: false, archived: false, collapsed: false,
+      id: uid(), name, kind: noteKindOfTree(kind), trashed: false, archived: false, collapsed: false,
       _type: 'noteProject', _createdByMe: true,
       ts: 0, org: deviceId,               // innholdsregister (navn/trashed/collapsed)
       pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge)
       folders: [],
     };
   }
-  function makeNoteFolder(name, projectId) {
+  function makeNoteFolder(name, projectId, kind) {
     return {
-      id: uid(), project: projectId || null, name, trashed: false, archived: false,
+      id: uid(), project: projectId || null, name, kind: noteKindOfTree(kind),
+      trashed: false, archived: false,
       _type: 'noteFolder', _createdByMe: true,
       ts: 0, org: deviceId,               // innholdsregister (navn/trashed)
       pos: 0, posTs: 0, posOrg: deviceId, // posisjonsregister (rekkefølge + prosjekt)
@@ -385,10 +393,12 @@
   }
   // Et notat: tittel + dokument (`doc`, se NOTAT-DOKUMENTET) på innholds-
   // registeret, plassering (prosjekt + evt. mappe) på posisjonsregisteret.
-  function makeNote(projectId, folderId) {
+  function makeNote(projectId, folderId, kind) {
+    const k = noteKindOfTree(kind);
     return {
-      id: uid(), project: projectId || null, folder: folderId || null,
-      title: '', doc: emptyNoteDoc(), trashed: false, archived: false,
+      id: uid(), project: projectId || null, folder: folderId || null, kind: k,
+      title: '', doc: emptyNoteDoc(), recipe: k === 'recipe' ? RECIPE.emptyRecipe() : null,
+      trashed: false, archived: false,
       _type: 'note', _createdByMe: true,
       ts: 0, org: deviceId,
       pos: 0, posTs: 0, posOrg: deviceId,
@@ -454,6 +464,11 @@
       activeProject: null,  // aktiv posisjon i Notater (per enhet, som activeUniverse)
       activeFolder: null,   // null = prosjektets frie notater
       activeFolders: {},    // projectId → sist aktive mappe der (per enhet)
+      // Aktiv posisjon i Oppskrifter (docs/oppskrifter.md) — samme tre som
+      // notatenes, med sine egne pekere.
+      activeBook: null,
+      activeChapter: null,  // null = oppskriftene rett i kokeboken
+      activeChapters: {},   // bookId → sist aktive kapittel der (per enhet)
       _tomb: emptyTomb(),   // gravsteiner: id → tidsstempel
       _hlc: 0,
     };
@@ -720,13 +735,16 @@
     if (typeof p.pos !== 'number') p.pos = i;
     if (typeof p.posTs !== 'number') p.posTs = 0;
     if (!p.posOrg) p.posOrg = deviceId;
+    p.kind = noteKindOfTree(p.kind);
     if (!Array.isArray(p.folders)) p.folders = [];
-    p.folders.forEach((f, j) => normalizeNoteFolder(f, j, p.id));
+    p.folders.forEach((f, j) => { normalizeNoteFolder(f, j, p.id); f.kind = p.kind; });
   }
   function normalizeNote(n, i) {
     if (!n.id) n.id = uid();
     if (typeof n.title !== 'string') n.title = '';
     n.doc = sanitizeNoteDoc(n.doc);
+    n.kind = noteKindOfTree(n.kind);
+    n.recipe = n.kind === 'recipe' ? RECIPE.sanitizeRecipe(n.recipe) : null;
     if (typeof n.trashed !== 'boolean') n.trashed = false;
     if (n.folder === undefined) n.folder = null;
     if (typeof n.ts !== 'number') n.ts = 0;
@@ -739,7 +757,15 @@
      Speiler `validateActive` for listefanen, med én forskjell: `activeFolder`
      har en gyldig NULL-verdi — prosjektets frie notater — så «ingen mappe» er
      et sted man kan stå, ikke et tomt svar som må fylles. */
-  function validateActiveNotes(s) {
+  /* Notatene og oppskriftene har hvert sitt sett pekere inn i det SAMME
+     treet (`state.noteProjects`), skilt av `kind`. Regelen er den samme for
+     begge, så den står én gang. */
+  const NOTE_NAV_KEYS = {
+    note: { project: 'activeProject', folder: 'activeFolder', memo: 'activeFolders' },
+    recipe: { project: 'activeBook', folder: 'activeChapter', memo: 'activeChapters' },
+  };
+  function validateActiveTree(s, kind) {
+    const K = NOTE_NAV_KEYS[kind];
     // Et ARKIVERT eller SLETTET objekt er ikke et sted man kan stå: begge er
     // ute av normalvisningen, og en aktiv posisjon i noe usynlig ville gitt en
     // tom flate uten forklaring (docs/notater-plan.md).
@@ -748,19 +774,25 @@
     // kan STÅ — ellers ble den aktive bokhyllen stående og flaten viste
     // innholdet i noe som var på vei i søpla.
     const usable = (o) => !o.trashed && !o.archived && !o._pendingDelete;
-    if (!s.activeFolders || typeof s.activeFolders !== 'object') s.activeFolders = {};
-    if (!s.noteProjects.some((p) => p.id === s.activeProject && usable(p))) {
+    const mine = (s.noteProjects || []).filter((p) => noteKindOfTree(p.kind) === kind);
+    if (!s[K.memo] || typeof s[K.memo] !== 'object') s[K.memo] = {};
+    if (s[K.folder] === undefined) s[K.folder] = null;
+    if (!mine.some((p) => p.id === s[K.project] && usable(p))) {
       let first = null;
-      s.noteProjects.forEach((p) => { if (usable(p) && (!first || p.pos < first.pos)) first = p; });
-      s.activeProject = first ? first.id : null;
+      mine.forEach((p) => { if (usable(p) && (!first || p.pos < first.pos)) first = p; });
+      s[K.project] = first ? first.id : null;
     }
-    const proj = s.noteProjects.find((p) => p.id === s.activeProject && usable(p)) || null;
+    const proj = mine.find((p) => p.id === s[K.project] && usable(p)) || null;
     const folders = proj ? proj.folders.filter(usable) : [];
-    if (s.activeFolder && !folders.some((f) => f.id === s.activeFolder)) {
-      const remembered = proj ? s.activeFolders[proj.id] : null;
-      s.activeFolder = folders.some((f) => f.id === remembered) ? remembered : null;
+    if (s[K.folder] && !folders.some((f) => f.id === s[K.folder])) {
+      const remembered = proj ? s[K.memo][proj.id] : null;
+      s[K.folder] = folders.some((f) => f.id === remembered) ? remembered : null;
     }
-    if (s.activeProject) s.activeFolders[s.activeProject] = s.activeFolder;
+    if (s[K.project]) s[K.memo][s[K.project]] = s[K.folder];
+  }
+  function validateActiveNotes(s) {
+    validateActiveTree(s, 'note');
+    validateActiveTree(s, 'recipe');
   }
 
   function normalize(s) {
@@ -1159,6 +1191,11 @@
     if (kind === 'note') return '.note-card' + q;
     if (kind === 'noteFolder') return '.item.note-folder-row' + q;
     if (kind === 'noteProject') return '.note-project-card' + q + ' > .card-head';
+    // En oppskrift er et KORT på flaten og en RAD i kokebokmenyen; fokus skal
+    // til den man faktisk ser.
+    if (kind === 'recipe') return (recipesNavOpen() ? '.recipe-row' : '.recipe-card') + q;
+    if (kind === 'recipeChapter') return '.recipe-chapter' + q + ' > .cat-head';
+    if (kind === 'recipeBook') return '.recipe-book-card' + q + ' > .card-head';
     return null;
   }
 
@@ -1185,6 +1222,8 @@
     if (kind === 'note') return '#add-note-btn';
     if (kind === 'noteFolder') return '.notes-add-project button';
     if (kind === 'noteProject') return '.notes-add-project button';
+    if (kind === 'recipe') return recipesNavOpen() ? '.recipes-add-book button' : '#add-recipe-btn';
+    if (kind === 'recipeChapter' || kind === 'recipeBook') return '.recipes-add-book button';
     return null;
   }
 
@@ -1217,6 +1256,7 @@
   const PERSONAL_POS_COL = {
     universe: 'universe_id', group: 'group_id',
     noteProject: 'note_project_id', noteFolder: 'note_folder_id', note: 'note_id',
+    recipeBook: 'note_project_id', recipeChapter: 'note_folder_id', recipe: 'note_id',
   };
   function commitPos(obj, kind, np) {
     obj.pos = np;
@@ -1243,10 +1283,11 @@
   // kun UX og skal feile LUKKET, så en manglende capability betyr «nei».
   function canReorderObj(kind, obj, cont) {
     // Bokhyllenes rekkefølge er PERSONLIG (som områdenes) — alltid min egen.
-    if (kind === 'noteProject') return true;
+    if (kind === 'noteProject' || kind === 'recipeBook') return true;
     // Notatbøker og notater: serverens capability er autoritativ. En rad som
     // står i den VIRTUELLE «delt med meg»-bokhyllen har personlig rekkefølge.
-    if (kind === 'noteFolder' || kind === 'note') {
+    // Kapitler og oppskrifter er de samme radene (docs/oppskrifter.md).
+    if (kind === 'noteFolder' || kind === 'note' || kind === 'recipeChapter' || kind === 'recipe') {
       if (obj && obj._canon) return true;
       return cap(obj, 'reorderInParent', !frozen(obj));
     }
@@ -1307,6 +1348,7 @@
       if (!obj) return null;
       return { obj, cont: null, S: notesNavScope, name: obj.name, rows: visibleNoteProjects() };
     }
+    if (RECIPE_KINDS[kind]) return recipeMoveCtx(kind, id);
     if (kind === 'universe') {
       const obj = findUniverse(id);
       if (!obj) return null;
@@ -1352,6 +1394,7 @@
     else if (kind === 'idea' || kind === 'ideacat') { renderIdeas(); applyFocusIntent(); }
     else if (kind === 'note') { renderNotes(); applyFocusIntent(); }
     else if (kind === 'noteFolder' || kind === 'noteProject') { renderNotesNav(); applyFocusIntent(); }
+    else if (RECIPE_KINDS[kind]) { renderRecipesNav(); renderRecipes(); applyFocusIntent(); }
     else { refreshCard(ctx.cont); applyFocusIntent(); }
     announce(tr(step < 0 ? 'a11y.movedUp' : 'a11y.movedDown',
       { name: quoted(ctx.name), pos: i + step + 1, total: ctx.rows.length }));
@@ -1365,6 +1408,7 @@
      📁-breadcrumben, og et listepunkt/en mappe slept over i en annen
      container. Gjenbruker den samme velger-modalen draget åpner. */
   function keyboardMoveTo(kind, id) {
+    if (kind === 'recipe' || kind === 'recipeChapter') { askRecipeMove(kind, id); return; }
     if (kind === 'card') {
       const c = findCard(id);
       if (!c) return;
@@ -1814,6 +1858,7 @@
       // registrering, men den SAMME runden: bare ett av de to er synlig om
       // gangen, og en fordeling i en skjult beholder måler bare nuller.
       relayoutBoard(notesScope);
+      relayoutBoard(recipesScope);
     });
   }
   // Hold observatørens mål i takt med kortene som faktisk står på board-et.
@@ -1934,6 +1979,9 @@
     renderBoard();
     renderNotes();         // no-op når notatfanen ikke er den aktive
     refreshNotesNav();     // … og står notat-navigasjonen åpen, følger den med
+    renderRecipes();       // samme for oppskriftsfanen (no-op når den er skjult)
+    refreshRecipesNav();
+    refreshRecipeView();   // står en oppskrift åpen, skal den følge synken
     refreshIdeasModal();   // står idémodalen åpen, skal den følge synken
     // Nav-modalen kan være lukket (renderNav() returnerer da tidlig), og board-et
     // kan ha vært tomt — siste sjanse til å innfri ønsket før det forkastes.
@@ -2652,6 +2700,8 @@
     render();
     renderNotesNav();
     renderNotes();
+    renderRecipesNav();
+    closeRecipeViewIfGone();
     save();
   }
 
@@ -4104,7 +4154,7 @@
        kopi av den. */
     else if (kind === 'noteProject') {
       (o.folders || []).forEach((f) => { state._tomb.noteFolders[f.id] = tick(); tombLinksTo(f.id); });
-      allNotes().forEach((n) => { if (n.project === o.id) tombSubtree(n, 'note'); });
+      (state.notes || []).forEach((n) => { if (n.project === o.id) tombSubtree(n, 'note'); });
     }
     /* En NOTATBOK tar IKKE notatene med seg. `notes.folder_id` er `on delete
        set null` i databasen, ikke cascade (users-and-sharing.sql): et notat er
@@ -4228,7 +4278,9 @@
       if (p.id === id) return { kind: 'noteProject', obj: p };
       for (const f of (p.folders || [])) if (f.id === id) return { kind: 'noteFolder', obj: f, project: p };
     }
-    const n = findNoteById(id);
+    // Oppskriftene ligger i de samme radtypene (docs/oppskrifter.md), så
+    // oppslaget går mot HELE lista — ikke notatfanens filtrerte utsnitt.
+    const n = (state.notes || []).find((x) => x.id === id);
     if (n) return { kind: 'note', obj: n };
     return null;
   }
@@ -4323,6 +4375,11 @@
     // male dem på nytt (de er små, og ingen inline-redigering bor i dem).
     if (kinds.has('note')) paintNotesLifecycleBadges();
     if (kinds.has('noteProject') || kinds.has('noteFolder')) refreshNotesNav();
+    // Oppskriftene er de samme tre radtypene; kassen deres er liten og billig.
+    if (kinds.has('note') || kinds.has('noteProject') || kinds.has('noteFolder')) {
+      paintRecipeTrash();
+      refreshRecipesNav();
+    }
     cards.forEach(updateItemsTrashBadge);
     unis.forEach(updateGroupsTrashBadge);
   }
@@ -4376,7 +4433,8 @@
     const w = kind === 'item' ? itemWord : kind === 'idea' ? ideaWord
       : kind === 'card' ? listWord : kind === 'group' ? groupWord
         : kind === 'note' ? noteWord : kind === 'noteFolder' ? noteFolderWord
-          : kind === 'noteProject' ? noteProjectWord : uniWord;
+          : kind === 'noteProject' ? noteProjectWord
+            : RECIPE_KINDS[kind] ? (n) => countWord(kind, n) : uniWord;
     return tr('trash.movedMany', { what: w(ids.length) });
   }
   // Committer bunken i toasten nå (angre-vinduet er over — timeren utløp, en ny
@@ -5341,6 +5399,8 @@
   function dragTrashBtn() {
     if (!drag.active) return null;
     const S = dragScope();
+    // Oppskriftsscopene svarer selv: ÉN kasse per flate (docs/oppskrifter.md).
+    if (S.trashBtn) return S.trashBtn(drag.kind);
     if (drag.kind === 'card') {
       if (S === navScope) return uniTrashBtn;
       if (S === notesNavScope) return noteProjectTrashBtn;
@@ -5363,6 +5423,7 @@
     const S = dragScope();
     const id = drag.el && drag.el.dataset.id;
     if (!id) return false;
+    if (S.canTrash) return S.canTrash(drag.kind, id);
     /* Notatene deles nå på alle tre nivåene, så kassen spør om den SAMME
        capabilityen som objektmenyens «Slett»-rad — og feiler lukket. Den
        virtuelle «Delt med meg»-bokhyllen kan aldri slettes. */
@@ -5700,6 +5761,7 @@
     }
   }
   function dropIntoTrash(S, kind, id) {
+    if (S.dropTrash) { S.dropTrash(kind, id); return; }
     // Notatfanen: én kasse per nivå, og slippet betyr nøyaktig det menyens
     // «Slett» betyr — samme funksjon, samme angre-toast.
     if (S === notesScope) { deleteNoteObject('note', id); keepTrashInView(noteTrashBtn); return; }
@@ -9901,6 +9963,7 @@
     if (!trashModal.hidden) { closeTrash(); return true; }
     if (!navModal.hidden) { closeNavModal(); return true; }
     if (notesNavModal && !notesNavModal.hidden) { closeNotesNav(); return true; }
+    if (recipesNavOpen()) { closeRecipesNav(); return true; }
     if (!accountModal.hidden) { closeAccount(); return true; }
     /* Notat-editoren er et fullskjermsbilde over appflaten (den gjør resten av
        appen inert), men den ligger UNDER modalene: hver `.modal-overlay` er
@@ -9920,6 +9983,13 @@
       return true;
     }
     if (noteEditorOpen()) { closeNoteEditor(); return true; }
+    // Oppskriftsflaten ligger på samme nivå som notat-editoren. Redigerings-
+    // modusen er ett trinn over lesevisningen: først ut av den, så ut av flaten.
+    if (recipeViewOpen()) {
+      if (recipeEditing) setRecipeEditing(false);
+      else closeRecipe();
+      return true;
+    }
     return false;
   }
   // Escape lukker øverste lag — men ikke midt i en inline-redigering (der
@@ -10096,32 +10166,36 @@
      Mappekategorier er IKKE med: de er overskrifter i nav-modalen, ikke et
      sted man kan navigere til (`validateActive` hopper over `isCat`). */
   const SEARCH_TYPE_RANK = { universe: 0, group: 1, card: 2, category: 3, item: 4,
-    noteProject: 5, noteFolder: 6, note: 7 };
+    noteProject: 5, noteFolder: 6, note: 7, recipeBook: 8, recipeChapter: 9, recipe: 10 };
   /* HVILKEN HOVEDDEL et treff hører til. Søket er ÉN funksjon for hele Huskis
-     — scopevalget «Alt | Lister | Notater» er et filter over den samme
-     indeksen og den samme rangeringen, ikke to søkemotorer. */
+     — scopevalget «Alt | Lister | Notater | Oppskrifter» er et filter over den
+     samme indeksen og den samme rangeringen, ikke tre søkemotorer. */
   const SEARCH_SIDE = {
     universe: 'lists', group: 'lists', card: 'lists', category: 'lists', item: 'lists',
     noteProject: 'notes', noteFolder: 'notes', note: 'notes',
+    recipeBook: 'recipes', recipeChapter: 'recipes', recipe: 'recipes',
   };
-  const SEARCH_SCOPES = ['all', 'lists', 'notes'];
+  const SEARCH_SCOPES = ['all', 'lists', 'notes', 'recipes'];
   // Nøklene står som hele strenger (ikke `'search.hint.' + scope`):
   // tests/i18n.test.js finner bare nøkler som er skrevet ut i kildekoden.
   const SEARCH_HINT_KEY = {
     all: 'search.hint.all', lists: 'search.hint.lists', notes: 'search.hint.notes',
+    recipes: 'search.hint.recipes',
   };
   // Skilletegnet mellom nivåene i en kontekststi — det samme som
   // breadcrumbens `.crumb-sep`, og det samme tegnet i begge språk.
   const CRUMB_SEP = '\u203A';
   const SEARCH_PATH_SEP = ' ' + CRUMB_SEP + ' ';
   const SEARCH_TYPE_ICON = { universe: 'globe', group: 'folder', card: 'list', category: 'category', item: 'item',
-    noteProject: 'noteProject', noteFolder: 'noteFolder', note: 'note' };
+    noteProject: 'noteProject', noteFolder: 'noteFolder', note: 'note',
+    recipeBook: 'cookbook', recipeChapter: 'chapter', recipe: 'recipe' };
   // Nøklene står som hele strenger (ikke `'kind.' + type`): tests/i18n.test.js
   // finner bare nøkler som er skrevet ut i kildekoden.
   const SEARCH_TYPE_LABEL = {
     universe: 'kind.universe', group: 'kind.group', card: 'kind.card',
     category: 'kind.category', item: 'kind.item',
     noteProject: 'kind.noteProject', noteFolder: 'kind.noteFolder', note: 'kind.note',
+    recipeBook: 'kind.recipeBook', recipeChapter: 'kind.recipeChapter', recipe: 'kind.recipe',
   };
   /* Taket på hvor mange treff som TEGNES. Et ett-tegns søk kan treffe alt man
      eier, og en liste på tusen rader er verken raskere eller mer lesbar enn en
@@ -10213,6 +10287,19 @@
       const body = noteDocText(n.doc);
       add('note', n, noteDisplayTitle(n), [p.name, f ? f.name : tr('notes.freeNotes')],
         { body, bodyNorm: searchNorm(body) });
+    });
+    /* OPPSKRIFTENE — som notatene: tittelen først, og selve oppskriften
+       (beskrivelse, ingredienser, steg) som tekst-treff etter navnene. */
+    visibleRecipeBooks().forEach((b) => {
+      if (!b._virtual) add('recipeBook', b, b.name, []);
+      liveChapters(b).forEach((c) => add('recipeChapter', c, c.name, [b.name]));
+      [null].concat(liveChapters(b)).forEach((c) => {
+        recipesIn(b.id, c ? c.id : null).forEach((n) => {
+          const body = RECIPE.recipeText(n.recipe, recipeDec());
+          add('recipe', n, recipeTitle(n), [b.name, c ? c.name : tr('recipes.bookLevel')],
+            { body, bodyNorm: searchNorm(body) });
+        });
+      });
     });
     return out;
   }
@@ -10428,6 +10515,7 @@
        ellers ville hver kaller (søket, koblingene, et varsel) hatt sin egen
        halve navigering. */
     if (SEARCH_SIDE[type] === 'notes') return navigateToNoteObject(type, target.id, o);
+    if (SEARCH_SIDE[type] === 'recipes') return navigateToRecipeObject(type, target.id, o);
     if (activeMainTab !== 'lists') setMainTab('lists');
     const loc = locateObject(type, target && target.id);
     if (!loc) {
@@ -10536,6 +10624,32 @@
     setActiveNoteFolder(obj.folder || null);
     say();
     openNoteEditor(obj.id);
+    return true;
+  }
+
+  // Oppskriftssiden av den samme navigeringen: kokeboken pekes ut i
+  // kokebokmenyen, kapittelet blir den aktive plassen, oppskriften åpnes.
+  function navigateToRecipeObject(kind, id, o) {
+    const obj = RECIPE_KINDS[kind] && RECIPE_KINDS[kind].find(id);
+    const book = obj && findRecipeBook(kind === 'recipeBook' ? obj.id : obj.project);
+    if (!obj || !book || !noteVisible(obj) || !noteVisible(book)) {
+      showToast(tr('search.gone'));
+      announce(tr('search.gone'));
+      return false;
+    }
+    if (o.announce !== false) {
+      announce(tr('a11y.wentTo', { kind: tr('kindDef.' + kind), name: quoted(RECIPE_KINDS[kind].name(obj)) }));
+    }
+    if (kind === 'recipeBook') {
+      if (activeMainTab !== 'recipes') setMainTab('recipes');
+      setRecipePlace(obj.id, null);
+      openRecipesNav();
+      revealTarget(handleSelector('recipeBook', obj.id));
+      return true;
+    }
+    showRecipePlace(book.id, kind === 'recipeChapter' ? obj.id : (obj.folder || null));
+    if (kind === 'recipeChapter') revealTarget('#recipes-crumb');
+    else openRecipe(obj.id);
     return true;
   }
 
@@ -14493,6 +14607,7 @@
     // Notatsiden bruker den SAMME menyen (docs/notater-plan.md): samme skall,
     // samme rader, bare et annet sett av dem.
     if (NOTE_KINDS[kind]) return NOTE_KINDS[kind].find(id);
+    if (RECIPE_KINDS[kind]) return RECIPE_KINDS[kind].find(id);
     return findItemById(id);
   }
   function objMenuCont(kind, obj) {
@@ -14502,6 +14617,9 @@
     if (kind === 'card') return activeGroupObj();
     if (kind === 'noteProject' || kind === 'note') return null;
     if (kind === 'noteFolder') return findNoteProject(obj.project);
+    if (kind === 'recipeBook') return null;
+    if (kind === 'recipeChapter') return findRecipeBook(obj.project);
+    if (kind === 'recipe') return (obj.folder && findRecipeChapter(obj.folder)) || findRecipeBook(obj.project);
     return findCard(obj.home);
   }
   // Objekttypen i bestemt form, slik den leses inne i menyens overskrift og i
@@ -14513,6 +14631,7 @@
     universe: 'globe', group: 'folder', groupcat: 'groupCategory',
     card: 'list', item: null, category: 'category',
     noteProject: 'noteProject', noteFolder: 'noteFolder', note: 'note',
+    recipeBook: 'cookbook', recipeChapter: 'chapter', recipe: 'recipe',
   };
   // Menyknappen for et objekt, funnet på nytt i DOM-en. Brukes etter en
   // rendring (sortering i menyen bygger board-et om) så popoveren kan bli
@@ -14526,7 +14645,9 @@
   function objMenuHost(spec) {
     const root = spec.scope === navScope ? navBoard
       : spec.scope === notesNavScope ? notesNavBoard
-        : spec.scope === notesScope ? notesBoard : board;
+        : spec.scope === notesScope ? notesBoard
+          : spec.scope === recipesScope ? recipesBoard
+            : spec.scope === recipesNavScope ? recipesNavBoard : board;
     return (root && root.querySelector('[data-id="' + spec.id + '"]')) || null;
   }
   // Tittel-elementet slik det ser ut NÅ. `spec.rename` er en closure fra
@@ -14544,6 +14665,9 @@
     category: ':scope > .cat-head .cat-title',
     noteProject: ':scope > .card-head .card-title',
     noteFolder: ':scope > .item-main .item-text',
+    recipeBook: ':scope > .card-head .card-title',
+    recipeChapter: ':scope > .cat-head .cat-title',
+    recipe: ':scope > .item-main .item-text',
   };
   function renameFromObjMenu(spec) {
     const host = objMenuHost(spec);
@@ -14799,7 +14923,8 @@
           bruke dra-og-slipp. «Flytt opp/ned» lar menyen stå åpen så flere hakk
           kan tas etter hverandre; «Flytt til …» åpner velger-modalen. */
     const canOrder = canReorderObj(kind, obj, cont);
-    const canRehome = kind === 'card' || kind === 'item' || kind === 'group';
+    const canRehome = kind === 'card' || kind === 'item' || kind === 'group' ||
+      kind === 'recipe' || kind === 'recipeChapter';
     if (canOrder) {
       list.appendChild(objMenuAccordion('move', ICONS.moveArrows, tr('menu.move'), () => {
         const box = document.createElement('div');
@@ -15940,9 +16065,10 @@
     return out.join('\n');
   }
   // Kortets utdrag: første lesbare linjer, klippet på et ordskille.
-  function noteDocExcerpt(doc, max) {
-    const lim = max || NOTE_EXCERPT_LEN;
-    const t = noteDocText(doc).replace(/\s+/g, ' ').trim();
+  function noteDocExcerpt(doc, max) { return clipText(noteDocText(doc), max || NOTE_EXCERPT_LEN); }
+  // Én linje, klippet på et ordskille — notatkortets og oppskriftskortets utdrag.
+  function clipText(text, lim) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
     if (t.length <= lim) return t;
     const cut = t.slice(0, lim);
     const sp = cut.lastIndexOf(' ');
@@ -17066,8 +17192,13 @@
   /* ------------------------------------------------------------
      OPPSLAG OG AKTIV POSISJON
      ------------------------------------------------------------ */
-  const noteProjects = () => state.noteProjects || [];
-  const allNotes = () => state.notes || [];
+  /* Notatfanen ser BARE notatene. Oppskriftene bor i de samme to listene
+     (`kind: 'recipe'`, docs/oppskrifter.md), og hver vei inn i notatfanens
+     visning, søppelkasse, arkiv og koblinger går gjennom disse to — så en
+     oppskrift kan aldri lekke inn der. Lister som skal ENDRES (push/splice),
+     endres på `state` direkte: utsnittet er en kopi. */
+  const noteProjects = () => (state.noteProjects || []).filter((p) => !isRecipeObj(p));
+  const allNotes = () => (state.notes || []).filter((n) => !isRecipeObj(n));
   const findNoteProject = (id) => noteProjects().find((p) => p.id === id) || null;
   function findNoteFolder(id) {
     for (const p of noteProjects()) {
@@ -17077,6 +17208,16 @@
     return null;
   }
   const findNoteById = (id) => allNotes().find((n) => n.id === id) || null;
+  // Oppslag i HELE treet, uansett hovedfane — for det som er felles for
+  // notatene og oppskriftene (eierskap, lås, arv).
+  const anyNoteProject = (id) => (state.noteProjects || []).find((p) => p.id === id) || null;
+  function anyNoteFolder(id) {
+    for (const p of (state.noteProjects || [])) {
+      const f = (p.folders || []).find((x) => x.id === id);
+      if (f) return f;
+    }
+    return null;
+  }
 
   /* NORMALVISNINGEN viser det som verken ligger i søppelkassen ELLER i arkivet.
      De to tilstandene er uavhengige (`trashed` og `archived`, begge på
@@ -17097,18 +17238,20 @@
      nivå 1. Men en notatbok som finnes og bare er lagt bort — arkivert eller i
      søppelkassen — beholder notatene sine: de skal følge notatboken ut av
      visningen, ikke sprette opp blant de frie notatene. */
-  function notesIn(projectId, folderId) {
-    const p = findNoteProject(projectId);
+  /* Regelen er den samme for oppskriftene i en kokebok (`recipesIn`), så den
+     står én gang: `p` er beholderen, `leaves` bladene av riktig slag. */
+  function leavesIn(p, leaves, folderId) {
     if (!p) return [];
     const known = new Set((p.folders || []).map((f) => f.id));
     const shown = new Set((p.folders || []).filter(noteVisible).map((f) => f.id));
-    return allNotes().filter((n) => {
-      if (!noteVisible(n) || n.project !== projectId) return false;
+    return leaves.filter((n) => {
+      if (!noteVisible(n) || n.project !== p.id) return false;
       if (n.folder && known.has(n.folder) && !shown.has(n.folder)) return false;
       const folder = n.folder && known.has(n.folder) ? n.folder : null;
       return folder === (folderId || null);
     }).sort(posCmp);
   }
+  const notesIn = (projectId, folderId) => leavesIn(findNoteProject(projectId), allNotes(), folderId);
   const activeNotes = () => notesIn(state.activeProject, state.activeFolder);
   // Antallet notater en bokhylle/notatbok viser — pillene i nav-modalen.
   const noteCountIn = (projectId, folderId) => notesIn(projectId, folderId).length;
@@ -17343,16 +17486,16 @@
     notesSyncBoard();
   }
   // Samme bunn-luft-regning som listeboardet, mot notatboardets egne kort.
-  function fixNotesBottomGap() {
-    if (!notesBoard) return;
-    const cards = notesBoard.querySelectorAll('.note-card');
-    if (!cards.length) { notesBoard.style.paddingBottom = '0px'; return; }
-    notesBoard.style.paddingBottom = '0px';
-    const boardBottom = notesBoard.getBoundingClientRect().bottom; // tvinger reflow
+  const fixNotesBottomGap = () => fixBoardBottomGap(notesBoard, '.note-card');
+  function fixBoardBottomGap(root, cardSel) {
+    if (!root) return;
+    const cards = root.querySelectorAll(cardSel);
+    root.style.paddingBottom = '0px';
+    if (!cards.length) return;
+    const boardBottom = root.getBoundingClientRect().bottom; // tvinger reflow
     let lastBottom = 0;
     cards.forEach((c) => { lastBottom = Math.max(lastBottom, c.getBoundingClientRect().bottom); });
-    const gap = boardGap(notesBoard);
-    notesBoard.style.paddingBottom = Math.max(0, gap - (boardBottom - lastBottom)) + 'px';
+    root.style.paddingBottom = Math.max(0, boardGap(root) - (boardBottom - lastBottom)) + 'px';
   }
   function updateNotesCrumbs() {
     if (!crumbProjectName) return;
@@ -17376,7 +17519,7 @@
     p.pos = maxPos(noteProjects().filter((x) => !x._virtual)) + 1;
     stampContent(p);
     stampPos(p);
-    noteProjects().push(p);
+    state.noteProjects.push(p);
     state.activeProject = p.id;
     state.activeFolder = null;
     save();
@@ -17428,7 +17571,7 @@
     n.pos = maxPos(activeNotes()) + 1;
     stampContent(n);
     stampPos(n);
-    allNotes().push(n);
+    state.notes.push(n);
     save();
     renderNotes();
     openNoteEditor(n.id, { focusTitle: true });
@@ -17841,7 +17984,7 @@
      venter på angre-vinduet (docs/trash.md). */
   function purgeNotes(list) {
     if (!list.length) return;
-    const arr = allNotes();
+    const arr = state.notes;
     list.forEach((n) => {
       tombSubtree(n, 'note');
       const i = arr.indexOf(n);
@@ -17892,10 +18035,10 @@
     const gone = new Set(trash.map((p) => p.id));
     trash.forEach((p) => {
       tombSubtree(p, 'noteProject');  // bokhyllen, notatbøkene OG notatene
-      const i = noteProjects().indexOf(p);
-      if (i > -1) noteProjects().splice(i, 1);
+      const i = state.noteProjects.indexOf(p);
+      if (i > -1) state.noteProjects.splice(i, 1);
     });
-    state.notes = allNotes().filter((n) => !gone.has(n.project));
+    state.notes = state.notes.filter((n) => !gone.has(n.project));
     validateActiveNotes(state);
     renderNotesNav();
     renderNotes();
@@ -18530,7 +18673,8 @@
     findContainer: (id) => findNoteById(id),
     findRow: (id) => findNoteById(id),
     rowsOf: () => allNotes(),
-    setRows: (c, rows) => { state.notes = rows; },
+    // Utsnittet er notatfanens; oppskriftene i den samme lista står urørt.
+    setRows: (c, rows) => { state.notes = rows.concat(state.notes.filter(isRecipeObj)); },
     rowParent: (r) => r.folder || null,
     setRowParent: (r, id) => { r.folder = id || null; },
     rowName: (r) => r.title,
@@ -22333,19 +22477,1794 @@
     document.addEventListener('visibilitychange', () => { if (document.hidden) flushNoteSave(); });
   }
 
+  /* ============================================================
+     OPPSKRIFTER — Huskis' tredje hoveddel (Kokebok > Kapittel > Oppskrift)
+     ------------------------------------------------------------
+     Autoritativt: docs/oppskrifter.md.
+
+     DATA. En kokebok er en bokhylle, et kapittel en notatbok og en oppskrift
+     et notat — de samme tre radtypene med `kind: 'recipe'`. Synken, delingen,
+     rettighetene, søppelkassen og gravsteinene er dermed de SAMME som
+     notatenes; denne seksjonen er bare VISNINGEN av dem. Oppskriftens innhold
+     (`recipe`) er et strukturert dokument på innholdsregisteret, og all
+     regning på det (mengder, porsjoner, underinndelinger) bor i
+     recipe-core.js, som den offentlige lesevisningen deler.
+
+     FLATENE er notatfanens, gjenbrukt:
+       • fanen viser oppskriftskortene i den plasseringen man står i (en
+         kokebok, eller et kapittel i den) — notatkortet med en annen glyf;
+       • KOKEBOKMENYEN viser hele treet i én modal: hver kokebok er et farget
+         kort, kapitlene står i det som kategoriene i en liste, og oppskriftene
+         er rader — i et kapittel eller rett i boken;
+       • OPPSKRIFTSFLATEN er notat-editorens fullskjermsbilde, med en
+         lesemodus for kjøkkenet og en redigeringsmodus bak «Rediger».
+
+     DRA-OG-SLIPP går gjennom Smett som alle de andre nivåene, med den delte
+     limkoden (`dndTuneManager`, `dndCompactLift`, `armDragTrash` …). Hvilke
+     slipp som er LOV, avgjøres av typen: et kapittel kan bare ligge i en
+     kokebok, en oppskrift bare i et kapittel eller rett i boken, og i
+     redigeringen kan en ingrediens aldri bli et steg (`containerAccept`).
+     ============================================================ */
+
   /* ------------------------------------------------------------
-     HOVEDFANENE: Lister | Notater
+     OPPSLAG OG AKTIV PLASSERING
+     ------------------------------------------------------------ */
+  const recipeBooks = () => (state.noteProjects || []).filter(isRecipeObj);
+  const allRecipes = () => (state.notes || []).filter(isRecipeObj);
+  const findRecipeBook = (id) => recipeBooks().find((p) => p.id === id) || null;
+  function findRecipeChapter(id) {
+    for (const b of recipeBooks()) {
+      const c = (b.folders || []).find((x) => x.id === id);
+      if (c) return c;
+    }
+    return null;
+  }
+  const findRecipe = (id) => allRecipes().find((n) => n.id === id) || null;
+  const visibleRecipeBooks = () => recipeBooks().filter(noteVisible).sort(posCmp);
+  const liveChapters = (b) => (b ? (b.folders || []).filter(noteVisible).sort(posCmp) : []);
+  // Oppskriftene i ÉN plassering — samme regel som notatene (`leavesIn`).
+  const recipesIn = (bookId, chapterId) => leavesIn(findRecipeBook(bookId), allRecipes(), chapterId);
+  const recipeCountInBook = (b) => liveChapters(b)
+    .reduce((sum, c) => sum + recipesIn(b.id, c.id).length, recipesIn(b.id, null).length);
+  const activeBookObj = () => findRecipeBook(state.activeBook);
+  const activeChapterObj = () => (state.activeChapter ? findRecipeChapter(state.activeChapter) : null);
+  const activeRecipes = () => recipesIn(state.activeBook, state.activeChapter);
+
+  // Tittelen slik den VISES. En oppskrift har ingen brødtekst å låne en første
+  // linje fra, så en tom tittel er «Oppskrift uten navn».
+  const recipeTitle = (n) => String((n && n.title) || '').trim() || tr('recipes.untitled');
+  // Desimaltegnet følger språket — mengdene leses slik brukeren skriver dem.
+  const recipeDec = () => (I18N.lang() === 'en' ? '.' : ',');
+
+  /* De tre nivåene. `data` er radtypen i synken (gravsteiner, slettebufferet,
+     posisjonsregisteret), `field` er navnefeltet og `fallback` navnet et
+     tomt felt får. Ett sted, så meny, kasse, omdøping og sletting ikke kan bli
+     uenige om hva et objekt er. */
+  const RECIPE_KINDS = {
+    recipeBook: {
+      data: 'noteProject', find: findRecipeBook, field: 'name', fallback: 'recipes.newBook',
+      name: (o) => o.name, icon: 'cookbook',
+      menuLabel: 'label.menuRecipeBook', deleteLabel: 'recipes.deleteBook',
+    },
+    recipeChapter: {
+      data: 'noteFolder', find: findRecipeChapter, field: 'name', fallback: 'recipes.newChapter',
+      name: (o) => o.name, icon: 'chapter',
+      menuLabel: 'label.menuRecipeChapter', deleteLabel: 'recipes.deleteChapter',
+    },
+    recipe: {
+      data: 'note', find: findRecipe, field: 'title', fallback: '',
+      name: recipeTitle, icon: 'recipe',
+      menuLabel: 'label.menuRecipe', deleteLabel: 'recipes.deleteRecipe',
+    },
+  };
+  // Kind for en id i oppskriftstreet (eller null).
+  function recipeKindOf(id) {
+    if (findRecipeBook(id)) return 'recipeBook';
+    if (findRecipeChapter(id)) return 'recipeChapter';
+    return findRecipe(id) ? 'recipe' : null;
+  }
+
+  /* Plasseringen fanen viser. `chapterId === undefined` betyr «der jeg sist
+     sto i denne kokeboken» — samme per-bok-minne som notatfanen har. */
+  function setRecipePlace(bookId, chapterId) {
+    state.activeBook = bookId || null;
+    state.activeChapter = chapterId !== undefined ? (chapterId || null)
+      : (bookId ? (state.activeChapters[bookId] || null) : null);
+    validateActiveNotes(state);
+    saveNavPref();
+    renderRecipes();
+  }
+
+  /* ------------------------------------------------------------
+     OPPSKRIFTSFANEN: kortene
+     ------------------------------------------------------------ */
+  const recipesBoard = document.getElementById('recipes-board');
+  const recipesCrumbBtn = document.getElementById('recipes-crumb');
+  const crumbBookName = document.getElementById('crumb-book-name');
+  const crumbChapterName = document.getElementById('crumb-chapter-name');
+  const addRecipeBtn = document.getElementById('add-recipe-btn');
+  const recipeTrashBtn = document.getElementById('recipe-trash-btn');
+  const recipeTrashWrap = document.getElementById('recipe-trash');
+
+  // «4 porsjoner»: tellerformen fra ordboken, med tallet skrevet med språkets
+  // desimaltegn (den samme funksjonen som lesevisningen bruker).
+  const servingsText = (n) => RECIPE.servingsText(n, tr, recipeDec());
+  /* Kortets utdrag: beskrivelsen hvis den finnes, ellers ingrediensene — det
+     er det man kjenner en oppskrift igjen på. */
+  function recipeExcerpt(n, max) {
+    const r = n.recipe || RECIPE.emptyRecipe();
+    const desc = String(r.desc || '').trim();
+    const text = desc || RECIPE.groups(r, 'ing')
+      .reduce((all, g) => all.concat(g.items), [])
+      .map((l) => l.t).filter(Boolean).join(', ');
+    return clipText(text, max || NOTE_EXCERPT_LEN);
+  }
+
+  function buildRecipeCard(n) {
+    const el = fromTemplate(noteCardTpl);
+    el.classList.add('recipe-card');
+    el.dataset.id = n.id;
+    paintCardColor(el, n.color || colorForIndex(0));
+    el.querySelector('.note-card-icon').innerHTML = ICONS.recipe;
+    const title = recipeTitle(n);
+    el.querySelector('.note-card-title').textContent = title;
+    applyShareBadge(el, n);
+    const text = recipeExcerpt(n);
+    el.querySelector('.note-card-excerpt-text').textContent = text;
+    el.querySelector('.note-card-excerpt').hidden = !text;
+    el.querySelector('.note-card-body').hidden = !text;
+    const serv = n.recipe && n.recipe.serv;
+    const meta = el.querySelector('.note-card-meta');
+    meta.textContent = serv ? servingsText(serv) : '';
+    meta.hidden = !serv;
+    // Kortet navngir seg selv (se `buildNoteCard`): ellers ville navnet blitt
+    // regnet ut av alt innholdet, menyknappen medregnet.
+    el.setAttribute('aria-label', tr('label.recipe', { name: quoted(title) }));
+    const menu = el.querySelector('.obj-menu-btn');
+    attachObjMenu(menu, recipeObjMenuSpec('recipe', n.id));
+    labelBtn(menu, tr('label.menuRecipe', { name: quoted(title) }));
+    el.addEventListener('click', (ev) => {
+      if (ev.target.closest('.obj-menu-btn')) return;
+      openRecipe(n.id);
+    });
+    el.addEventListener('keydown', (ev) => {
+      if (ev.target !== el || (ev.key !== 'Enter' && ev.key !== ' ')) return;
+      ev.preventDefault();
+      openRecipe(n.id);
+    });
+    attachKeyHandle(el, 'recipe', () => n.id);
+    if (!canReorderObj('recipe', n, null)) el.dataset.dndIgnore = '';
+    return el;
+  }
+
+  // Tom flate: stort ikon, én setning og et hint — samme oppbygning som
+  // listene og notatene.
+  function recipesEmptyState(icon, text, hintHtml) {
+    const es = document.createElement('div');
+    es.className = 'empty-state';
+    const big = document.createElement('div');
+    big.className = 'big';
+    big.innerHTML = icon;
+    const p1 = document.createElement('p');
+    p1.textContent = text;
+    const p2 = document.createElement('p');
+    p2.innerHTML = hintHtml;
+    es.append(big, p1, p2);
+    return es;
+  }
+
+  function renderRecipes() {
+    if (!recipesBoard) return;
+    updateRecipesCrumbs();
+    paintRecipeTrash();
+    // Skjult fane: hold breadcrumben i takt, men bygg ingen DOM ingen ser.
+    if (recipesBoard.hidden) return;
+    captureFocusIn(recipesBoard);
+    recipesBoard.innerHTML = '';
+    const book = activeBookObj();
+    const recipes = book ? activeRecipes() : [];
+    if (!recipes.length) {
+      recipesBoard.classList.add('empty');
+      const chip = (a, b) => '<span class="hint-chip">' + a + (b ? ' ' + b : '') + '</span>';
+      const where = activeChapterObj() || book;
+      recipesBoard.appendChild(book
+        ? recipesEmptyState(ICONS.recipe, tr('recipes.emptyNoRecipes', { name: quoted(where.name) }),
+          tr('recipes.emptyNoRecipesHint', { plus: chip(ICONS.plus, ICONS.recipe) }))
+        : recipesEmptyState(ICONS.cookbook, tr('recipes.emptyNoBooks'),
+          tr('recipes.emptyNoBooksHint', { nav: chip(ICONS.cookbook + ' › ' + ICONS.chapter) })));
+      applyFocusIntent();
+      fixBoardBottomGap(recipesBoard, '.recipe-card');
+      return;
+    }
+    recipesBoard.classList.remove('empty');
+    const col = document.createElement('div');
+    col.className = 'board-col';
+    recipes.forEach((n, i) => { n.color = colorForIndex(i); });
+    recipes.forEach((n) => col.appendChild(buildRecipeCard(n)));
+    recipesBoard.appendChild(col);
+    stampBoardColumns(recipesBoard);
+    relayoutBoard(recipesScope);
+    fixBoardBottomGap(recipesBoard, '.recipe-card');
+    applyFocusIntent();
+    ensureRecipesCardBoard();
+    recipesSyncBoard();
+  }
+  function updateRecipesCrumbs() {
+    if (!crumbBookName) return;
+    const b = activeBookObj();
+    const c = activeChapterObj();
+    crumbBookName.textContent = b ? b.name : tr('kind.recipeBook');
+    crumbChapterName.textContent = c ? c.name : tr('recipes.bookLevel');
+    if (addRecipeBtn) addRecipeBtn.disabled = !canAddNote(b, c);
+  }
+
+  /* ------------------------------------------------------------
+     OPPRETTING
+     ------------------------------------------------------------
+     Opprettelse spør FORELDEREN (docs/rettigheter-og-deling.md del 3): en
+     kokebok er alltid min, et kapittel krever opprettelsesrett i kokeboken og
+     en oppskrift i kapittelet sitt — eller i boken, for en oppskrift uten
+     kapittel. Reglene er notatenes (`canAddNoteFolder`/`canAddNote`); de spør
+     objektet, ikke hvilken fane det står i. */
+  // Navnet skrives på plassen etter opprettingen, som en ny mappe i et område.
+  function renameInRecipesNav(sel) {
+    const el = recipesNavBoard && recipesNavBoard.querySelector(sel);
+    if (el) startRename(el);
+  }
+  function addRecipeBook() {
+    const b = makeNoteProject(tr('recipes.newBook'), 'recipe');
+    // Den virtuelle «delt med meg»-kokeboken har `pos: Infinity` og er ingen nabo.
+    b.pos = maxPos(recipeBooks().filter((x) => !x._virtual)) + 1;
+    stampContent(b);
+    stampPos(b);
+    state.noteProjects.push(b);
+    state.activeBook = b.id;
+    state.activeChapter = null;
+    validateActiveNotes(state);
+    saveNavPref();
+    save();
+    renderRecipesNav();
+    renderRecipes();
+    renameInRecipesNav('.recipe-book-card[data-id="' + b.id + '"] > .card-head .card-title');
+    return b;
+  }
+  function addRecipeChapter(bookId) {
+    const b = findRecipeBook(bookId);
+    if (!canAddNoteFolder(b)) return null;
+    const c = makeNoteFolder(tr('recipes.newChapter'), b.id, 'recipe');
+    c.pos = maxPos(b.folders) + 1;
+    stampContent(c);
+    stampPos(c);
+    b.folders.push(c);
+    if (b.collapsed) { b.collapsed = false; stampContent(b); }
+    save();
+    renderRecipesNav();
+    renameInRecipesNav('.recipe-chapter[data-id="' + c.id + '"] > .cat-head .cat-title');
+    return c;
+  }
+  /* En ny oppskrift åpnes MED DET SAMME, i redigeringsmodus og med markøren i
+     tittelen — det finnes ingen «lagre» som må gjøres først. */
+  function addRecipe(bookId, chapterId) {
+    const b = findRecipeBook(bookId);
+    const c = chapterId ? findRecipeChapter(chapterId) : null;
+    if (!canAddNote(b, c)) return null;
+    const n = makeNote(b.id, c ? c.id : null, 'recipe');
+    n.pos = maxPos(recipesIn(b.id, c ? c.id : null)) + 1;
+    stampContent(n);
+    stampPos(n);
+    state.notes.push(n);
+    save();
+    openRecipe(n.id, { edit: true });
+    return n;
+  }
+
+  /* ------------------------------------------------------------
+     KOKEBOKMENYEN: hele treet i én modal
+     ------------------------------------------------------------
+     Bygget av de samme klassene som listenes og notatenes nav-modal: hver
+     kokebok er et `.card` (farget etter posisjon, hodet er et trekkspill),
+     kapitlene er `.category`-rader i kortet — som kategoriene i en liste — og
+     oppskriftene er `.item`-rader, i et kapittel eller rett i boken. Den
+     grønne ＋-knappen lager en oppskrift, den gule et kapittel, nøyaktig som
+     den grønne og den gule knappen i en liste. */
+  const recipesNavModal = document.getElementById('recipes-nav-modal');
+  const recipesNavBoard = document.getElementById('recipes-nav-board');
+  const recipesNavCloseBtn = document.getElementById('recipes-nav-close');
+  const recipeNavTrashBtn = document.getElementById('recipe-nav-trash-btn');
+  const recipeNavTrashWrap = document.getElementById('recipe-nav-trash');
+  const recipeBookTpl = document.getElementById('recipe-book-template');
+  const recipeChapterTpl = document.getElementById('recipe-chapter-template');
+  const recipeRowTpl = document.getElementById('recipe-row-template');
+  const RECIPES_NAV_COL_ID = 'recipes-nav-col';
+  const recipesNavOpen = () => !!recipesNavModal && !recipesNavModal.hidden;
+
+  /* Omdøping på plassen, for alle tre nivåene. Kroken henges på tittel-
+     elementet (`setRenameHook`), så objektmenyens «Endre navn» og F2 finner
+     den igjen også etter en rendring. */
+  function recipeRenamer(kind, id, titleEl) {
+    const cfg = RECIPE_KINDS[kind];
+    const fn = () => {
+      const o = cfg.find(id);
+      if (!o || !canEditNoteObj(o)) return;
+      editText(titleEl, o[cfg.field] || '', (val) => {
+        const live2 = cfg.find(id);
+        if (!live2) return;
+        live2[cfg.field] = val || (cfg.fallback ? tr(cfg.fallback) : '');
+        stampContent(live2);
+        titleEl.textContent = cfg.name(live2);
+        updateRecipesCrumbs();
+        save();
+        renderRecipes();
+      });
+    };
+    setRenameHook(titleEl, fn);
+    return fn;
+  }
+
+  function buildRecipeRow(n) {
+    const el = fromTemplate(recipeRowTpl);
+    el.dataset.id = n.id;
+    el.querySelector('.recipe-row-icon').innerHTML = ICONS.recipe;
+    const txt = el.querySelector('.item-text');
+    const title = recipeTitle(n);
+    txt.textContent = title;
+    applyShareBadge(el, n);
+    const canEdit = canEditNoteObj(n);
+    const rename = canEdit ? recipeRenamer('recipe', n.id, txt) : null;
+    // Et trykk ÅPNER oppskriften — den er det man er ute etter. Navnet endres
+    // fra menyen (eller F2), ikke ved et trykk på teksten.
+    el.addEventListener('click', (ev) => {
+      if (ev.target.closest('.obj-menu-btn, .edit-input')) return;
+      openRecipe(n.id);
+    });
+    el.addEventListener('keydown', (ev) => {
+      if (ev.target !== el || (ev.key !== 'Enter' && ev.key !== ' ')) return;
+      ev.preventDefault();
+      openRecipe(n.id);
+    });
+    el.classList.toggle('is-active', recipeOpenId === n.id);
+    const menu = el.querySelector('.obj-menu-btn');
+    attachObjMenu(menu, recipeObjMenuSpec('recipe', n.id, rename));
+    labelBtn(menu, tr('label.menuRecipe', { name: quoted(title) }));
+    attachKeyHandle(el, 'recipe', () => n.id, { rename });
+    if (!canReorderObj('recipe', n, null)) el.dataset.dndIgnore = '';
+    return el;
+  }
+
+  function buildRecipeChapter(b, c) {
+    const el = fromTemplate(recipeChapterTpl);
+    el.dataset.id = c.id;
+    el.querySelector('.cat-drag-icon').innerHTML = ICONS.grip;
+    el.querySelector('.chapter-icon').innerHTML = ICONS.chapter;
+    const title = el.querySelector('.cat-title');
+    title.textContent = c.name;
+    const recipes = recipesIn(b.id, c.id);
+    el.querySelector('.chapter-count').textContent = '(' + recipes.length + ')';
+    applyShareBadge(el, c);
+    const canEdit = canEditNoteObj(c);
+    const rename = canEdit ? recipeRenamer('recipeChapter', c.id, title) : null;
+    if (rename) title.addEventListener('click', (ev) => { ev.stopPropagation(); rename(); });
+    const head = el.querySelector('.cat-head');
+    /* Et trykk på kapittelhodet viser kapittelet på flaten — som en mappe i
+       nav-modalen. Kapitlene har ingen egen lukketilstand: innholdet er
+       oppskriftsrader, og de skal sees. */
+    head.setAttribute('role', 'button');
+    head.addEventListener('click', (ev) => {
+      if (ev.target.closest('.obj-menu-btn, .edit-input, .cat-title')) return;
+      showRecipePlace(b.id, c.id);
+    });
+    head.classList.toggle('is-active', state.activeBook === b.id && state.activeChapter === c.id);
+    attachKeyHandle(head, 'recipeChapter', () => c.id, { rename });
+    head.addEventListener('keydown', (ev) => {
+      if (ev.target !== head || (ev.key !== 'Enter' && ev.key !== ' ')) return;
+      ev.preventDefault();
+      showRecipePlace(b.id, c.id);
+    });
+    if (!canReorderObj('recipeChapter', c, b)) head.dataset.dndIgnore = '';
+    const menu = el.querySelector('.obj-menu-btn');
+    attachObjMenu(menu, recipeObjMenuSpec('recipeChapter', c.id, rename));
+    labelBtn(menu, tr('label.menuRecipeChapter', { name: quoted(c.name) }));
+    const list = el.querySelector('.cat-items');
+    list.dataset.dndContainer = 'ch:' + c.id;
+    const addLi = list.querySelector('.cat-add');
+    recipes.forEach((n) => list.insertBefore(buildRecipeRow(n), addLi));
+    const addBtn = el.querySelector('.cat-add-btn');
+    addBtn.hidden = !canAddNote(b, c);
+    labelBtn(addBtn, tr('recipes.addRecipeInChapter', { name: quoted(c.name) }));
+    addBtn.addEventListener('click', (ev) => { ev.stopPropagation(); addRecipe(b.id, c.id); });
+    return el;
+  }
+
+  /* Bokens EGEN plass på flaten — oppskriftene uten kapittel. Ingen rad i
+     modellen: den står utenfor dra-containerne og navigerer bare. */
+  function buildRecipeLevelRow(b) {
+    const el = fromTemplate(recipeRowTpl);
+    el.classList.add('note-free-row', 'recipe-level-row');
+    el.dataset.dndIgnore = '';
+    el.querySelector('.recipe-row-icon').innerHTML = ICONS.cookbook;
+    el.querySelector('.item-text').textContent = tr('recipes.bookLevel');
+    const count = document.createElement('span');
+    count.className = 'collapse-count';
+    count.setAttribute('aria-hidden', 'true');
+    count.textContent = '(' + recipesIn(b.id, null).length + ')';
+    el.querySelector('.title-line').appendChild(count);
+    el.querySelector('.obj-menu-btn').hidden = true;
+    el.addEventListener('click', () => showRecipePlace(b.id, null));
+    el.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      ev.preventDefault();
+      el.click();
+    });
+    el.classList.toggle('is-active', state.activeBook === b.id && !state.activeChapter);
+    const ul = document.createElement('ul');
+    ul.className = 'items-container recipe-level';
+    ul.appendChild(el);
+    return ul;
+  }
+
+  function buildRecipeBookCard(b) {
+    const el = fromTemplate(recipeBookTpl);
+    el.dataset.id = b.id;
+    // Den virtuelle «delt med meg»-kokeboken er en SEKSJON: ingen palettfarge,
+    // ingen meny og ingen ＋ — som «Mapper delt med meg».
+    const isShared = !!b._virtual;
+    if (!isShared) paintCardColor(el, b.color || colorForIndex(0));
+    el.classList.toggle('free-groups-card', isShared);
+    el.querySelector('.uni-icon').innerHTML = isShared ? ICONS.people : ICONS.cookbook;
+    const title = el.querySelector('.card-title');
+    title.textContent = b.name;
+    if (!isShared) applyShareBadge(el, b);
+    const canEdit = !isShared && canEditNoteObj(b);
+    const rename = canEdit ? recipeRenamer('recipeBook', b.id, title) : null;
+    if (rename) title.addEventListener('click', (ev) => { ev.stopPropagation(); rename(); });
+    // Hodet er et TREKKSPILL, som områdekortets: det åpner og lukker boken.
+    const head = el.querySelector('.card-head');
+    head.setAttribute('aria-expanded', b.collapsed ? 'false' : 'true');
+    head.addEventListener('click', (ev) => {
+      if (ev.target.closest('.edit-input, .obj-menu-btn, .card-title')) return;
+      toggleCardCollapsed(el, b, recipesNavScope);
+    });
+    head.addEventListener('keydown', (ev) => {
+      if (ev.target !== head || (ev.key !== 'Enter' && ev.key !== ' ')) return;
+      ev.preventDefault();
+      toggleCardCollapsed(el, b, recipesNavScope);
+    });
+    if (isShared) head.dataset.dndIgnore = '';
+    else attachKeyHandle(head, 'recipeBook', () => b.id, { rename });
+    const body = el.querySelector('.card-body');
+    body.insertBefore(buildRecipeLevelRow(b), body.firstChild);
+    const chapters = el.querySelector('.recipe-chapters');
+    chapters.dataset.dndContainer = 'chs:' + b.id;
+    liveChapters(b).forEach((c) => chapters.appendChild(buildRecipeChapter(b, c)));
+    const free = el.querySelector('.recipe-free');
+    free.dataset.dndContainer = 'free:' + b.id;
+    recipesIn(b.id, null).forEach((n) => free.appendChild(buildRecipeRow(n)));
+    const addBtn = el.querySelector('.add-item-btn');
+    addBtn.hidden = !canAddNote(b, null);
+    addBtn.addEventListener('click', (ev) => { ev.stopPropagation(); addRecipe(b.id, null); });
+    const catBtn = el.querySelector('.add-cat-btn');
+    catBtn.hidden = !canAddNoteFolder(b);
+    catBtn.addEventListener('click', (ev) => { ev.stopPropagation(); addRecipeChapter(b.id); });
+    el.querySelector('.add-item-row').hidden = addBtn.hidden && catBtn.hidden;
+    const menu = el.querySelector('.obj-menu-btn');
+    if (isShared) menu.hidden = true;
+    else {
+      attachObjMenu(menu, recipeObjMenuSpec('recipeBook', b.id, rename));
+      labelBtn(menu, tr('label.menuRecipeBook', { name: quoted(b.name) }));
+    }
+    if (b.collapsed) {
+      collapseCardBody(el);
+      setCollapseCount(head, recipeCountInBook(b), true, ICONS.recipe);
+    }
+    return el;
+  }
+
+  function recipesAddBookRow() {
+    const wrap = document.createElement('div');
+    wrap.className = 'nav-add-uni recipes-add-book';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-add btn-solid btn-green';
+    btn.innerHTML = ICONS.plus + ' ' + ICONS.cookbook;
+    labelBtn(btn, tr('recipes.addBook'));
+    btn.addEventListener('click', () => addRecipeBook());
+    wrap.appendChild(btn);
+    return wrap;
+  }
+
+  function renderRecipesNav() {
+    if (!recipesNavBoard) return;
+    updateRecipesCrumbs();
+    if (!recipesNavOpen()) { recipesNavBoard.innerHTML = ''; return; }
+    captureFocusIn(recipesNavBoard);
+    recipesNavBoard.innerHTML = '';
+    const vis = visibleRecipeBooks();
+    vis.filter((b) => !b._virtual).forEach((b, i) => { b.color = colorForIndex(i); });
+    recipesNavBoard.classList.toggle('empty', !vis.length);
+    const col = document.createElement('div');
+    col.className = 'board-col';
+    col.dataset.dndContainer = RECIPES_NAV_COL_ID;
+    if (!vis.length) {
+      const es = document.createElement('p');
+      es.className = 'nav-section-empty';
+      es.textContent = tr('recipes.emptyNoBooks');
+      col.appendChild(es);
+    }
+    vis.forEach((b) => col.appendChild(buildRecipeBookCard(b)));
+    col.appendChild(recipesAddBookRow());
+    recipesNavBoard.appendChild(col);
+    paintRecipeTrash();
+    ensureRecipesNavBoards();
+    recipesNavSyncBoards();
+    applyFocusIntent();
+  }
+  function refreshRecipesNav() {
+    if (!recipesNavOpen() || drag.active) return;
+    renderRecipesNav();
+  }
+  function openRecipesNav() {
+    if (!recipesNavModal) return;
+    recipesNavModal.hidden = false;
+    renderRecipesNav();
+  }
+  function closeRecipesNav(opts) {
+    if (!recipesNavOpen()) return;
+    recipesNavModal.hidden = true;
+    recipesNavBoard.innerHTML = '';
+    if (!(opts && opts.keepFocus) && recipesCrumbBtn) recipesCrumbBtn.focus();
+  }
+  // Vis en plassering på flaten og lukk menyen — det et trykk på et kapittel
+  // eller på «Uten kapittel» betyr.
+  function showRecipePlace(bookId, chapterId) {
+    if (activeMainTab !== 'recipes') setMainTab('recipes');
+    setRecipePlace(bookId, chapterId);
+    closeRecipesNav();
+  }
+
+  /* ------------------------------------------------------------
+     OPPSKRIFT-SCOPENE PÅ dnd-kit (gjennom Smett)
+     ------------------------------------------------------------
+     Tre board, tre scope:
+
+       `recipesScope`    oppskriftskortene på flaten — notatkortenes board,
+                         med den samme kolonnemotoren.
+       `recipesNavScope` kokebokmenyen: bøkene (kort) og kapitlene +
+                         oppskriftene (rader) i ett rad-board.
+       `recipeEditScope` linjene og underinndelingene i redigeringen.
+
+     Hvert scope svarer selv på hvilken kasse et drag sikter mot og hva et
+     slipp i den betyr (`trashBtn`/`canTrash`/`dropTrash`) — én kasse per
+     flate, for alle nivåene i den. Resten av limkoden er den delte. */
+  const recipeCanDelete = (o) => !!o && !o._virtual && cap(o, 'delete', !frozen(o));
+  const recipesScope = {
+    key: 'recipes',
+    contKind: 'recipeBook', rowKind: 'recipe',
+    contSelector: '.recipe-card',
+    get root() { return recipesBoard; },
+    colMin: 300,
+    containers: () => activeRecipes(),
+    findContainer: (id) => findRecipe(id),
+    findRow: (id) => findRecipe(id),
+    rowsOf: () => activeRecipes(),
+    countIcon: null,
+    trashBtn: () => recipeTrashBtn,
+    canTrash: (kind, id) => recipeCanDelete(findRecipe(id)),
+    dropTrash: (kind, id) => { deleteRecipeObject('recipe', id); keepTrashInView(recipeTrashBtn); },
+  };
+  const recipesNavScope = {
+    key: 'recipesNav',
+    contKind: 'recipeBook', rowKind: 'recipe',
+    contSelector: '.recipe-book-card',
+    get root() { return recipesNavBoard; },
+    singleColumn: true,
+    containers: () => visibleRecipeBooks(),
+    findContainer: (id) => findRecipeBook(id),
+    findRow: (id) => findRecipe(id) || findRecipeChapter(id),
+    // Det en sammenfoldet kokebok teller: alle oppskriftene i den.
+    rowsOf: (b) => allRecipes().filter((n) => noteVisible(n) && n.project === b.id),
+    countIcon: ICONS.recipe,
+    trashBtn: () => recipeNavTrashBtn,
+    canTrash: (kind, id) => recipeCanDelete(RECIPE_KINDS[recipeKindOf(id)] ? RECIPE_KINDS[recipeKindOf(id)].find(id) : null),
+    dropTrash: (kind, id) => {
+      const k = recipeKindOf(id);
+      if (k) deleteRecipeObject(k, id);
+      keepTrashInView(recipeNavTrashBtn);
+    },
+  };
+  const recipeEditScope = {
+    key: 'recipeEdit',
+    singleColumn: true,
+    get root() { return recipeSheet; },
+    trashBtn: () => null,
+    canTrash: () => false,
+    dropTrash: () => {},
+  };
+
+  // Fra en forelder-scope-agnostisk «hent meg»-oppslag til en pos fra DOM-naboene.
+  function recipeSiblingPos(el, sel, find) {
+    const step = (dir) => {
+      let n = el;
+      do { n = dir < 0 ? n.previousElementSibling : n.nextElementSibling; }
+      while (n && (!n.matches(sel) || n.hasAttribute('data-dnd-placeholder')));
+      const o = n ? find(n.dataset.id) : null;
+      return o ? o.pos : null;
+    };
+    return between(step(-1), step(1));
+  }
+  function recipeDragBegin(b, S, kind) {
+    const el = boardSource(b);
+    if (!el) return null;
+    drag.scope = S;
+    drag.kind = kind;
+    drag.el = el;
+    drag.active = true;
+    drag.ph = null;
+    drag.phMode = 'reorder';
+    drag.origParent = el.parentNode;
+    drag.origNext = el.nextSibling;
+    drag.card = null;
+    drag.peekCard = null;
+    drag.peekCat = null;
+    drag.overCard = null;
+    drag.trashHost = null;
+    drag.crumbTarget = false;
+    beginDragBody();
+    document.documentElement.style.overflowAnchor = 'none';
+    return el;
+  }
+  function recipeDragEnd(event) {
+    dndSwallowClick = true;          // klikket som ellers ville åpnet oppskriften
+    if (!drag.active) return false;
+    dndNoteCanceled(event);
+    finishDrag();
+    return true;
+  }
+  function recipeWire(b, begin, end) {
+    dndTuneManager(b);
+    const m = b.manager.monitor;
+    m.addEventListener('beforedragstart', () => begin(b));
+    m.addEventListener('dragstart', () => dndSyncIntent(b.manager.dragOperation));
+    m.addEventListener('dragmove', () => dndSyncIntent(b.manager.dragOperation));
+    m.addEventListener('dragend', (event) => end(event));
+  }
+  // De samme setningene som notatenes, men med oppskriftens egne navn.
+  const recipeDescribe = (el) => {
+    const id = el && el.dataset ? el.dataset.id : null;
+    const k = id ? recipeKindOf(id) : null;
+    return k ? RECIPE_KINDS[k].name(RECIPE_KINDS[k].find(id)) : tr('kind.recipe');
+  };
+
+  /* ---- Board 1: kortene på flaten ---- */
+  let recipesCardBoard = null;
+  let recipesTargetCol = null;
+  const recipesColumnCollision = (input) => dndColumnCollision(input, recipesTargetCol);
+  function ensureRecipesCardBoard() {
+    if (recipesCardBoard || !recipesBoard || typeof Smett === 'undefined' || !Smett.SortableBoard) return;
+    recipesCardBoard = new Smett.SortableBoard({
+      // Roten er dokumentet: kassen står i foten, utenfor board-et (som notatenes).
+      root: document.body,
+      itemSelector: '#recipes-board .recipe-card',
+      containerSelector: '#recipes-board .board-col',
+      handleSelector: '.recipe-card',
+      idAttribute: 'data-id',
+      axis: 'vertical',
+      keyboard: false,
+      safeInsets: safeInsets,
+      zoneSelector: '#recipe-trash-btn',
+      describeItem: recipeDescribe,
+      phrases: notesPhrases(),
+      onCommit: recipesCommitCard,
+      onZoneDrop: (result) => notesCanDrop(recipesScope, result),
+      onDropTarget: notesCanTarget,
+      onError: (err) => { if (window.console) console.error('[huskis] recipes-dnd', err); },
+    });
+    recipeWire(recipesCardBoard, (b) => {
+      const el = recipeDragBegin(b, recipesScope, 'card');
+      if (!el) return;
+      recipesTargetCol = null;
+      dndNoteLiveColumns(recipesBoard);
+      for (const d of b.manager.registry.droppables) {
+        const c = d.element;
+        if (c && c.classList && c.classList.contains('board-col') && d.collisionDetector !== recipesColumnCollision) {
+          d.collisionDetector = recipesColumnCollision;
+          d.collisionPriority = null;
+        }
+      }
+      notesNoteLiftedRow(el);
+      dndCompactLift(el, b);
+      dndNoteLiftedBox(el);
+      dndLockAxis(b);
+      armDragTrash();
+    }, (event) => {
+      recipesTargetCol = null;
+      if (!recipeDragEnd(event)) return;
+      dndAfterCloneGone(recipesBoard, () => {
+        notesNoteLiftedRow(null);
+        relayoutBoard(recipesScope);
+        fixBoardBottomGap(recipesBoard, '.recipe-card');
+        requestAnimationFrame(recipesSyncBoard);
+      });
+    });
+    recipesCardBoard.manager.monitor.addEventListener('dragmove', () => {
+      recipesTargetCol = dndPickColumn(recipesBoard);
+    });
+    dndInstallClickGuard();
+  }
+  function recipesSyncBoard() {
+    if (recipesCardBoard && recipesCardBoard.manager.dragOperation.status.idle) recipesCardBoard.sync();
+  }
+  // Et kort kan bare bytte plass i rekka det står i: flaten viser én plassering.
+  function recipesCommitCard() {
+    const el = drag.el;
+    if (!el || !el.isConnected) return;
+    const n = findRecipe(el.dataset.id);
+    if (!n) return;
+    const prev = boardRowSibling(el, -1);
+    const next = boardRowSibling(el, 1);
+    const posOf = (x) => (x && x.classList.contains('recipe-card') ? (findRecipe(x.dataset.id) || {}).pos : null);
+    const pPrev = posOf(prev), pNext = posOf(next);
+    commitPos(n, 'recipe', between(pPrev == null ? null : pPrev, pNext == null ? null : pNext));
+    save();
+    relayoutBoardNow(recipesScope);
+  }
+
+  /* ---- Board 2 og 3: bøkene og radene i kokebokmenyen ---- */
+  let recipesNavCardBoard = null, recipesNavRowBoard = null;
+  function ensureRecipesNavBoards() {
+    if (recipesNavCardBoard || !recipesNavModal || typeof Smett === 'undefined' || !Smett.SortableBoard) return;
+    const shared = {
+      root: recipesNavModal,
+      idAttribute: 'data-id',
+      axis: 'vertical',
+      keyboard: false,
+      safeInsets: safeInsets,
+      zoneSelector: '#recipe-nav-trash-btn',
+      describeItem: recipeDescribe,
+      phrases: notesPhrases(),
+      onZoneDrop: (result) => notesCanDrop(recipesNavScope, result),
+      onDropTarget: notesCanTarget,
+      onError: (err) => { if (window.console) console.error('[huskis] recipes-nav-dnd', err); },
+    };
+    recipesNavCardBoard = new Smett.SortableBoard(Object.assign({}, shared, {
+      itemSelector: '#recipes-nav-board .recipe-book-card',
+      containerSelector: '#recipes-nav-board .board-col',
+      handleSelector: '.card-head',
+      onCommit: recipesNavCommitBook,
+    }));
+    /* Kapitlene og oppskriftene deler ETT board, fordi et kapittel er en rad
+       som selv er en container (som en kategori i en liste). TYPEN avgjør
+       hvor noe kan lande, allerede mens det dras: et kapittel bare blant
+       kapitlene i en bok, en oppskrift bare i et kapittel eller blant bokens
+       egne oppskrifter. */
+    recipesNavRowBoard = new Smett.SortableBoard(Object.assign({}, shared, {
+      itemSelector: '#recipes-nav-board .recipe-row:not(.recipe-level-row), #recipes-nav-board .recipe-chapter',
+      containerSelector: '#recipes-nav-board .recipe-chapters, #recipes-nav-board .recipe-free,' +
+        ' #recipes-nav-board .recipe-chapter .cat-items',
+      handleSelector: '.recipe-row, .recipe-chapter > .cat-head',
+      itemType: (el) => (el.classList.contains('recipe-chapter') ? 'recipeChapter' : 'recipe'),
+      containerAccept: (c) => [c.classList.contains('recipe-chapters') ? 'recipeChapter' : 'recipe'],
+      onCommit: recipesNavCommitRow,
+    }));
+    const begin = (kind) => (b) => {
+      const el = recipeDragBegin(b, recipesNavScope, kind);
+      if (!el) return;
+      dndCompactLift(el, b);
+      dndNoteLiftedBox(el);
+      dndLockAxis(b);
+      armDragTrash();
+    };
+    const end = (event) => {
+      if (!recipeDragEnd(event)) return;
+      // Tellerne og markeringene i menyen følger etter når klonen er borte.
+      dndAfterCloneGone(recipesNavBoard, () => { refreshRecipesNav(); renderRecipes(); });
+    };
+    recipeWire(recipesNavCardBoard, begin('card'), end);
+    recipeWire(recipesNavRowBoard, begin('item'), end);
+    dndInstallClickGuard();
+  }
+  function recipesNavSyncBoards() {
+    if (drag.active && dragScope() === recipesNavScope) return;
+    if (recipesNavCardBoard) recipesNavCardBoard.sync();
+    if (recipesNavRowBoard) recipesNavRowBoard.sync();
+  }
+  function recipesNavCommitBook() {
+    const el = drag.el;
+    if (!el || !el.isConnected) return;
+    const b = findRecipeBook(el.dataset.id);
+    if (!b) return;
+    // Bøkenes rekkefølge er PERSONLIG, som områdenes og bokhyllenes.
+    commitPos(b, 'recipeBook', recipeSiblingPos(el, '.recipe-book-card', findRecipeBook));
+    visibleRecipeBooks().filter((x) => !x._virtual).forEach((x, i) => {
+      x.color = colorForIndex(i);
+      const card = recipesNavBoard.querySelector('.recipe-book-card[data-id="' + x.id + '"]');
+      if (card) paintCardColor(card, x.color);
+    });
+    save();
+  }
+  /* Kan dette slippes HER? Samme svar som knappene og serveren: opprettelses-
+     rett i målet, og aldri i den virtuelle «delt med meg»-kokeboken. */
+  function recipeRejectTarget(book, chapter) {
+    if (!book || book._virtual) return tr('recipes.dropShared');
+    if (chapter === undefined) return canAddNoteFolder(book) ? null : tr('recipes.dropNoRight');
+    return canAddNote(book, chapter) ? null : tr('recipes.dropNoRight');
+  }
+  /* Et kapittel eller en oppskrift får ny plass. Står det i den samme
+     forelderen, er det en omrokkering (`commitPos`, personlig der den skal
+     være det). Ellers er det en EKTE flytting: begge overstyringene fra «delt
+     med meg» faller bort, og den nye plasseringen stemples. */
+  function recipesNavCommitRow() {
+    const el = drag.el;
+    if (!el || !el.isConnected) return;
+    const cardEl = el.closest('.recipe-book-card');
+    const book = cardEl ? findRecipeBook(cardEl.dataset.id) : null;
+    const isChapter = el.classList.contains('recipe-chapter');
+    const chEl = isChapter ? null : el.parentElement.closest('.recipe-chapter');
+    const chapter = chEl ? findRecipeChapter(chEl.dataset.id) : null;
+    const obj = isChapter ? findRecipeChapter(el.dataset.id) : findRecipe(el.dataset.id);
+    if (!obj || !book) return;
+    const np = isChapter
+      ? recipeSiblingPos(el, '.recipe-chapter', findRecipeChapter)
+      : recipeSiblingPos(el, '.recipe-row', findRecipe);
+    const same = obj.project === book.id && (isChapter || (obj.folder || null) === (chapter ? chapter.id : null));
+    if (same) {
+      commitPos(obj, isChapter ? 'recipeChapter' : 'recipe', np);
+      save();
+      return;
+    }
+    // Et slipp serveren ville avvist skal ikke skje: si fra og kast, så ruller
+    // Smett rekkefølgen tilbake til der draget startet.
+    const reason = recipeRejectTarget(book, isChapter ? undefined : chapter);
+    if (reason) { showToast(reason); throw new Error(reason); }
+    placeRecipeObj(isChapter ? 'recipeChapter' : 'recipe', obj, book, chapter, np);
+    save();
+  }
+  /* Selve flyttingen — delt av draget og «Flytt til …». Et kapittel som
+     flytter til en annen kokebok tar oppskriftene sine med (de peker på
+     kapittelet), og `project`-pekeren deres rettes så plasseringen er hel. */
+  function placeRecipeObj(kind, obj, book, chapter, np) {
+    delete obj._canonProject;
+    delete obj._canon;
+    if (kind === 'recipeChapter') {
+      const from = anyNoteProject(obj.project);
+      if (from && from !== book) {
+        const i = from.folders.indexOf(obj);
+        if (i > -1) from.folders.splice(i, 1);
+        book.folders.push(obj);
+      }
+      obj.project = book.id;
+      obj._parent = book;
+      obj.pos = np;
+      stampPos(obj);
+      allRecipes().forEach((n) => {
+        if (n.folder !== obj.id || n.project === book.id) return;
+        n.project = book.id;
+        delete n._canonProject;
+        stampPos(n);
+      });
+      return;
+    }
+    delete obj._canonFolder;
+    obj.project = book.id;
+    obj.folder = chapter ? chapter.id : null;
+    obj._parent = book;
+    obj.pos = np;
+    stampPos(obj);
+  }
+
+  /* ------------------------------------------------------------
+     SLETTING, SØPPELKASSE, OPPLØSNING OG FLYTTING
+     ------------------------------------------------------------
+     Huskis' etablerte modell (docs/trash.md): optimistisk sletting med
+     angre-toast, gjenoppretting fra kassen, og gravstein først når kassen
+     tømmes. Oppskriftsfanen har ÉN kasse for alle tre nivåene — den står i
+     foten på flaten og i foten på kokebokmenyen, og viser det samme.
+
+     HIERARKIET ARVES IKKE SOM FLAGG. Legges en kokebok eller et kapittel i
+     kassen, forsvinner innholdet MED den og kommer tilbake med den. Kassen
+     viser derfor bare det som kan komme tilbake til en synlig plass: en
+     oppskrift hvis bok og kapittel står der, et kapittel hvis bok står der.
+     Først TØMMINGEN er rekursiv — da tas hele undertreet. */
+  function trashedRecipeRows() {
+    const out = [];
+    recipeBooks().filter((b) => !b._virtual).forEach((b) => {
+      if (!live(b)) { out.push({ kind: 'recipeBook', obj: b }); return; }
+      (b.folders || []).forEach((c) => { if (!live(c)) out.push({ kind: 'recipeChapter', obj: c }); });
+    });
+    allRecipes().forEach((n) => {
+      if (live(n)) return;
+      const b = findRecipeBook(n.project);
+      const c = n.folder ? findRecipeChapter(n.folder) : null;
+      if (b && live(b) && (!c || live(c))) out.push({ kind: 'recipe', obj: n });
+    });
+    return out;
+  }
+  function paintRecipeTrash() {
+    const n = trashedRecipeRows().length;
+    const label = tr('recipes.trashCount', { count: n });
+    paintCan(recipeTrashBtn, recipeTrashWrap, n, label);
+    paintCan(recipeNavTrashBtn, recipeNavTrashWrap, n, label);
+  }
+
+  function deleteRecipeObject(kind, id) {
+    const cfg = RECIPE_KINDS[kind];
+    const obj = cfg && cfg.find(id);
+    if (!obj || !recipeCanDelete(obj)) return;
+    const name = cfg.name(obj);
+    const sel = handleSelector(kind, id);
+    const node = sel ? document.querySelector(sel) : null;
+    const ghost = ghostFrom(kind === 'recipeBook' ? ((node && node.closest('.card')) || node)
+      : kind === 'recipeChapter' ? ((node && node.closest('.recipe-chapter')) || node) : node);
+    if (!trashModalOpen()) keepFocus(focusTargetAfterRemoval(kind, id, null));
+    bufferDelete(obj, kind, (o) => setTrashed(o, cfg.data, true));
+    if (recipeOpenId && !recipeStillShown()) closeRecipe({ force: true });
+    validateActiveNotes(state);
+    renderRecipesNav();
+    renderRecipes();
+    flyGhost(ghost, recipesNavOpen() ? recipeNavTrashBtn : recipeTrashBtn);
+    pushDeleteToast(kind, id, name);
+  }
+  // Står den åpne oppskriften fortsatt et sted man kan se den?
+  function recipeStillShown() {
+    const n = findRecipe(recipeOpenId);
+    if (!n || !live(n)) return false;
+    const b = anyNoteProject(n.project);
+    const c = n.folder ? anyNoteFolder(n.folder) : null;
+    return !!b && live(b) && (!c || live(c));
+  }
+  function restoreRecipeObject(kind, id) {
+    const cfg = RECIPE_KINDS[kind];
+    const o = cfg && cfg.find(id);
+    if (!o) return;
+    if (o._pendingDelete) { undoBufferedDelete(id); return; }
+    setTrashed(o, cfg.data, false);
+    validateActiveNotes(state);
+    renderRecipesNav();
+    renderRecipes();
+    save();
+  }
+  // Tøm kassen: gravstein på hele undertreet (`tombSubtree`), som serverens
+  // kaskade. Et kapittel tar oppskriftene som forsvant MED det, med seg.
+  function emptyRecipeTrash() {
+    const rows0 = trashedRecipeRows();
+    commitBufferedFor(rows0.map((r) => r.obj.id));
+    const rows = trashedRecipeRows().filter((r) => recipeCanDelete(r.obj));
+    if (!rows.length) return;
+    const goneRecipes = new Set();
+    rows.forEach(({ kind, obj }) => {
+      if (kind === 'recipe') { goneRecipes.add(obj.id); tombSubtree(obj, 'note'); return; }
+      if (kind === 'recipeChapter') {
+        allRecipes().forEach((n) => {
+          if (n.folder === obj.id) { goneRecipes.add(n.id); tombSubtree(n, 'note'); }
+        });
+        tombSubtree(obj, 'noteFolder');
+        const b = anyNoteProject(obj.project);
+        const i = b ? b.folders.indexOf(obj) : -1;
+        if (i > -1) b.folders.splice(i, 1);
+        return;
+      }
+      tombSubtree(obj, 'noteProject');  // boken, kapitlene OG oppskriftene
+      allRecipes().forEach((n) => { if (n.project === obj.id) goneRecipes.add(n.id); });
+      const i = state.noteProjects.indexOf(obj);
+      if (i > -1) state.noteProjects.splice(i, 1);
+    });
+    state.notes = state.notes.filter((n) => !goneRecipes.has(n.id));
+    validateActiveNotes(state);
+    renderRecipesNav();
+    renderRecipes();
+    save();
+  }
+  const RECIPE_TRASH_KIND = { recipeBook: 'kind.recipeBook', recipeChapter: 'kind.recipeChapter', recipe: 'kind.recipe' };
+  function openRecipeTrash() {
+    showTrashModal({
+      title: tr('recipes.trashTitle'),
+      note: TRASH_NOTE,
+      emptyLabel: tr('recipes.purge'),
+      emptyMsg: tr('recipes.noTrashed'),
+      rows: () => trashedRecipeRows().map(({ kind, obj }) => ({
+        id: obj.id,
+        name: RECIPE_KINDS[kind].name(obj) || tr('common.noName'),
+        // Kassen er felles for tre nivåer, så raden sier hvilket den er.
+        meta: tr(RECIPE_TRASH_KIND[kind]) + (kind === 'recipe' ? '' : ' · ' + countWord('recipe',
+          allRecipes().filter((n) => (kind === 'recipeBook' ? n.project : n.folder) === obj.id).length)),
+        pending: !!obj._pendingDelete,
+        manage: recipeCanDelete(obj),
+        restore: () => restoreRecipeObject(kind, obj.id),
+      })),
+      empty: emptyRecipeTrash,
+    });
+  }
+
+  /* OPPLØS ET KAPITTEL: kapittelet forsvinner, oppskriftene blir. De legges
+     sist blant bokens oppskrifter uten kapittel, i den rekkefølgen de hadde —
+     som radene i en oppløst kategori.
+
+     Oppløsningen er en sletting av kapittelet OG en flytting av hver oppskrift,
+     og den går som ÉN operasjon på serveren (`recipe_chapter_dissolve`), som
+     sjekker alle rettighetene mot databasens faktiske tilstand og gjør alt
+     eller ingenting. Klienten endrer derfor ingenting før svaret er der: som
+     separate synkskrivinger kunne slettingen gått gjennom mens flyttingene ble
+     avvist. Svaret er de nye posisjonene, så visningen blir nøyaktig det
+     databasen gjorde. `canDissolveRecipeChapter` er bare UX — den skjuler
+     menyraden når det åpenbart ikke går. */
+  const chapterMembers = (c) => allRecipes().filter((n) => n.folder === c.id).sort(posCmp);
+  /* Det serveren spør om: retten til å slette kapittelet, retten til å legge
+     oppskrifter rett i den ekte boken (aldri den virtuelle «delt med meg»-
+     kokeboken) og flytteretten på hver eneste oppskrift i det. */
+  function canDissolveRecipeChapter(c) {
+    const b = c ? findRecipeBook(c.project) : null;
+    return !!b && !b._virtual && recipeCanDelete(c) && canAddNote(b, null) &&
+      chapterMembers(c).every((n) => cap(n, 'move', !frozen(n)));
+  }
+  function dissolveRecipeChapter(id) {
+    const c = findRecipeChapter(id);
+    if (!canDissolveRecipeChapter(c)) return;
+    const key = 'dissolve:' + id;
+    if (opQueue.hasPending(key)) return;
+    const name = c.name;
+    const stamp = tick();
+    opQueue.enqueue({
+      key,
+      // Kapittelet og oppskriftene i det må finnes på serveren først — ellers
+      // avviser den («finnes ikke»), eller lar en ny oppskrift stå igjen.
+      waitFor: () => {
+        const live = findRecipeChapter(id);
+        return !live || (rowKnownToServer(id) && chapterMembers(live).every((n) => rowKnownToServer(n.id)));
+      },
+      run: async () => {
+        const { data, error } = await acli().rpc('recipe_chapter_dissolve',
+          { p_folder: id, p_ts: stamp, p_org: deviceId });
+        if (error) throw error;
+        return data;
+      },
+      onDone: (rows) => applyRecipeChapterDissolved(id, Array.isArray(rows) ? rows : [], name),
+      onError: (e) => {
+        // Serveren sa nei, og ingenting ble endret — verken der eller her.
+        showToast(tr(e && e.code === '42501' ? 'recipes.dissolveDenied' : 'recipes.dissolveFailed'));
+        scheduleCloud(0); // hent de nye rettighetene, så menyen viser dem
+      },
+    });
+  }
+  // Serveren har løst opp kapittelet: speil nøyaktig det den gjorde.
+  function applyRecipeChapterDissolved(id, rows, name) {
+    const c = findRecipeChapter(id);
+    const b = c ? findRecipeBook(c.project) : null;
+    if (c && !trashModalOpen()) keepFocus(focusTargetAfterRemoval('recipeChapter', id, null));
+    const done = new Map(rows.map((r) => [r.id, r]));
+    allRecipes().forEach((n) => {
+      const r = done.get(n.id);
+      if (!r) return;
+      n.folder = null;
+      n.pos = r.pos;
+      n.posTs = r.posTs;
+      n.posOrg = r.posOrg;
+    });
+    /* En oppskrift som ble lagt i kapittelet HER etter at operasjonen startet,
+       og som serveren derfor ikke flyttet, blir fri i boken på vanlig måte —
+       ellers ville den pekt på et kapittel som ikke finnes. */
+    if (b) {
+      let p = maxPos(allRecipes().filter((n) => n.project === b.id && !n.folder));
+      allRecipes().filter((n) => n.folder === id).sort(posCmp).forEach((n) => {
+        n.folder = null;
+        n.pos = ++p;
+        stampPos(n);
+      });
+    }
+    if (c) {
+      tombSubtree(c, 'noteFolder');
+      const i = b ? b.folders.indexOf(c) : -1;
+      if (i > -1) b.folders.splice(i, 1);
+    }
+    validateActiveNotes(state);
+    save();
+    renderRecipesNav();
+    renderRecipes();
+    showToast(tr('recipes.chapterDissolved', { name: quoted(name), what: countWord('recipe', rows.length) }));
+    cloudBase = null;
+    scheduleCloud(0);
+  }
+
+  /* «Flytt til …» — tastaturets og menyens motstykke til draget: en oppskrift
+     til et annet kapittel eller en annen bok, et kapittel til en annen bok. */
+  function askRecipeMove(kind, id) {
+    const obj = RECIPE_KINDS[kind] && RECIPE_KINDS[kind].find(id);
+    if (!obj) return;
+    if (!canReorderObj(kind, obj, null)) {
+      announce(tr('a11y.cannotReorder', { name: quoted(nameOfAny(obj)) }));
+      return;
+    }
+    const opts = [];
+    visibleRecipeBooks().filter((b) => !b._virtual).forEach((b) => {
+      if (kind === 'recipeChapter') {
+        if (b.id !== obj.project && canAddNoteFolder(b)) opts.push({ id: b.id, label: b.name });
+        return;
+      }
+      if (canAddNote(b, null) && !(obj.project === b.id && !obj.folder)) {
+        opts.push({ id: b.id + '/', label: b.name + ' · ' + tr('recipes.bookLevel') });
+      }
+      liveChapters(b).forEach((c) => {
+        if (c.id !== obj.folder && canAddNote(b, c)) opts.push({ id: b.id + '/' + c.id, label: b.name + ' › ' + c.name });
+      });
+    });
+    const title = tr(kind === 'recipe' ? 'recipes.movePrompt' : 'recipes.moveChapterPrompt',
+      { name: quoted(nameOfAny(obj)) });
+    openPicker(title, opts, tr('recipes.moveNowhere'), (choice) => {
+      const [bookId, chapterId] = String(choice).split('/');
+      const book = findRecipeBook(bookId);
+      const chapter = chapterId ? findRecipeChapter(chapterId) : null;
+      const live2 = RECIPE_KINDS[kind].find(id);
+      if (!book || !live2) return;
+      const siblings = kind === 'recipe' ? recipesIn(book.id, chapter ? chapter.id : null) : liveChapters(book);
+      placeRecipeObj(kind, live2, book, chapter, maxPos(siblings) + 1);
+      save();
+      renderRecipesNav();
+      renderRecipes();
+      const dest = chapter ? chapter.name : book.name;
+      showToast(tr('move.movedTo', { name: quoted(nameOfAny(live2)), dest: quoted(dest) }));
+    });
+  }
+
+  // Tastaturets kontekst (`moveCtx`): objektet og søskenrekka det står i.
+  function recipeMoveCtx(kind, id) {
+    const cfg = RECIPE_KINDS[kind];
+    const obj = cfg.find(id);
+    if (!obj) return null;
+    const rows = kind === 'recipeBook' ? visibleRecipeBooks().filter((b) => !b._virtual)
+      : kind === 'recipeChapter' ? liveChapters(findRecipeBook(obj.project))
+        : recipesIn(obj.project, obj.folder && findRecipeChapter(obj.folder) ? obj.folder : null);
+    return { obj, cont: null, S: kind === 'recipe' && !recipesNavOpen() ? recipesScope : recipesNavScope,
+      name: cfg.name(obj), rows };
+  }
+
+  /* Objektmenyen for de tre nivåene — den SAMME menyen som resten av appen
+     (docs/menus.md): Endre navn · Flytt · Deling · Forlat · Slett, og for et
+     kapittel i tillegg «Løs opp kapittelet». */
+  function recipeObjMenuSpec(kind, id, renameFn) {
+    const cfg = RECIPE_KINDS[kind];
+    const obj = cfg.find(id);
+    const canEdit = !!obj && canEditNoteObj(obj);
+    const canDel = recipeCanDelete(obj);
+    return {
+      kind, id,
+      scope: kind === 'recipe' && !recipesNavOpen() ? recipesScope : recipesNavScope,
+      rename: canEdit && (kind !== 'recipe' || !!renameFn),
+      renameFn: renameFn || null,
+      share: () => {
+        const live2 = cfg.find(id);
+        if (!live2) return;
+        const wasOpen = recipesNavOpen();
+        if (wasOpen) closeRecipesNav({ keepFocus: true });
+        openShare(NOTE_SHARE_TYPE[kind], id, live2, wasOpen ? openRecipesNav : null);
+      },
+      extraRows: [
+        kind === 'recipe' ? {
+          icon: ICONS.copy,
+          label: tr('recipes.copyText'),
+          fn: () => copyRecipeText(id),
+        } : null,
+        kind === 'recipeChapter' && canDissolveRecipeChapter(obj) ? {
+          icon: ICONS.bubbleBurst,
+          label: tr('recipes.dissolveChapter'),
+          hint: tr('recipes.dissolveChapterHint'),
+          fn: () => dissolveRecipeChapter(id),
+        } : null,
+      ],
+      remove: canDel ? () => deleteRecipeObject(kind, id) : null,
+      removeLabel: tr(cfg.deleteLabel),
+    };
+  }
+  // Hele oppskriften som ren tekst — det som kan leses, kan kopieres.
+  function copyRecipeText(id) {
+    const n = findRecipe(id);
+    if (!n) return;
+    const text = recipeTitle(n) + '\n\n' + RECIPE.recipeText(n.recipe, recipeDec(), tr);
+    noteClipboardPlain(text).then((how) => showToast(tr(how ? 'recipes.copied' : 'notes.copyFailed')));
+  }
+
+  /* ------------------------------------------------------------
+     OPPSKRIFTSFLATEN
+     ------------------------------------------------------------
+     Notat-editorens fullskjermsbilde (`.note-editor`), med de samme to
+     reglene: resten av appen er inert mens den står oppe, og tilbakeknappen
+     fører tilbake til fanen man kom fra.
+
+     LESEMODUS er for kjøkkenet: store linjer, porsjonsvelgeren og ingen
+     redigeringskontroller. Den bygges av `RECIPE.renderReader` — den SAMME
+     funksjonen som den offentlige lesevisningen bruker — så de to kan ikke
+     bli forskjellige. Porsjonsvalget er LOKALT: det skalerer visningen og
+     lagres aldri; de lagrede mengdene røres ikke.
+
+     REDIGERINGSMODUS er bak «Rediger» for den som har skriverett. Hver
+     endring stemples med det samme (innholdsregisteret, LWW per dokument —
+     docs/oppskrifter.md) og lagres etter en kort pause, uten Lagre-knapp. */
+  const recipeView = document.getElementById('recipe-view');
+  const recipeBody = document.getElementById('recipe-body');
+  const recipeSheet = document.getElementById('recipe-sheet');
+  const recipeBackBtn = document.getElementById('recipe-back');
+  const recipeEditBtn = document.getElementById('recipe-edit-btn');
+  const recipeStatusEl = document.getElementById('recipe-save-status');
+  const recipeThemeBtn = document.getElementById('recipe-theme-btn');
+  const recipeMenuBtn = document.getElementById('recipe-menu-btn');
+  const recipeTitleEl = document.getElementById('recipe-title');
+  const recipeTitleInput = document.getElementById('recipe-title-input');
+  const RECIPE_SAVE_DEBOUNCE = 400;
+  let recipeOpenId = null;
+  let recipeReturn = null;
+  let recipeEditing = false;
+  let recipeSaveTimer = null;
+  let recipeRenderOwed = false;
+  // Valgt antall porsjoner per oppskrift, bare i denne økten.
+  const recipeChosen = new Map();
+  const recipeViewOpen = () => !!recipeView && !recipeView.hidden;
+
+  function setRecipeStatus(key) {
+    if (recipeStatusEl) recipeStatusEl.textContent = key ? tr(key) : '';
+  }
+  function openRecipe(id, opts) {
+    const n = findRecipe(id);
+    if (!n || !recipeView) return;
+    opts = opts || {};
+    if (recipeViewOpen()) closeRecipe();
+    if (recipesNavOpen()) closeRecipesNav({ keepFocus: true });
+    recipeReturn = { tab: activeMainTab, scrollY: window.scrollY || window.pageYOffset || 0 };
+    // Fanen står i oppskriftens plassering når man kommer tilbake.
+    state.activeBook = n.project;
+    state.activeChapter = n.folder || null;
+    validateActiveNotes(state);
+    saveNavPref();
+    recipeOpenId = id;
+    recipeEditing = !!opts.edit && canEditNoteObj(n);
+    recipeView.hidden = false;
+    document.body.classList.add('note-editing');
+    setNoteEditorInert(true);
+    setRecipeStatus('');
+    renderRecipeView();
+    recipeBody.scrollTop = 0;
+    if (recipeEditing) { recipeTitleInput.focus(); recipeTitleInput.select(); }
+    else recipeBackBtn.focus();
+  }
+  /* `opts.force`: oppskriften er borte eller utilgjengelig — lukk uten å vise
+     tilbake til noe. Ellers lagres det som venter FØR bildet forsvinner. */
+  function closeRecipe(opts) {
+    if (!recipeViewOpen()) return false;
+    if (!(opts && opts.force)) flushRecipeSave();
+    else { clearTimeout(recipeSaveTimer); recipeSaveTimer = null; }
+    const id = recipeOpenId;
+    const back = recipeReturn;
+    recipeOpenId = null;
+    recipeReturn = null;
+    recipeEditing = false;
+    recipeRenderOwed = false;
+    recipeView.hidden = true;
+    recipeView.classList.remove('is-editing');
+    recipeSheet.textContent = '';
+    document.body.classList.remove('note-editing');
+    setNoteEditorInert(false);
+    if (back) setMainTab(back.tab, { silent: true });
+    // Fokus går tilbake til kortet man åpnet (docs/tilgjengelighet.md).
+    if (id) keepFocus(handleSelector('recipe', id));
+    renderRecipes();
+    if (focusIntentPending()) {
+      clearFocusIntent();
+      if (activeMainTab === 'recipes' && recipesCrumbBtn) recipesCrumbBtn.focus();
+    }
+    if (back) requestAnimationFrame(() => window.scrollTo(0, back.scrollY || 0));
+    return true;
+  }
+  function closeRecipeViewIfGone() {
+    if (!recipeViewOpen()) return;
+    if (!recipeStillShown()) { closeRecipe({ force: true }); return; }
+    refreshRecipeView();
+  }
+  // Synken har bygget state om: mal flaten på nytt — men aldri under fingrene
+  // på noen som skriver eller drar. Da venter den til feltet forlates.
+  function refreshRecipeView() {
+    if (!recipeViewOpen()) return;
+    const a = document.activeElement;
+    const typing = recipeEditing && a && (recipeSheet.contains(a) || a === recipeTitleInput) &&
+      /^(INPUT|TEXTAREA)$/.test(a.tagName);
+    if (typing || (drag.active && dragScope() === recipeEditScope)) { recipeRenderOwed = true; return; }
+    renderRecipeView();
+  }
+  function setRecipeEditing(on) {
+    const n = findRecipe(recipeOpenId);
+    if (!n) return;
+    flushRecipeSave();
+    recipeEditing = !!on && canEditNoteObj(n);
+    renderRecipeView();
+    (recipeEditing ? recipeTitleInput : recipeEditBtn).focus();
+  }
+
+  function renderRecipeView() {
+    const n = findRecipe(recipeOpenId);
+    if (!n) return;
+    recipeRenderOwed = false;
+    const canEdit = canEditNoteObj(n);
+    if (!canEdit) recipeEditing = false;
+    recipeView.classList.toggle('is-editing', recipeEditing);
+    const titleIcon = recipeView.querySelector('.recipe-title-icon');
+    if (titleIcon && !titleIcon.firstChild) titleIcon.innerHTML = ICONS.recipe;
+    recipeEditBtn.hidden = !canEdit;
+    recipeEditBtn.setAttribute('aria-pressed', recipeEditing ? 'true' : 'false');
+    recipeEditBtn.querySelector('.recipe-edit-icon').innerHTML = recipeEditing ? ICONS.eye : ICONS.pencil;
+    recipeEditBtn.querySelector('.recipe-edit-label').textContent = tr(recipeEditing ? 'recipes.done' : 'recipes.edit');
+    recipeTitleEl.textContent = recipeTitle(n);
+    recipeTitleEl.hidden = recipeEditing;
+    recipeTitleInput.hidden = !recipeEditing;
+    if (document.activeElement !== recipeTitleInput) recipeTitleInput.value = n.title || '';
+    if (!canEdit) setRecipeStatus('notes.readOnly');
+    else if (recipeStatusEl && recipeStatusEl.textContent === tr('notes.readOnly')) setRecipeStatus('');
+    const focus = recipeEditing ? captureRecipeFocus() : null;
+    if (recipeEditing) buildRecipeEditor(n);
+    else {
+      RECIPE.renderReader(recipeSheet, n.recipe, {
+        tr, icons: ICONS, dec: recipeDec(),
+        chosen: recipeChosen.get(n.id),
+        onServings: (v) => { recipeChosen.set(n.id, v); renderRecipeView(); },
+      });
+    }
+    if (focus) restoreRecipeFocus(focus);
+    if (recipeEditing) { ensureRecipeEditBoard(); if (recipeEditBoard) recipeEditBoard.sync(); }
+  }
+  // Fokus overlever en ommaling: hvilket felt i hvilken linje, og markøren.
+  function captureRecipeFocus() {
+    const a = document.activeElement;
+    if (!a || !recipeSheet.contains(a)) return null;
+    const host = a.closest('[data-id]');
+    return {
+      id: host ? host.dataset.id : null, cls: a.className.split(' ')[0],
+      start: typeof a.selectionStart === 'number' ? a.selectionStart : null,
+    };
+  }
+  function restoreRecipeFocus(f) {
+    const host = f.id ? recipeSheet.querySelector('[data-id="' + f.id + '"]') : recipeSheet;
+    const el = host && host.querySelector('.' + f.cls);
+    if (!el) return;
+    el.focus();
+    if (f.start != null && el.setSelectionRange) {
+      try { el.setSelectionRange(f.start, f.start); } catch (e) { /* type=number */ }
+    }
+  }
+  function focusRecipeLine(id, cls) {
+    const el = recipeSheet.querySelector('[data-id="' + id + '"] .' + cls);
+    if (el) el.focus();
+  }
+
+  /* ---- Lagring ----
+     Endringen skrives i dokumentet og STEMPLES med det samme: en synkrunde
+     som kommer midt i skrivingen skal se den nye versjonen, ikke flette den
+     bort. Selve lagringen samles i en kort pause. */
+  function mutateRecipe(fn) {
+    const n = findRecipe(recipeOpenId);
+    if (!n || !canEditNoteObj(n)) return null;
+    const res = fn(n.recipe, n);
+    stampContent(n);
+    setRecipeStatus('notes.saving');
+    clearTimeout(recipeSaveTimer);
+    recipeSaveTimer = setTimeout(writeRecipeNow, RECIPE_SAVE_DEBOUNCE);
+    return res;
+  }
+  function writeRecipeNow() {
+    recipeSaveTimer = null;
+    save();
+    if (recipeViewOpen()) setRecipeStatus('notes.saved');
+    renderRecipes();
+  }
+  function flushRecipeSave() {
+    if (!recipeSaveTimer) return;
+    clearTimeout(recipeSaveTimer);
+    writeRecipeNow();
+  }
+
+  /* ---- Redigeringsmodus ----
+     Hver hoveddel (Ingredienser, Fremgangsmåte) har underinndelingene sine
+     først og hovednivåets linjer etter dem — «Øvrige …» når det finnes
+     underinndelinger (recipe-core.js forklarer hvorfor den er avledet). Den
+     grønne ＋ lager en linje, den gule en underinndeling: de samme to
+     knappene som i en liste. */
+  const recipeEl = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  };
+  function recipeInput(cls, value, placeholderKey, labelText, multiline) {
+    const i = document.createElement(multiline ? 'textarea' : 'input');
+    if (!multiline) i.type = 'text';
+    else i.rows = 1;
+    i.className = cls;
+    i.value = value == null ? '' : String(value);
+    if (placeholderKey) i.placeholder = tr(placeholderKey);
+    i.setAttribute('aria-label', labelText);
+    i.dataset.dndIgnore = '';
+    if (multiline) {
+      const grow = () => { i.style.height = 'auto'; i.style.height = i.scrollHeight + 'px'; };
+      i.addEventListener('input', grow);
+      requestAnimationFrame(grow);
+    }
+    return i;
+  }
+  function recipeIconBtn(cls, icon, label, fn) {
+    const b = recipeEl('button', 'icon-btn ' + cls);
+    b.type = 'button';
+    b.innerHTML = icon;
+    labelBtn(b, label);
+    b.dataset.dndIgnore = '';
+    b.addEventListener('click', (ev) => { ev.stopPropagation(); fn(); });
+    return b;
+  }
+  function recipeAddBtn(color, label, fn) {
+    const b = recipeEl('button', 'btn-add btn-solid icon-only ' + color);
+    b.type = 'button';
+    b.innerHTML = ICONS.plus;
+    labelBtn(b, label);
+    b.addEventListener('click', fn);
+    return b;
+  }
+  function recipeGrip(label) {
+    const g = recipeEl('span', 'recipe-grip');
+    g.innerHTML = ICONS.grip;
+    g.setAttribute('aria-hidden', 'true');
+    g.title = label;
+    return g;
+  }
+
+  function buildRecipeEditor(n) {
+    const doc = n.recipe;
+    recipeSheet.textContent = '';
+    const meta = recipeEl('div', 'recipe-meta-edit');
+    const descLabel = recipeEl('label', 'recipe-field');
+    descLabel.appendChild(recipeEl('span', 'recipe-field-label', tr('recipes.description')));
+    const desc = recipeInput('recipe-desc-input', doc.desc, 'recipes.descPlaceholder', tr('recipes.description'), true);
+    desc.addEventListener('input', () => mutateRecipe((d) => { d.desc = desc.value.slice(0, RECIPE.MAX.desc); }));
+    descLabel.appendChild(desc);
+    const servLabel = recipeEl('label', 'recipe-field recipe-serv-field');
+    servLabel.appendChild(recipeEl('span', 'recipe-field-label', tr('recipes.servingsBase')));
+    const serv = recipeInput('recipe-serv-input', doc.serv || '', 'recipes.servingsPlaceholder', tr('recipes.servingsBase'));
+    serv.type = 'number';
+    serv.min = '1';
+    serv.max = '999';
+    serv.step = '1';
+    serv.inputMode = 'numeric';
+    serv.addEventListener('input', () => mutateRecipe((d) => {
+      const v = parseFloat(String(serv.value).replace(',', '.'));
+      d.serv = isFinite(v) && v > 0 && v < 1000 ? v : null;
+    }));
+    servLabel.appendChild(serv);
+    meta.append(descLabel, servLabel);
+    recipeSheet.appendChild(meta);
+    RECIPE.SECTIONS.forEach((sec) => recipeSheet.appendChild(buildRecipeEditSection(doc, sec)));
+  }
+  function buildRecipeEditSection(doc, sec) {
+    const L = RECIPE.LABELS[sec];
+    const s = doc[sec];
+    const wrap = recipeEl('section', 'recipe-sec recipe-sec-edit');
+    wrap.dataset.sec = sec;
+    wrap.appendChild(recipeEl('h2', 'recipe-sec-title', tr(L.title)));
+    const subs = recipeEl('div', 'recipe-subs');
+    subs.dataset.sec = sec;
+    subs.dataset.dndContainer = sec + ':subs';
+    s.subs.forEach((u) => subs.appendChild(buildRecipeEditSub(sec, u)));
+    wrap.appendChild(subs);
+    const main = recipeEl('div', 'recipe-main');
+    main.classList.toggle('has-subs', s.subs.length > 0);
+    main.classList.toggle('is-empty', !s.items.length);
+    if (s.subs.length) main.appendChild(recipeEl('h3', 'recipe-sub-name recipe-other-name', tr(L.other)));
+    main.appendChild(buildRecipeEditLines(sec, null, s.items));
+    if (!s.subs.length && !s.items.length) main.appendChild(recipeEl('p', 'recipe-empty', tr(L.empty)));
+    wrap.appendChild(main);
+    const add = recipeEl('div', 'add-item-row recipe-add-row');
+    add.append(
+      recipeAddBtn('btn-green', tr(L.addLine), () => addRecipeLine(sec, null)),
+      recipeAddBtn('btn-yellow', tr(L.addSub), () => addRecipeSub(sec)));
+    wrap.appendChild(add);
+    return wrap;
+  }
+  function buildRecipeEditSub(sec, u) {
+    const L = RECIPE.LABELS[sec];
+    const box = recipeEl('div', 'recipe-sub');
+    box.dataset.id = u.id;
+    box.dataset.sec = sec;
+    const head = recipeEl('div', 'recipe-sub-head');
+    const label = u.name || tr(L.subUntitled);
+    const name = recipeInput('recipe-sub-name-input', u.name, L.subPlaceholder, tr('recipes.groupName'));
+    name.addEventListener('input', () => mutateRecipe((d) => RECIPE.renameSub(d, sec, u.id, name.value)));
+    name.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault();
+      addRecipeLine(sec, u.id, 0);
+    });
+    head.append(
+      recipeGrip(tr('recipes.dragGroup', { name: quoted(label) })),
+      name,
+      recipeIconBtn('recipe-sub-dissolve', ICONS.bubbleBurst, tr('recipes.dissolveGroup', { name: quoted(label) }),
+        () => dissolveRecipeSub(sec, u.id)),
+      recipeIconBtn('recipe-sub-delete', ICONS.trashGlyph, tr('recipes.deleteGroup', { name: quoted(label) }),
+        () => deleteRecipeSub(sec, u.id)));
+    box.appendChild(head);
+    box.appendChild(buildRecipeEditLines(sec, u.id, u.items));
+    const add = recipeEl('div', 'recipe-sub-add');
+    add.appendChild(recipeAddBtn('btn-green', tr(L.addLineIn, { name: quoted(label) }), () => addRecipeLine(sec, u.id)));
+    box.appendChild(add);
+    return box;
+  }
+  function buildRecipeEditLines(sec, subId, items) {
+    const ul = recipeEl('ul', 'recipe-lines');
+    ul.dataset.sec = sec;
+    ul.dataset.sub = subId || '';
+    ul.dataset.dndContainer = sec + ':' + (subId || 'main');
+    items.forEach((line, i) => ul.appendChild(sec === 'ing'
+      ? buildRecipeIngLine(line, subId) : buildRecipeStepLine(line, subId, i)));
+    return ul;
+  }
+  // Linjens egne taster: Enter lager neste linje, Backspace i en tom linje
+  // fjerner den — som i en vanlig liste.
+  function recipeLineKeys(sec, line, subId, field, isEmpty) {
+    field.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {
+        ev.preventDefault();
+        const at = RECIPE.locate(findRecipe(recipeOpenId).recipe, sec, line.id);
+        addRecipeLine(sec, subId, at ? at.index + 1 : undefined);
+      } else if (ev.key === 'Backspace' && isEmpty()) {
+        ev.preventDefault();
+        removeRecipeLine(sec, line.id, true);
+      }
+    });
+  }
+  function buildRecipeIngLine(line, subId) {
+    const li = recipeEl('li', 'recipe-line recipe-line-ing');
+    li.dataset.id = line.id;
+    li.dataset.sec = 'ing';
+    const dec = recipeDec();
+    const amt = recipeInput('recipe-amt-input', RECIPE.amountInputText(line, dec), 'recipes.amount', tr('recipes.amount'));
+    amt.inputMode = 'decimal';
+    const unit = recipeInput('recipe-unit-input', line.u, 'recipes.unit', tr('recipes.unit'));
+    const name = recipeInput('recipe-name-input', line.t, 'recipes.ingredient', tr('recipes.ingredient'));
+    const amountFields = (text) => {
+      const a = RECIPE.parseAmount(text);
+      return { q: a && a.q != null ? a.q : null, q2: a && a.q2 != null ? a.q2 : null,
+        f: a && a.f ? 1 : 0, qs: a && a.qs ? a.qs : '' };
+    };
+    amt.addEventListener('input', () => mutateRecipe((d) => RECIPE.updateLine(d, 'ing', line.id, amountFields(amt.value))));
+    // Når feltet forlates, skrives mengden slik den ble FORSTÅTT («1,50» → «1,5»).
+    amt.addEventListener('change', () => {
+      const n = findRecipe(recipeOpenId);
+      const at = n && RECIPE.locate(n.recipe, 'ing', line.id);
+      if (at) amt.value = RECIPE.amountInputText(at.list[at.index], dec);
+    });
+    unit.addEventListener('input', () => mutateRecipe((d) => RECIPE.updateLine(d, 'ing', line.id, { u: unit.value })));
+    name.addEventListener('input', () => mutateRecipe((d) => RECIPE.updateLine(d, 'ing', line.id, { t: name.value })));
+    /* «2 dl melk» skrevet (eller limt inn) i navnefeltet mens mengde og enhet
+       står tomme, deles opp i de tre feltene — så mengden blir et TALL som kan
+       skaleres, ikke en del av navnet. */
+    name.addEventListener('change', () => {
+      if (amt.value.trim() || unit.value.trim()) return;
+      const p = RECIPE.parseIngredientLine(name.value);
+      if (p.q == null) return;
+      const next = mutateRecipe((d) => RECIPE.updateLine(d, 'ing', line.id, p));
+      if (!next) return;
+      amt.value = RECIPE.amountInputText(next, dec);
+      unit.value = next.u;
+      name.value = next.t;
+    });
+    const empty = () => !amt.value && !unit.value && !name.value;
+    [amt, unit, name].forEach((f) => recipeLineKeys('ing', line, subId, f, empty));
+    li.append(
+      recipeGrip(tr('recipes.dragLine')),
+      amt, unit, name,
+      recipeIconBtn('recipe-line-del', ICONS.xmark, tr('recipes.deleteIngredient', { name: quoted(line.t || '') }),
+        () => removeRecipeLine('ing', line.id)));
+    return li;
+  }
+  function buildRecipeStepLine(line, subId, i) {
+    const li = recipeEl('li', 'recipe-line recipe-line-step');
+    li.dataset.id = line.id;
+    li.dataset.sec = 'step';
+    const num = recipeEl('span', 'recipe-step-num', String(i + 1));
+    num.setAttribute('aria-hidden', 'true');
+    const text = recipeInput('recipe-step-input', line.t, 'recipes.stepPlaceholder',
+      tr('recipes.stepLabel', { n: i + 1 }), true);
+    text.addEventListener('input', () => mutateRecipe((d) => RECIPE.updateLine(d, 'step', line.id, { t: text.value })));
+    recipeLineKeys('step', line, subId, text, () => !text.value);
+    li.append(
+      recipeGrip(tr('recipes.dragLine')),
+      num, text,
+      recipeIconBtn('recipe-line-del', ICONS.xmark, tr('recipes.deleteStep', { n: i + 1 }),
+        () => removeRecipeLine('step', line.id)));
+    return li;
+  }
+
+  function addRecipeLine(sec, subId, index) {
+    const line = mutateRecipe((d) => RECIPE.addLine(d, sec, subId || null, {}, index));
+    if (!line) return;
+    renderRecipeView();
+    focusRecipeLine(line.id, sec === 'ing' ? 'recipe-amt-input' : 'recipe-step-input');
+  }
+  function removeRecipeLine(sec, lineId, focusPrev) {
+    const n = findRecipe(recipeOpenId);
+    if (!n) return;
+    // Naboen fokus skal til, regnet ut FØR linjen forsvinner.
+    const li = recipeSheet.querySelector('.recipe-line[data-id="' + lineId + '"]');
+    const nb = li && ((focusPrev && li.previousElementSibling) || li.nextElementSibling || li.previousElementSibling);
+    mutateRecipe((d) => RECIPE.removeLine(d, sec, lineId));
+    renderRecipeView();
+    if (nb && nb.dataset.id) focusRecipeLine(nb.dataset.id, sec === 'ing' ? 'recipe-name-input' : 'recipe-step-input');
+  }
+  function addRecipeSub(sec) {
+    const sub = mutateRecipe((d) => RECIPE.addSub(d, sec, ''));
+    if (!sub) return;
+    renderRecipeView();
+    focusRecipeLine(sub.id, 'recipe-sub-name-input');
+  }
+  // Oppløs: underinndelingen forsvinner, linjene blir (recipe-core.js).
+  function dissolveRecipeSub(sec, subId) {
+    const r = mutateRecipe((d) => RECIPE.dissolveSub(d, sec, subId));
+    if (!r) return;
+    renderRecipeView();
+    showToast(tr('recipes.groupDissolved', { name: quoted(r.sub.name || tr(RECIPE.LABELS[sec].subUntitled)) }));
+  }
+  // Slett: underinndelingen OG linjene — med angre, som all annen sletting.
+  function deleteRecipeSub(sec, subId) {
+    const id = recipeOpenId;
+    const r = mutateRecipe((d) => RECIPE.deleteSub(d, sec, subId));
+    if (!r) return;
+    renderRecipeView();
+    showToast(tr('recipes.groupDeleted', { name: quoted(r.sub.name || tr(RECIPE.LABELS[sec].subUntitled)) }), {
+      label: tr('common.undo'),
+      fn: () => {
+        hideToast();
+        if (recipeOpenId !== id) return;
+        mutateRecipe((d) => RECIPE.restoreSub(d, sec, r));
+        renderRecipeView();
+      },
+    });
+  }
+
+  /* ---- Dra-og-slipp i redigeringen ----
+     ÉN board for begge hoveddelene. Typen er `<seksjon>-line` eller
+     `<seksjon>-sub`, og hver container tar bare imot sin egen type — så en
+     ingrediens kan aldri havne blant stegene, et steg aldri blant
+     ingrediensene, og en underinndeling aldri i den andre hoveddelen.
+     Avvisningen skjer UNDER draget (dnd-kit tilbyr ikke målet), ikke etter. */
+  let recipeEditBoard = null;
+  function ensureRecipeEditBoard() {
+    if (recipeEditBoard || !recipeSheet || typeof Smett === 'undefined' || !Smett.SortableBoard) return;
+    recipeEditBoard = new Smett.SortableBoard({
+      root: recipeSheet,
+      itemSelector: '.recipe-line, .recipe-sub',
+      containerSelector: '.recipe-lines, .recipe-subs',
+      handleSelector: '.recipe-grip',
+      idAttribute: 'data-id',
+      axis: 'vertical',
+      keyboard: false,
+      safeInsets: safeInsets,
+      itemType: (el) => el.dataset.sec + (el.classList.contains('recipe-sub') ? '-sub' : '-line'),
+      containerAccept: (c) => [c.dataset.sec + (c.classList.contains('recipe-subs') ? '-sub' : '-line')],
+      describeItem: (el) => {
+        const t = el && el.querySelector('input, textarea');
+        return (t && t.value) || tr(el && el.classList.contains('recipe-sub') ? 'recipes.groupName' : 'recipes.line');
+      },
+      phrases: notesPhrases(),
+      onCommit: recipeEditCommit,
+      onError: (err) => { if (window.console) console.error('[huskis] recipe-edit-dnd', err); },
+    });
+    recipeWire(recipeEditBoard, (b) => {
+      const el = recipeDragBegin(b, recipeEditScope, 'item');
+      if (!el) return;
+      // Et felt med fokus i det som løftes ville tatt med seg markøren.
+      if (el.contains(document.activeElement)) document.activeElement.blur();
+      dndCompactLift(el, b);
+      dndNoteLiftedBox(el);
+      dndLockAxis(b);
+    }, (event) => {
+      if (!recipeDragEnd(event)) return;
+      dndAfterCloneGone(recipeSheet, () => { if (recipeEditing) renderRecipeView(); });
+    });
+  }
+  /* Slippet: rekkefølgen og medlemskapet leses av DOM-en, som Smett allerede
+     har sortert. Hver linje og underinndeling slås opp på id og settes inn
+     der den nå står; en linje DOM-en av en eller annen grunn ikke viser,
+     legges på hovednivået — et slipp skal aldri kunne miste en ingrediens. */
+  function recipeEditCommit() {
+    mutateRecipe((doc) => {
+      RECIPE.SECTIONS.forEach((sec) => {
+        const secEl = recipeSheet.querySelector('.recipe-sec-edit[data-sec="' + sec + '"]');
+        if (!secEl) return;
+        const s = doc[sec];
+        const lines = {};
+        const subs = {};
+        s.items.forEach((l) => { lines[l.id] = l; });
+        s.subs.forEach((u) => { subs[u.id] = u; u.items.forEach((l) => { lines[l.id] = l; }); });
+        const real = (el, cls) => el.classList.contains(cls) && !el.hasAttribute('data-dnd-placeholder');
+        const seen = new Set();
+        const linesIn = (ul) => (ul ? [...ul.children] : [])
+          .filter((li) => real(li, 'recipe-line') && lines[li.dataset.id] && !seen.has(li.dataset.id))
+          .map((li) => { seen.add(li.dataset.id); return lines[li.dataset.id]; });
+        const subsEl = secEl.querySelector(':scope > .recipe-subs');
+        const order = [...subsEl.children].filter((el) => real(el, 'recipe-sub') && subs[el.dataset.id]);
+        const nextSubs = order.map((el) => {
+          const u = subs[el.dataset.id];
+          return { id: u.id, name: u.name, items: linesIn(el.querySelector(':scope > .recipe-lines')) };
+        });
+        s.subs.forEach((u) => {
+          if (!nextSubs.some((x) => x.id === u.id)) {
+            nextSubs.push({ id: u.id, name: u.name, items: u.items.filter((l) => !seen.has(l.id)) });
+          }
+        });
+        const items = linesIn(secEl.querySelector(':scope > .recipe-main > .recipe-lines'));
+        Object.keys(lines).forEach((id) => {
+          if (!seen.has(id) && !nextSubs.some((u) => u.items.indexOf(lines[id]) > -1)) items.push(lines[id]);
+        });
+        doc[sec] = { items, subs: nextSubs };
+      });
+    });
+  }
+
+  function wireRecipes() {
+    if (recipesCrumbBtn) recipesCrumbBtn.addEventListener('click', openRecipesNav);
+    if (recipesNavCloseBtn) recipesNavCloseBtn.addEventListener('click', () => closeRecipesNav());
+    if (recipesNavModal) {
+      recipesNavModal.addEventListener('click', (ev) => { if (ev.target === recipesNavModal) closeRecipesNav(); });
+    }
+    if (addRecipeBtn) addRecipeBtn.addEventListener('click', () => addRecipe(state.activeBook, state.activeChapter));
+    const trashApi = { count: () => trashedRecipeRows().length, open: openRecipeTrash, empty: emptyRecipeTrash };
+    [recipeTrashBtn, recipeNavTrashBtn].forEach((btn) => { if (btn) attachTrashHold(btn, trashApi); });
+    if (!recipeView) return;
+    recipeBackBtn.addEventListener('click', () => closeRecipe());
+    recipeEditBtn.addEventListener('click', () => setRecipeEditing(!recipeEditing));
+    recipeTitleInput.addEventListener('input', () => mutateRecipe((d, n) => {
+      n.title = recipeTitleInput.value.slice(0, RECIPE.MAX.title);
+    }));
+    recipeTitleInput.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault();
+      const first = recipeSheet.querySelector('.recipe-desc-input');
+      if (first) first.focus();
+    });
+    // En ommaling synken utsatte mens noen skrev, tas når feltet forlates.
+    recipeView.addEventListener('focusout', () => {
+      setTimeout(() => {
+        if (!recipeRenderOwed || !recipeViewOpen()) return;
+        const a = document.activeElement;
+        if (a && recipeView.contains(a) && /^(INPUT|TEXTAREA)$/.test(a.tagName)) return;
+        renderRecipeView();
+      }, 0);
+    });
+    if (recipeThemeBtn) recipeThemeBtn.addEventListener('click', () => {
+      setTheme(THEME.mode() === 'dark' ? 'light' : 'dark');
+    });
+    if (recipeMenuBtn) {
+      recipeMenuBtn.dataset.dndIgnore = '';
+      recipeMenuBtn.innerHTML = ICONS.menuDots;
+      recipeMenuBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (!recipeOpenId) return;
+        const id = recipeOpenId;
+        // Inne i flaten er «Endre navn» tittelfeltet, og «Slett» lukker flaten
+        // først — et fullskjermsbilde av noe som ligger i kassen er et blindspor.
+        const spec = recipeObjMenuSpec('recipe', id, () => setRecipeEditing(true));
+        if (spec.remove) spec.remove = () => { closeRecipe(); deleteRecipeObject('recipe', id); };
+        openObjMenu(spec, recipeMenuBtn);
+      });
+    }
+    window.addEventListener('pagehide', flushRecipeSave);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) flushRecipeSave(); });
+  }
+
+  /* ------------------------------------------------------------
+     HOVEDFANENE: Lister | Notater | Oppskrifter
      ------------------------------------------------------------
      Fanevalget er per ENHET (som aktiv mappe), og lagres lokalt. Det synkes
      ikke: hvilken fane man sist så på er ikke innhold. */
   const MAIN_TAB_KEY = 'huskis-tab';
-  const MAIN_TABS = ['lists', 'notes'];
-  const topbarRowLists = document.getElementById('topbar-row-lists');
-  const topbarRowNotes = document.getElementById('topbar-row-notes');
-  // Slippfoten nederst hører til fanen, som topplinjas rad: hver fane har sine
-  // egne kasser (docs/trash.md).
-  const listsDock = document.getElementById('lists-dock');
-  const notesDock = document.getElementById('notes-dock');
+  const MAIN_TABS = ['lists', 'notes', 'recipes'];
+  /* Hver fane eier tre flater: raden under fanene (breadcrumb + opprett),
+     selve board-et og slippfoten nederst med kassene (docs/trash.md). Å bytte
+     fane er å vise de tre som hører til den, og skjule resten. */
+  const MAIN_TAB_PARTS = {
+    lists: ['topbar-row-lists', 'board', 'lists-dock'],
+    notes: ['topbar-row-notes', 'notes-board', 'notes-dock'],
+    recipes: ['topbar-row-recipes', 'recipes-board', 'recipes-dock'],
+  };
   let activeMainTab = 'lists';
 
   function readMainTab() {
@@ -22360,15 +24279,16 @@
     if (!opts.silent) {
       try { localStorage.setItem(MAIN_TAB_KEY, activeMainTab); } catch (e) { /* ignore */ }
     }
-    const notes = activeMainTab === 'notes';
     paintSeg(mainTabsEl, '.main-tab', (btn) => btn.dataset.tab === activeMainTab);
-    if (topbarRowLists) topbarRowLists.hidden = notes;
-    if (topbarRowNotes) topbarRowNotes.hidden = !notes;
-    if (listsDock) listsDock.hidden = notes;
-    if (notesDock) notesDock.hidden = !notes;
-    board.hidden = notes;
-    if (notesBoard) notesBoard.hidden = !notes;
-    if (notes) renderNotes(); else renderBoard();
+    Object.keys(MAIN_TAB_PARTS).forEach((tab) => {
+      MAIN_TAB_PARTS[tab].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.hidden = tab !== activeMainTab;
+      });
+    });
+    if (activeMainTab === 'notes') renderNotes();
+    else if (activeMainTab === 'recipes') renderRecipes();
+    else renderBoard();
     syncTopChrome();
   }
   function wireMainTabs() {
@@ -22398,6 +24318,7 @@
     wireLinksModal();
     wireNoteHistory();
     wireNoteEditor();
+    wireRecipes();
   }
 
   /* ============================================================
@@ -22480,7 +24401,7 @@
      oppdateringen i det uendelige. */
   function cleanNoteProject(p) {
     return {
-      id: p.id, name: p.name || '', collapsed: !!p.collapsed,
+      id: p.id, kind: noteKindOfTree(p.kind), name: p.name || '', collapsed: !!p.collapsed,
       trashed: !!p.trashed, archived: !!p.archived,
       ts: p.ts || 0, org: p.org || '',
       pos: p.pos || 0, posTs: p.posTs || 0, posOrg: p.posOrg || '',
@@ -22488,16 +24409,21 @@
   }
   function cleanNoteFolder(f, projectId) {
     return {
-      id: f.id, project: f.project || projectId || null, name: f.name || '',
+      id: f.id, kind: noteKindOfTree(f.kind), project: f.project || projectId || null, name: f.name || '',
       trashed: !!f.trashed, archived: !!f.archived,
       ts: f.ts || 0, org: f.org || '',
       pos: f.pos || 0, posTs: f.posTs || 0, posOrg: f.posOrg || '',
     };
   }
+  /* En oppskrift bærer innholdet sitt i `recipe` (recipe-core.js); `doc` er
+     da det tomme notatdokumentet og røres aldri. Normaliseringen er
+     deterministisk, så lokal og fjern rad blir byte-like når innholdet er det. */
   function cleanNote(n) {
+    const kind = noteKindOfTree(n.kind);
     return {
-      id: n.id, project: n.project || null, folder: n.folder || null,
+      id: n.id, kind, project: n.project || null, folder: n.folder || null,
       title: n.title || '', doc: sanitizeNoteDoc(n.doc || n.body),
+      recipe: kind === 'recipe' ? RECIPE.sanitizeRecipe(n.recipe) : null,
       trashed: !!n.trashed, archived: !!n.archived,
       ts: n.ts || 0, org: n.org || '',
       pos: n.pos || 0, posTs: n.posTs || 0, posOrg: n.posOrg || '',
@@ -22638,7 +24564,8 @@
     const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
     return {
-      id: a.id, name: content.name, trashed: !!content.trashed,
+      // `kind` kan aldri endres etter opprettelsen (databasen fryser den).
+      id: a.id, kind: noteKindOfTree(b.kind || a.kind), name: content.name, trashed: !!content.trashed,
       archived: !!content.archived, collapsed: !!content.collapsed,
       ts: content.ts || 0, org: content.org || '',
       pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
@@ -22648,7 +24575,8 @@
     const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
     return {
-      id: a.id, name: content.name, trashed: !!content.trashed, archived: !!content.archived,
+      id: a.id, kind: noteKindOfTree(b.kind || a.kind),
+      name: content.name, trashed: !!content.trashed, archived: !!content.archived,
       ts: content.ts || 0, org: content.org || '',
       project: posw.project != null ? posw.project : (a.project || b.project || null),
       pos: posw.pos || 0, posTs: posw.posTs || 0, posOrg: posw.posOrg || '',
@@ -22658,7 +24586,8 @@
     const content = newer(a.ts, a.org, b.ts, b.org) ? a : b;
     const posw = newer(a.posTs, a.posOrg, b.posTs, b.posOrg) ? a : b;
     return {
-      id: a.id, title: content.title, doc: content.doc, trashed: !!content.trashed,
+      id: a.id, kind: noteKindOfTree(b.kind || a.kind),
+      title: content.title, doc: content.doc, recipe: content.recipe || null, trashed: !!content.trashed,
       archived: !!content.archived,
       ts: content.ts || 0, org: content.org || '',
       project: posw.project != null ? posw.project : (a.project || b.project || null),
@@ -23494,12 +25423,14 @@
   let navRestored = false;
   let navPending = null;
   const navEq = (a, b) => !!a && !!b && a.u === b.u && a.g === b.g &&
-    (a.np || null) === (b.np || null) && (a.nf || null) === (b.nf || null);
+    (a.np || null) === (b.np || null) && (a.nf || null) === (b.nf || null) &&
+    (a.rb || null) === (b.rb || null) && (a.rc || null) === (b.rc || null);
   function saveNavPref() {
     if (!authUser || applyingRemote || !navRestored) return;
     if (demoActive) return; // demoens posisjon er en kulisse, ikke brukerens
     const nav = { u: state.activeUniverse || null, g: state.activeGroup || null,
-      np: state.activeProject || null, nf: state.activeFolder || null };
+      np: state.activeProject || null, nf: state.activeFolder || null,
+      rb: state.activeBook || null, rc: state.activeChapter || null };
     if (navEq(nav, authUser.meta && authUser.meta.nav) && !navPending) return; // allerede lagret
     if (navEq(nav, navPending)) return; // allerede planlagt
     navPending = nav;
@@ -23530,6 +25461,12 @@
     if (nav.np && state.noteProjects.some((p) => p.id === nav.np && live(p))) {
       state.activeProject = nav.np;
       state.activeFolder = nav.nf && findNoteFolder(nav.nf) ? nav.nf : null;
+      validateActiveNotes(state);
+    }
+    // … og oppskriftsposisjonen (docs/oppskrifter.md).
+    if (nav.rb && recipeBooks().some((p) => p.id === nav.rb && live(p))) {
+      state.activeBook = nav.rb;
+      state.activeChapter = nav.rc && findRecipeChapter(nav.rc) ? nav.rc : null;
       validateActiveNotes(state);
     }
     if (!nav.u) return;
@@ -23815,6 +25752,11 @@
      opprettelseskontroller — nøyaktig som «Mapper delt med meg»
      (docs/rettigheter-og-deling.md del 14). */
   const SHARED_NOTES_ID = '__shared_notes__';
+  // … og oppskriftenes: kapitler og oppskrifter delt direkte med meg samles i
+  // en virtuell KOKEBOK, aldri i notatenes bokhylle.
+  const SHARED_RECIPES_ID = '__shared_recipes__';
+  const SHARED_SHELF_ID = { note: SHARED_NOTES_ID, recipe: SHARED_RECIPES_ID };
+  const isSharedShelfId = (id) => id === SHARED_NOTES_ID || id === SHARED_RECIPES_ID;
   // Hvilken av de tre seksjonene et toppnivå-objekt hører til.
   const SECTION_OWNED = 0, SECTION_SHARED = 1, SECTION_FREE = 2;
   const sectionRank = (u) => (u._virtual ? SECTION_FREE
@@ -23823,6 +25765,7 @@
   const S_TEXT = {
     get freeSection() { return tr('section.freeGroups'); },
     get sharedNotesShelf() { return tr('section.sharedNotes'); },
+    get sharedRecipesShelf() { return tr('section.sharedRecipes'); },
     get sections() {
       return [tr('section.mine'), tr('section.sharedUniverses'), tr('section.sharedGroups')];
     },
@@ -23843,24 +25786,29 @@
   /* Notatsidens forfedre, nærmeste først: notatboken (hvis notatet ligger i
      én) og så bokhyllen. Notatene ligger FLATT i state — `_parent` peker rett
      på bokhyllen — så kjeden må slås opp, ikke gås. */
+  /* Oppslagene går i HELE treet, ikke i notatfanens utsnitt: oppskriftene bor
+     i de samme tabellene (docs/oppskrifter.md), og en oppskrift skal arve
+     eierskap og lås fra kapittelet og kokeboken sin på nøyaktig samme måte. */
   function noteAncestors(kind, obj) {
     const out = [];
     if (!obj) return out;
     if (kind === 'note') {
-      const f = obj.folder ? findNoteFolder(obj.folder) : null;
+      const f = obj.folder ? anyNoteFolder(obj.folder) : null;
       if (f) out.push({ type: 'noteFolder', id: f.id, obj: f });
     }
     if (kind === 'note' || kind === 'noteFolder') {
-      const p = findNoteProject(obj.project);
+      const p = anyNoteProject(obj.project);
       if (p && !p._virtual) out.push({ type: 'noteProject', id: p.id, obj: p });
     }
     return out;
   }
-  const NOTE_KIND_SET = { noteProject: 1, noteFolder: 1, note: 1 };
+  const NOTE_KIND_SET = { noteProject: 1, noteFolder: 1, note: 1,
+    recipeBook: 1, recipeChapter: 1, recipe: 1 };
   /* Klientens KIND ↔ serverens `p_type`. De to skrivemåtene er databasens
      kontrakt (`note_project`/`note_folder`/`note`) og UI-ets (camelCase);
      oversettelsen skjer ett sted i stedet for i hvert kall. */
-  const NOTE_SHARE_TYPE = { noteProject: 'note_project', noteFolder: 'note_folder', note: 'note' };
+  const NOTE_SHARE_TYPE = { noteProject: 'note_project', noteFolder: 'note_folder', note: 'note',
+    recipeBook: 'note_project', recipeChapter: 'note_folder', recipe: 'note' };
   const NOTE_KIND_OF_TYPE = { note_project: 'noteProject', note_folder: 'noteFolder', note: 'note' };
   function privilegedLocal(o) {
     if (!o) return false;
@@ -24026,7 +25974,7 @@
   const NOTE_CONTENT_FIELDS = {
     note_project: ['name', 'collapsed', 'trashed', 'archived'],
     note_folder: ['name', 'trashed', 'archived'],
-    note: ['title', 'doc', 'trashed', 'archived'],
+    note: ['title', 'doc', 'recipe', 'trashed', 'archived'],
   };
   /* Det gjelder BEGGE registrene. Innholdet er det ene; POSISJONEN er det
      andre, og forelder-pekerne rir på det (som `card_id`/`cat_id` på et
@@ -24041,7 +25989,7 @@
      det hele tatt: `canonRow` skriver den kanoniske verdien uansett hva
      visningen sier. Predikatene er nøyaktig `canonRow` sine. */
   const noteParentIsLocal = (o, f) => (f === 'project'
-    ? !(o._canonProject && o.project === SHARED_NOTES_ID)
+    ? !(o._canonProject && isSharedShelfId(o.project))
     : !(o._canonFolder !== undefined && !o.folder));
   function revertUnwritableNoteEdits(my) {
     if (!my) return false;
@@ -24129,12 +26077,12 @@
        den gamle kanoniske. */
     if (type === 'note_folder') {
       const r = withCanonPos(cleanNoteFolder(o), o);
-      if (o._canonProject && o.project === SHARED_NOTES_ID) r.project = o._canonProject;
+      if (o._canonProject && isSharedShelfId(o.project)) r.project = o._canonProject;
       return r;
     }
     if (type === 'note') {
       const r = withCanonPos(cleanNote(o), o);
-      if (o._canonProject && o.project === SHARED_NOTES_ID) r.project = o._canonProject;
+      if (o._canonProject && isSharedShelfId(o.project)) r.project = o._canonProject;
       if (o._canonFolder !== undefined && !o.folder) r.folder = o._canonFolder || null;
       return r;
     }
@@ -24390,24 +26338,30 @@
          finnes det ingen forelder å tegne dem i — og bokhyllens navn skal
          aldri lekke. De samles derfor i én virtuell bokhylle, nøyaktig som
          «Mapper delt med meg» samler frie mapper. Den pushes aldri. */
-      let sharedShelf = null;
-      const ensureSharedShelf = () => {
-        if (sharedShelf) return sharedShelf;
-        sharedShelf = {
-          id: SHARED_NOTES_ID, name: S_TEXT.sharedNotesShelf, folders: [], pos: Infinity,
+      /* Oppskriftene har sin EGEN virtuelle kokebok (docs/oppskrifter.md):
+         et kapittel delt med meg skal aldri dukke opp blant notatene. */
+      const sharedShelves = {};
+      const ensureSharedShelf = (kind) => {
+        const k = noteKindOfTree(kind);
+        if (sharedShelves[k]) return sharedShelves[k];
+        const shelf = {
+          id: SHARED_SHELF_ID[k], kind: k,
+          name: k === 'recipe' ? S_TEXT.sharedRecipesShelf : S_TEXT.sharedNotesShelf,
+          folders: [], pos: Infinity,
           _virtual: true, _type: 'noteProject', _role: null, _caps: {},
           _shared: false, _locked: false, _unlocked: false, _createdByMe: false,
         };
-        noteProjectList.push(sharedShelf);
-        projById.set(SHARED_NOTES_ID, sharedShelf);
-        return sharedShelf;
+        sharedShelves[k] = shelf;
+        noteProjectList.push(shelf);
+        projById.set(shelf.id, shelf);
+        return shelf;
       };
 
       const folderContainer = new Map();   // notatbok-id → bokhyllen den VISES i
       (doc.noteFolders || []).forEach((raw) => {
         const f = cleanNoteFolder(raw);
         attachMeta(f, f.id, 'noteFolder', f.project, null);
-        const parent = f._free ? ensureSharedShelf() : projById.get(f.project);
+        const parent = f._free ? ensureSharedShelf(f.kind) : projById.get(f.project);
         if (!parent) return;               // foreldreløs (bokhyllen er ikke lesbar)
         // Vises i den virtuelle bokhyllen — men den KANONISKE bokhyllen (som
         // jeg ikke ser) må skrives tilbake uendret, ellers ville synken pushet
@@ -24428,7 +26382,7 @@
            ut av en notatbok andre ser det i. */
         if (n.folder && !folderContainer.has(n.folder)) { n._canonFolder = n.folder; n.folder = null; }
         const parent = n.folder ? projById.get(folderContainer.get(n.folder))
-          : (n._free ? ensureSharedShelf() : projById.get(n.project));
+          : (n._free ? ensureSharedShelf(n.kind) : projById.get(n.project));
         if (!parent) return;
         if (parent.id !== n.project) { n._canonProject = n.project; n.project = parent.id; }
         n._parent = parent;
@@ -24467,6 +26421,9 @@
       const hadFolder = state.activeFolder && !!findNoteFolder(state.activeFolder);
       const hadProject = state.activeProject && !!findNoteProject(state.activeProject);
       const hadOpenNote = noteOpenId && findNoteById(noteOpenId) ? noteOpenId : null;
+      const hadChapter = state.activeChapter && !!findRecipeChapter(state.activeChapter);
+      const hadBook = state.activeBook && !!findRecipeBook(state.activeBook);
+      const hadOpenRecipe = recipeOpenId && findRecipe(recipeOpenId) ? recipeOpenId : null;
       state.universes = universes;
       state.ideas = ideas;
       state.noteProjects = noteProjectList;
@@ -24483,11 +26440,18 @@
       const lostFolder = hadFolder && state.activeFolder && !findNoteFolder(state.activeFolder);
       const lostProject = hadProject && state.activeProject && !findNoteProject(state.activeProject);
       const lostOpenNote = hadOpenNote && !findNoteById(hadOpenNote);
+      // … og oppskriftsfanen, med nøyaktig den samme regelen.
+      const lostChapter = hadChapter && state.activeChapter && !findRecipeChapter(state.activeChapter);
+      const lostBook = hadBook && state.activeBook && !findRecipeBook(state.activeBook);
+      const lostOpenRecipe = hadOpenRecipe && !findRecipe(hadOpenRecipe);
       validateActive(state);
       validateActiveNotes(state);
       if (lostGroup || lostUni) noteAccessLoss(lostGroup ? 'group' : 'universe');
       if (lostOpenNote || lostFolder || lostProject) {
         noteAccessLoss(lostOpenNote ? 'note' : lostFolder ? 'noteFolder' : 'noteProject');
+      }
+      if (lostOpenRecipe || lostChapter || lostBook) {
+        noteAccessLoss(lostOpenRecipe ? 'recipe' : lostChapter ? 'recipeChapter' : 'recipeBook');
       }
       // Første pull etter innlogging: land på posisjonen kontoen husker.
       if (!navRestored) { navRestored = true; restoreNavPref(); }
@@ -24496,6 +26460,7 @@
       // låsen endret under føttene, må bildet følge etter.
       closeNoteEditorIfGone();
       closeNoteHistoryIfGone();
+      closeRecipeViewIfGone();
       // …og de LUKKEDE notatene ryddes med: en lokal kopi av et notat vi ikke
       // lenger kan lese skal ikke bli stående på enheten.
       pruneNoteCollabStore();
@@ -24514,6 +26479,8 @@
     group: 'access.lostGroup', universe: 'access.lostUniverse',
     note: 'access.lostNote', noteFolder: 'access.lostNoteFolder',
     noteProject: 'access.lostNoteProject',
+    recipe: 'access.lostRecipe', recipeChapter: 'access.lostRecipeChapter',
+    recipeBook: 'access.lostRecipeBook',
   };
   function noteAccessLoss(kind) {
     if (!shareModal.hidden) closeShare();
@@ -24526,6 +26493,7 @@
       closeNoteEditorIfGone();
       closeNoteHistoryIfGone();
     }
+    if (RECIPE_KINDS[kind]) closeRecipeViewIfGone();
     showToast(tr(ACCESS_LOSS_KEY[kind] || 'access.lostUniverse'));
   }
 
@@ -24556,11 +26524,16 @@
       collapsed: !!row.collapsed });
     if (t === 'idea') return Object.assign(base, { text: row.text || '', cat_id: row.cat || null,
       is_cat: !!row.isCat, collapsed: !!row.collapsed });
+    /* `kind` skrives KUN ved opprettelsen: kokebokens verdi er fasit, og
+       databasen utleder kapitlets og oppskriftens fra den (og fryser alle tre
+       etterpå). Den sendes likevel på alle tre, så en rad aldri havner i feil
+       tre av at forelderen kom senere i samme runde. */
     if (t === 'note_project') return Object.assign(base, { name: row.name || '',
-      collapsed: !!row.collapsed, archived: !!row.archived });
+      kind: noteKindOfTree(row.kind), collapsed: !!row.collapsed, archived: !!row.archived });
     if (t === 'note_folder') return Object.assign(base, { name: row.name || '',
-      project_id: row.project, archived: !!row.archived });
+      kind: noteKindOfTree(row.kind), project_id: row.project, archived: !!row.archived });
     if (t === 'note') return Object.assign(base, { title: row.title || '', project_id: row.project,
+      kind: noteKindOfTree(row.kind), recipe: row.recipe || null,
       folder_id: row.folder || null, body: row.doc || emptyNoteDoc(), archived: !!row.archived });
     return Object.assign(base, { text: row.text || '', card_id: row.home, cat_id: row.cat || null,
       is_cat: !!row.isCat, lock_times: !!row.lockTimes, done: !!row.done, collapsed: !!row.collapsed,
@@ -24585,7 +26558,8 @@
     if (t === 'note_folder') return Object.assign(base, { name: row.name || '',
       project_id: row.project, archived: !!row.archived });
     if (t === 'note') return Object.assign(base, { title: row.title || '', project_id: row.project,
-      folder_id: row.folder || null, body: row.doc || emptyNoteDoc(), archived: !!row.archived });
+      folder_id: row.folder || null, body: row.doc || emptyNoteDoc(), recipe: row.recipe || null,
+      archived: !!row.archived });
     return Object.assign(base, { text: row.text || '', card_id: row.home, cat_id: row.cat || null,
       is_cat: !!row.isCat, lock_times: !!row.lockTimes, done: !!row.done, collapsed: !!row.collapsed,
       responsible: row.responsible || null,
@@ -25935,7 +27909,10 @@
     const dark = THEME.mode() === 'dark';
     const icon = dark ? ICONS.moon : ICONS.sun;
     const label = tr(dark ? 'theme.toLight' : 'theme.toDark');
-    [themeToggleBtn, authThemeToggleBtn, noteThemeBtn].forEach((btn) => {
+    // Oppskriftsflatens knapp slås opp her: den er deklarert lenger ned, og
+    // drakten males før den linjen har kjørt.
+    [themeToggleBtn, authThemeToggleBtn, noteThemeBtn,
+      document.getElementById('recipe-theme-btn')].forEach((btn) => {
       if (!btn) return;
       btn.innerHTML = icon;
       btn.title = label;
@@ -26454,20 +28431,38 @@
   const SHARE_TYPE_ICON = {
     universe: 'globe', group: 'folder',
     note_project: 'noteProject', note_folder: 'noteFolder', note: 'note',
+    noteProject: 'noteProject', noteFolder: 'noteFolder',
+  };
+  /* Oppskriftene deler notattabellene (kind = 'recipe'), og dermed også
+     delingstypene. Hva modalen KALLER tingen — kokebok, kapittel, oppskrift —
+     avhenger derfor av objektet, ikke typen: `shareRecipe` settes når modalen
+     åpnes, og ordene og ikonene slås opp gjennom tabellen under. Typene kommer
+     både i databaseform (note_project) og i klientform (noteProject, fra
+     låsforfedrene). */
+  const RECIPE_KIND_OF_TYPE = {
+    note_project: 'recipeBook', note_folder: 'recipeChapter', note: 'recipe',
+    noteProject: 'recipeBook', noteFolder: 'recipeChapter',
+  };
+  let shareRecipe = false;
+  const shareKindOf = (type) => (shareRecipe ? RECIPE_KIND_OF_TYPE[type] : NOTE_KIND_OF_TYPE[type]) || type;
+  const shareIcon = (type) => {
+    const rk = shareRecipe && RECIPE_KINDS[RECIPE_KIND_OF_TYPE[type]];
+    return ICONS[rk ? rk.icon : SHARE_TYPE_ICON[type]] || '';
   };
   // Objekttypen i bestemt form, slik den leses inne i en setning.
-  const typeWord = (type) => tr('kindDef.' + (NOTE_KIND_OF_TYPE[type] || type));
+  const typeWord = (type) => tr('kindDef.' + shareKindOf(type));
   // Er den delte tingen et TOPPNIVÅ (område/bokhylle)? Bare de har
   // siste-eier-invarianten og «du er eneste eier»-forklaringen.
   const shareIsTop = (type) => type === 'universe' || type === 'note_project';
   function openShare(type, id, obj, backTo) {
     shareCtx = { type, id, obj };
+    shareRecipe = isRecipeObj(obj);
     shareBackTo = backTo || null;
     if (shareBackBtn) shareBackBtn.hidden = !shareBackTo;
     shareTitle.textContent = '';
     const objSpan = document.createElement('span');
     objSpan.className = 'share-title-obj';
-    objSpan.innerHTML = ICONS[SHARE_TYPE_ICON[type]] || '';
+    objSpan.innerHTML = shareIcon(type);
     objSpan.appendChild(document.createTextNode(nameOfAny(obj) || tr('common.noName')));
     shareTitle.appendChild(objSpan);
     shareTitle.appendChild(document.createTextNode(tr('share.settingsSuffix')));
@@ -26519,23 +28514,41 @@
 
   // Overskriftene for hver medlemskategori. «Eier» blir «Medeiere» når det er
   // flere — samme backend-rolle, bare et annet visningsnavn.
+  // Notatordene i kategoritekstene byttes mot kokebokordene for oppskrifter.
+  const RECIPE_SHARE_KEY = {
+    'share.ownerShelf': 'share.ownerCookbook',
+    'share.coOwnersShelf': 'share.coOwnersCookbook',
+    'share.membersShelf': 'share.membersCookbook',
+    'share.ownerNotebook': 'share.ownerChapter',
+    'share.coOwnersNotebook': 'share.coOwnersChapter',
+    'share.membersNotebook': 'share.membersChapter',
+    'share.ownerNote': 'share.ownerRecipe',
+    'share.coOwnersNote': 'share.coOwnersRecipe',
+    'share.membersNote': 'share.membersRecipe',
+    'share.removeHintInheritedShelf': 'share.removeHintInheritedCookbook',
+    'share.removeHintInheritedNotebook': 'share.removeHintInheritedChapter',
+  };
+  const recipeShareKey = (key) => (shareRecipe && RECIPE_SHARE_KEY[key]) || key;
   function memberCategoryTitle(type, category, count) {
+    return tr(recipeShareKey(memberCategoryKey(type, category, count)));
+  }
+  function memberCategoryKey(type, category, count) {
     const many = count > 1;
     // På TOPPNIVÅET trengs ingen presisering — det finnes bare ett nivå å ha
     // en rolle på, og «Eier»/«Medlemmer» leser seg selv.
     if (shareIsTop(type)) {
-      return category.endsWith('Owner') ? tr(many ? 'share.coOwners' : 'share.owner') : tr('share.members');
+      return category.endsWith('Owner') ? (many ? 'share.coOwners' : 'share.owner') : 'share.members';
     }
-    if (category === 'universeOwner') return tr(many ? 'share.coOwnersUniverse' : 'share.ownerUniverse');
-    if (category === 'groupOwner') return tr(many ? 'share.coOwnersGroup' : 'share.ownerGroup');
-    if (category === 'universeMember') return tr('share.membersUniverse');
-    if (category === 'noteProjectOwner') return tr(many ? 'share.coOwnersShelf' : 'share.ownerShelf');
-    if (category === 'noteFolderOwner') return tr(many ? 'share.coOwnersNotebook' : 'share.ownerNotebook');
-    if (category === 'noteOwner') return tr(many ? 'share.coOwnersNote' : 'share.ownerNote');
-    if (category === 'noteProjectMember') return tr('share.membersShelf');
-    if (category === 'noteFolderMember') return tr('share.membersNotebook');
-    if (category === 'noteMember') return tr('share.membersNote');
-    return tr('share.membersGroup');
+    if (category === 'universeOwner') return many ? 'share.coOwnersUniverse' : 'share.ownerUniverse';
+    if (category === 'groupOwner') return many ? 'share.coOwnersGroup' : 'share.ownerGroup';
+    if (category === 'universeMember') return 'share.membersUniverse';
+    if (category === 'noteProjectOwner') return many ? 'share.coOwnersShelf' : 'share.ownerShelf';
+    if (category === 'noteFolderOwner') return many ? 'share.coOwnersNotebook' : 'share.ownerNotebook';
+    if (category === 'noteOwner') return many ? 'share.coOwnersNote' : 'share.ownerNote';
+    if (category === 'noteProjectMember') return 'share.membersShelf';
+    if (category === 'noteFolderMember') return 'share.membersNotebook';
+    if (category === 'noteMember') return 'share.membersNote';
+    return 'share.membersGroup';
   }
   const MEMBER_CATEGORY_ORDER = [
     'universeOwner', 'groupOwner', 'universeMember', 'groupMember',
@@ -26572,6 +28585,9 @@
       manageLock: mine, managePolicy: mine, lockException: mine,
       delete: mine, leave: !mine,
     });
+
+    // Oppskrifter kan i tillegg få en offentlig leselenke (recipeLinkSection).
+    const publicLink = shareRecipe ? recipeLinkSection(type, id) : null;
 
     /* --- Inviter på e-post (medlem eller eier) --- */
     const form = document.createElement('form');
@@ -26624,6 +28640,7 @@
 
     let inviteEffective = (obj._invitePolicy || 'inherit') !== 'deny';
     function applyPerm() {
+      if (publicLink) publicLink.sync(caps);
       form.hidden = !(caps.invite || caps.inviteOwner);
       inviteSec.hidden = form.hidden;
       roleSel.hidden = !caps.inviteOwner;
@@ -26693,7 +28710,7 @@
       lockHint.textContent = '';
       const ancIcon = document.createElement('span');
       ancIcon.className = 'share-lock-anc-icon';
-      ancIcon.innerHTML = ICONS[SHARE_TYPE_ICON[anc.type]] || '';
+      ancIcon.innerHTML = shareIcon(anc.type);
       lockHint.appendChild(document.createTextNode(ex ? '' : tr('lock.becausePrefix')));
       lockHint.appendChild(ancIcon);
       lockHint.appendChild(document.createTextNode(' ' + (anc.obj.name || anc.obj.title || '')));
@@ -26748,7 +28765,7 @@
         // oversetter selv; `removeHint` er den gamle, norske teksten og brukes
         // kun hvis koden mangler (en server som ennå ikke er migrert).
         const hintKey = mbr.removeHintCode === 'inherited'
-          ? (INHERITED_HINT_BY_CATEGORY[mbr.category] || REMOVE_HINT_KEY.inherited)
+          ? (recipeShareKey(INHERITED_HINT_BY_CATEGORY[mbr.category]) || REMOVE_HINT_KEY.inherited)
           : REMOVE_HINT_KEY[mbr.removeHintCode];
         hint.textContent = hintKey ? tr(hintKey) : mbr.removeHint;
         box.appendChild(hint);
@@ -26932,7 +28949,8 @@
           if (closeFn) closeFn();
           const live = findAnyById(id);
           if (!live) return;
-          if (NOTE_KIND_OF_TYPE[type]) deleteNoteObject(NOTE_KIND_OF_TYPE[type], id);
+          if (shareRecipe && RECIPE_KIND_OF_TYPE[type]) deleteRecipeObject(RECIPE_KIND_OF_TYPE[type], id);
+          else if (NOTE_KIND_OF_TYPE[type]) deleteNoteObject(NOTE_KIND_OF_TYPE[type], id);
           else if (type === 'universe') deleteUniverse(live.obj);
           else deleteGroup(live.obj);
         });
@@ -27064,13 +29082,95 @@
       });
     });
 
-    body.append(inviteSec, membersWrap, lockSec, actionsWrap);
+    body.append(...[inviteSec, membersWrap, publicLink && publicLink.el, lockSec, actionsWrap].filter(Boolean));
     applyPerm();
     paintLock();
     renderMembers(mySelfInfo(type, id, obj)); // deg selv vises straks
     renderActions();
     shareRefresh = refreshMembers;             // hver synk-runde friskes modalen opp
     refreshMembers();                          // resten + autoritative capabilities
+  }
+
+  /* --- Offentlig lenke til en kokebok, et kapittel eller en oppskrift ---
+     Bare for den som kan styre medlemmene (serveren håndhever det samme i
+     recipe_link_*). Lenken gir KUN lesetilgang, viser alltid nåtilstanden og
+     kan slås av; nøkkelen er tilfeldig og lages av databasen. */
+  function recipePublicUrl(token) {
+    // I testmodus (lokalt og i preview) må lenken gå mot mock-backenden på
+    // DENNE adressen — mock-databasen finnes bare her, ikke på huskis.no.
+    const base = useMock() ? location.origin + '/' : authRedirectUrl();
+    return base + 'oppskrift.html' + (useMock() ? '?mock=1' : '') + '#' + token;
+  }
+  function recipeLinkSection(type, id) {
+    const el = document.createElement('div');
+    el.className = 'share-sec share-public';
+    el.hidden = true;
+    const title = document.createElement('div');
+    title.className = 'share-section-title';
+    title.textContent = tr('recipes.publicLink');
+    const note = document.createElement('p');
+    note.className = 'share-policy-note';
+    note.textContent = tr('recipes.publicLinkNote', { kind: typeWord(type) });
+    const row = document.createElement('div');
+    row.className = 'share-public-row';
+    el.append(title, note, row);
+    let token, busy = false, loaded = false;
+    const btn = (label, cls, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn btn-small ' + cls; b.textContent = label;
+      b.addEventListener('click', fn);
+      return b;
+    };
+    const call = (rpc, then) => {
+      if (busy) return;
+      busy = true; paint();
+      opQueue.enqueue({
+        waitFor: () => rowKnownToServer(id), // et nytt objekt må først være pushet
+        run: async () => {
+          const { data, error } = await acli().rpc(rpc, { p_type: type, p_id: id });
+          if (error) throw error;
+          return data;
+        },
+        onDone: (data) => { busy = false; then(data); paint(); },
+        onError: (e) => { busy = false; paint(); showToast(friendlyAuthError(e)); },
+      });
+    };
+    function paint() {
+      row.innerHTML = '';
+      if (!loaded) return;
+      if (!token) {
+        row.appendChild(btn(tr('recipes.publicLinkCreate'), 'btn-solid btn-green',
+          () => call('recipe_link_create', (t) => { token = t || null; })));
+      } else {
+        const url = document.createElement('input');
+        url.className = 'field share-public-url'; url.readOnly = true;
+        url.value = recipePublicUrl(token);
+        url.setAttribute('aria-label', tr('recipes.publicLink'));
+        url.addEventListener('focus', () => url.select());
+        row.append(url,
+          btn(tr('recipes.publicLinkCopy'), 'btn-solid btn-green', () => {
+            noteClipboardPlain(url.value).then((ok) =>
+              showToast(tr(ok ? 'recipes.publicLinkCopied' : 'notes.linkCopyFailed')));
+          }),
+          btn(tr('recipes.publicLinkRevoke'), 'btn-ghost', async () => {
+            if (!await askConfirm({
+              title: tr('recipes.publicLinkRevoke'),
+              message: tr('recipes.publicLinkRevokeMsg'),
+              okLabel: tr('recipes.publicLinkRevoke'),
+            })) return;
+            call('recipe_link_revoke', () => { token = null; showToast(tr('recipes.publicLinkRevoked')); });
+          }));
+      }
+      row.querySelectorAll('button').forEach((b) => { b.disabled = busy; });
+    }
+    return {
+      el,
+      sync(caps) {
+        el.hidden = !caps.manageMembers;
+        if (el.hidden || loaded || busy) return;
+        call('recipe_link_get', (t) => { token = t || null; loaded = true; });
+      },
+    };
   }
 
   /* ---------------- Start/stopp av kontomodus ---------------- */
@@ -27087,6 +29187,9 @@
     state.activeProject = null;
     state.activeFolder = null;
     state.activeFolders = {};
+    state.activeBook = null;
+    state.activeChapter = null;
+    state.activeChapters = {};
     state._tomb = emptyTomb();
     state._base = null;
     state._baseV = 0;
@@ -27134,6 +29237,9 @@
       state.activeProject = s.activeProject || null;
       state.activeFolder = s.activeFolder || null;
       state.activeFolders = s.activeFolders || {};
+      state.activeBook = s.activeBook || null;
+      state.activeChapter = s.activeChapter || null;
+      state.activeChapters = s.activeChapters || {};
       // Gravsteinene og basen tas ALLTID fra den lastede posten (ikke «|| det vi
       // hadde»): faller vi tilbake på det som lå i minnet, arver en ny konto
       // forrige brukers gravsteiner.
@@ -29034,6 +31140,11 @@
        til å måle dokumentet uten å gå veien om DOM-en. */
     setMainTab, get mainTab() { return activeMainTab; },
     openNotesNav, closeNotesNav, renderNotes, renderNotesNav,
+    // Oppskriftene (docs/oppskrifter.md) — oppsett og inspeksjon i testene.
+    openRecipesNav, closeRecipesNav, openRecipe, closeRecipe, setRecipeEditing, flushRecipeSave,
+    addRecipeBook, addRecipeChapter, addRecipe, setRecipePlace, dissolveRecipeChapter, recipePublicUrl,
+    deleteRecipeObject, findRecipe, findRecipeChapter, recipesIn,
+    get recipeOpenId() { return recipeOpenId; },
     addNoteProject, addNoteFolder, addNote,
     setActiveProject, setActiveNoteFolder,
     openNoteEditor, closeNoteEditor, flushNoteSave, runNoteCommand,

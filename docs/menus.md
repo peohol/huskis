@@ -174,8 +174,8 @@ leser for å flukte med den samme linjen. `tests/corner-controls.test.js` (2e)
 måler alle avstandene mot det ene tokenet.
 
 0. **Hovedbryteren** (`.main-tabs`, `#main-tabs`, `role="tablist"`):
-   `Lister ↔ Notater` — Huskis' to hoveddeler
-   ([`notater-plan.md`](notater-plan.md)). Visuelt er den ÉN segmentert
+   `Lister ↔ Notater ↔ Oppskrifter` — Huskis' tre hoveddeler
+   ([`notater-plan.md`](notater-plan.md), [`oppskrifter.md`](oppskrifter.md)). Visuelt er den ÉN segmentert
    kontroll, ikke to frittstående knapper, og den ligger ALENE på panelets
    øverste linje (`.topbar-row-tabs`), sentrert i hele bredden. Hjørnegruppen
    skyves ned under den (`--main-tabs-h`, målt i `syncTopChrome`) i stedet for å
@@ -494,6 +494,13 @@ ingen meny i det hele tatt.
 notatfanens topplinje (per plassering), notatbokens i bokhyllekortet, og
 bokhyllens i modalens egen fot. Alle er `.trashcan` og vises kun når de har
 innhold — kassene også når et drag på nivået pågår ([`trash.md`](trash.md)).
+
+## Kokebokmenyen (`#recipes-nav-modal`, åpnes fra oppskriftsfanens breadcrumb)
+
+Notat-navigasjonens mønster for oppskriftene: kokebøkene er fargede kort,
+kapitlene kategorier og oppskriftene rader. Objektmenyen gir de samme radene som
+på notatsiden (gi nytt navn, del, slett), og et kapittel kan i tillegg løses
+opp. Detaljene står i [oppskrifter.md](oppskrifter.md).
 
 ## Konto-modalen (`#account-modal`, kontoknappen)
 
