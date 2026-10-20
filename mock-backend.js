@@ -2612,12 +2612,18 @@
     if (members.some(function (n) { return !canMoveNoteObject(db, 'note', n.id, uid); })) {
       throw nekt('mangler myndighet til å flytte alle oppskriftene i kapittelet');
     }
-    var p = db.notes.filter(function (n) { return n.project_id === f.project_id && !n.folder_id; })
-      .reduce(function (m, n) { return Math.max(m, n.pos || 0); }, 0);
+    // Oppskriftene arver kapitlets plass: jevnt i gapet til neste rad på bokens
+    // øverste nivå (kapittel eller fri oppskrift), som serveren.
+    var fp = f.pos || 0;
+    var next = db.notes.filter(function (n) { return n.project_id === f.project_id && !n.folder_id; })
+      .concat(db.note_folders.filter(function (g) { return g.project_id === f.project_id && g !== f; }))
+      .reduce(function (m, x) { return (x.pos || 0) > fp ? Math.min(m, x.pos || 0) : m; }, Infinity);
+    var step = ((next === Infinity ? fp + members.length + 1 : next) - fp) / (members.length + 1);
+    var p = fp;
     var out = members.sort(function (a, b) { return (a.pos - b.pos) || (a.id < b.id ? -1 : 1); })
       .map(function (n) {
         n.folder_id = null;
-        n.pos = ++p;
+        n.pos = p += step;
         n.pos_ts = Math.max(ts || 0, (n.pos_ts || 0) + 1);
         n.pos_org = org || '';
         return { id: n.id, pos: n.pos, posTs: n.pos_ts, posOrg: n.pos_org };

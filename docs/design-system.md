@@ -581,6 +581,13 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   konsekvente streken. De tekst+ikon-
   knappene (liste/mappe/område) beholder `.btn-add .icon`-størrelsen (19px);
   kun de kvadratiske icon-only-knappene skaleres opp til 34px (se over).
+- **＋-knappene bærer ikonet for det de lager.** Alle grønne og gule
+  ＋-knapper — unntatt listepunktets — viser typeikonet ved siden av ＋-en
+  (`paintAddKind(btn, ICONS.<type>)` fyller `.add-kind-icon`): mappe-＋ i et
+  område og i en mappekategori bærer mappeikonet, oppskrift-＋ oppskriftsikonet,
+  den gule kapittelknappen kapittelikonet. Ikonet hentes fra `ICONS`, så det er
+  det samme som raden det lager. I oppskriftsredigeringen bærer den gule
+  underinndelingsknappen kategori-ikonet.
 - **Kategorier** (`.category` / `.cat-head` / `.cat-title` / `.cat-cog` /
   `.cat-items`): en nivå-1-rad med en header (tittel/meta + objektmenyknapp)
   over en nøstet elementliste. Overskriftslinjen (unntatt menyknappen) er

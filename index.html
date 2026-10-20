@@ -248,8 +248,8 @@
         <button class="crumb-btn nav-crumb" id="recipes-crumb" type="button"
                 data-i18n-title="recipes.crumbTitle" aria-haspopup="dialog">
           <span class="crumb-name" id="crumb-book-name" data-i18n="kind.recipeBook">Kokebok</span>
-          <span class="crumb-sep" aria-hidden="true">›</span>
-          <span class="crumb-name" id="crumb-chapter-name" data-i18n="recipes.bookLevel">Uten kapittel</span>
+          <span class="crumb-sep" aria-hidden="true" hidden>›</span>
+          <span class="crumb-name" id="crumb-chapter-name" hidden></span>
         </button>
       </nav>
       <div class="panel-actions toolbar">
@@ -429,7 +429,7 @@
         <div class="item-trash" id="recipe-nav-trash" hidden>
           <button class="trashcan" id="recipe-nav-trash-btn" type="button"
                   data-dnd-zone="recipe-nav-trash"
-                  data-i18n-title="recipes.trashTitle" data-i18n-aria-label="recipes.trashTitle">
+                  data-i18n-title="recipes.trashBooksBtnTitle" data-i18n-aria-label="recipes.trashBooks">
             <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
             <span class="trashcan-count" id="recipe-nav-trash-count">0</span>
           </button>
@@ -985,7 +985,7 @@
       <div class="card-body">
         <ul class="items-container"></ul>
         <div class="add-item-row">
-          <button class="btn-add btn-solid btn-green icon-only add-item-btn" type="button" data-i18n-title="add.group" data-i18n-aria-label="add.group"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+          <button class="btn-add btn-solid btn-green add-item-btn" type="button" data-i18n-title="add.group" data-i18n-aria-label="add.group"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg> <span class="add-kind-icon" aria-hidden="true"></span></button>
           <button class="btn-add btn-solid btn-yellow icon-only add-cat-btn" type="button" data-i18n-title="add.groupCat" data-i18n-aria-label="add.groupCat"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H8.5"></path><g transform="translate(8.5 5) scale(0.55)"><path d="M3.5 19V6.5a2 2 0 0 1 2-2h3.3a2 2 0 0 1 1.6.8l1.1 1.5a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" fill="#c9a06a"></path></g></svg></button>
         </div>
       </div>
@@ -1023,7 +1023,7 @@
       </div>
       <ul class="cat-items">
         <li class="cat-add">
-          <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" data-i18n-title="add.groupInCat" data-i18n-aria-label="add.groupInCat"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+          <button class="cat-add-btn btn-add btn-solid btn-green" type="button" data-i18n-title="add.groupInCat" data-i18n-aria-label="add.groupInCat"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg> <span class="add-kind-icon" aria-hidden="true"></span></button>
         </li>
       </ul>
     </li>
@@ -1201,11 +1201,11 @@
     </li>
   </template>
 
-  <!-- Kokebok (Kokebokmenyen): et LISTEKORT. Kapitlene står i den første
-       containeren som kategoriene i en liste, og oppskriftene som ikke hører
-       til noe kapittel i den andre — nærmest den grønne ＋-knappen som lager
-       dem. Gul knapp lager et kapittel, som den gule kategoriknappen i en
-       liste. Hodet er et trekkspill. -->
+  <!-- Kokebok (Kokebokmenyen): et OMRÅDEKORT. Kapitlene er mappekategorier og
+       oppskriftene mapper: nivå 1 blander kapitler og frie oppskrifter i ÉN
+       container, som ukategoriserte mapper og mappekategorier i et område.
+       Grønn knapp lager en oppskrift, gul et kapittel; ikonene fylles i
+       app.js. Hodet er et trekkspill. -->
   <template id="recipe-book-template">
     <article class="card uni-card recipe-book-card" tabindex="-1">
       <header class="card-head" role="button" tabindex="0" aria-expanded="true">
@@ -1220,24 +1220,21 @@
         <button class="card-cog obj-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false"></button>
       </header>
       <div class="card-body">
-        <!-- «Uten kapittel»-raden (bygges i app.js) står først, rett over
-             oppskriftene den gjelder; kapitlene kommer etter. -->
-        <ul class="items-container recipe-free"></ul>
-        <ul class="items-container recipe-chapters"></ul>
+        <ul class="items-container"></ul>
         <div class="add-item-row">
-          <button class="btn-add btn-solid btn-green icon-only add-item-btn" type="button" data-i18n-title="recipes.addRecipe" data-i18n-aria-label="recipes.addRecipe"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
-          <button class="btn-add btn-solid btn-yellow icon-only add-cat-btn" type="button" data-i18n-title="recipes.addChapter" data-i18n-aria-label="recipes.addChapter"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+          <button class="btn-add btn-solid btn-green add-item-btn" type="button" data-i18n-title="recipes.addRecipe" data-i18n-aria-label="recipes.addRecipe"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg> <span class="add-kind-icon" aria-hidden="true"></span></button>
+          <button class="btn-add btn-solid btn-yellow icon-only add-cat-btn" type="button" data-i18n-title="recipes.addChapter" data-i18n-aria-label="recipes.addChapter"><span class="add-kind-icon" aria-hidden="true"></span></button>
         </div>
       </div>
     </article>
   </template>
 
-  <!-- Kapittel: kategori-raden fra listene, med oppskriftene i hyllen. -->
+  <!-- Kapittel: mappekategori-raden. Kapittelikonet står i `.cat-drag-icon`,
+       som mappekategoriens ikon: det vises når kapittelet er løftet. -->
   <template id="recipe-chapter-template">
     <li class="category recipe-chapter">
       <div class="cat-head">
         <span class="cat-drag-icon" aria-hidden="true"></span>
-        <span class="kind-icon chapter-icon" aria-hidden="true"></span>
         <span class="share-badge" hidden aria-hidden="true"></span>
         <div class="cat-title-wrap">
           <div class="title-line">
@@ -1249,7 +1246,7 @@
       </div>
       <ul class="cat-items">
         <li class="cat-add">
-          <button class="cat-add-btn btn-add btn-solid btn-green icon-only" type="button" data-i18n-title="recipes.addRecipeInChapter" data-i18n-aria-label="recipes.addRecipeInChapter"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg></button>
+          <button class="cat-add-btn btn-add btn-solid btn-green" type="button" data-i18n-title="recipes.addRecipeInChapter" data-i18n-aria-label="recipes.addRecipeInChapter"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15"></path><path d="M4.5 12h15"></path></svg> <span class="add-kind-icon" aria-hidden="true"></span></button>
         </li>
       </ul>
     </li>

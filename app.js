@@ -937,6 +937,13 @@
   function catMemberCount(rows, catId) {
     return rows.filter((it) => live(it) && !it.done && !it.isCat && it.cat === catId).length;
   }
+  /* ＋-knappens IKON: hva knappen lager (mappe, oppskrift, kapittel …), så den
+     grønne og den gule knappen ikke er to like ＋. `.add-kind-icon` står i
+     malen; listepunktets ＋ er den eneste uten, siden den er listas egen. */
+  function paintAddKind(btn, icon) {
+    const slot = btn && btn.querySelector('.add-kind-icon');
+    if (slot) slot.innerHTML = icon;
+  }
   // Sett kollaps-tellerens tekst og vis/skjul den etter kollaps-tilstand. Lister/
   // listepunkt-kategorier viser «(N)»; områder viser [mappe-ikon] N (`icon`).
   function setCollapseCount(headEl, n, collapsed, icon) {
@@ -1207,7 +1214,10 @@
     const rows = ctx ? ctx.rows : [];
     const i = rows.findIndex((r) => r.id === id);
     const nb = i < 0 ? null : (rows[i + 1] || rows[i - 1]);
-    if (nb) return handleSelector(nb.isCat ? (kind === 'group' ? 'groupcat' : 'category') : kind, nb.id);
+    if (nb) {
+      const nbKind = ctx.kindOf ? ctx.kindOf(nb) : nb.isCat ? (kind === 'group' ? 'groupcat' : 'category') : kind;
+      return handleSelector(nbKind, nb.id);
+    }
     // Tom container: ＋-knappen er det nærmeste stedet det gir mening å stå.
     const q = (o) => '[data-id="' + String(o.id).replace(/["\\]/g, '\\$&') + '"]';
     if ((kind === 'item' || kind === 'category') && cont) return '.card' + q(cont) + ' .add-item-btn';
@@ -1270,12 +1280,13 @@
   // posisjonen: et listepunkt som passerer en kategorigrense havner INNE i
   // kategorien, og medlemmet det passerte havner utenfor — de bytter faktisk
   // plass, i stedet for at den ene forsvinner ut av rekka.
-  function swapSiblings(a, b, kind) {
+  // `kindB`: naboens slag, når en rekke blander to (kapitler og frie oppskrifter).
+  function swapSiblings(a, b, kind, kindB = kind) {
     const ap = a.pos, bp = b.pos;
     const ac = a.cat || null, bc = b.cat || null;
     if (ac !== bc) { a.cat = bc; b.cat = ac; }
     commitPos(a, kind, bp);
-    commitPos(b, kind, ap);
+    commitPos(b, kindB, ap);
   }
 
   // Har jeg lov til å endre rekkefølgen på dette objektet? Samme gating som
@@ -1380,11 +1391,12 @@
       announce(tr(step < 0 ? 'a11y.alreadyFirst' : 'a11y.alreadyLast', { name: quoted(ctx.name) }));
       return;
     }
-    if (!canReorderObj(kind, target, ctx.cont)) {
+    const targetKind = ctx.kindOf ? ctx.kindOf(target) : kind;
+    if (!canReorderObj(targetKind, target, ctx.cont)) {
       announce(tr('a11y.cannotSwap', { name: quoted(nameOfAny(target)) }));
       return;
     }
-    swapSiblings(ctx.obj, target, kind);
+    swapSiblings(ctx.obj, target, kind, targetKind);
     save();
     keepFocus(handleSelector(kind, id));
     // Kort og områder får farge etter POSISJON, så de må gjennom en full
@@ -1662,6 +1674,14 @@
     contKind: 'universe', rowKind: 'group',
     contSelector: '.card',
     get root() { return navBoard; },
+    /* Modalen, rullefeltet og de to board-ene draget kjøres av. Nav-modalens
+       dra-maskineri (seksjonen «NAV-SCOPET PÅ dnd-kit») leser dem herfra, så
+       kokebokmenyen kan kjøre NØYAKTIG det samme maskineriet med sine egne
+       (`recipesNavScope`). */
+    get modal() { return navModal; },
+    get scroller() { return navModalBody; },
+    get cardBoard() { return navCardBoard; },
+    get rowBoard() { return navRowBoard; },
     singleColumn: true,               // nav-modalen har alltid én kolonne
     containers: () => visibleUniverses(),
     findContainer: (id) => findUniverse(id),
@@ -2248,6 +2268,7 @@
     const tick = () => {
       syncOwed = false;
       navSyncBoards();
+      recipesNavSyncBoards();
       boardSyncBoards();
       ideaSyncBoard();
       if (syncOwed) { requestAnimationFrame(tick); return; }
@@ -2403,6 +2424,7 @@
       save();
       nameNewRow(obj, u, rowEl, rowEl.querySelector(titleSel), navScope);
     };
+    paintAddKind(addRow.querySelector('.add-item-btn'), ICONS.folder);
     addRow.querySelector('.add-item-btn').addEventListener('click', () => {
       if (addRow.hidden) return;
       const g = makeGroup('', null, u.id);
@@ -2637,6 +2659,7 @@
     inner.appendChild(addWrap); // ＋-knappen sist, under siste mappe
 
     const addBtn = el.querySelector('.cat-add-btn');
+    paintAddKind(addBtn, ICONS.folder);
     if (!canEdit) addWrap.hidden = true;
     else addBtn.addEventListener('click', () => addRowToCategory(catData, u, el, navScope));
 
@@ -4652,10 +4675,14 @@
      notatene har både et arkiv og en søppelkasse, og de står side om side —
      nederst på siden og i notatenes nav-modal. Der BETYR sidelengs bevegelse
      noe også i én kolonne: den er hele forskjellen på «legg bort» og «slett».
-     Listesiden og nav-modalen har bare den ene kassen, og der er låsen som før. */
+     Listesiden og nav-modalen har bare den ene kassen, og der er låsen som før.
+
+     ET SCOPE MED `strictAxis` er låst HELT (`'strict'`): oppskriftsredigeringen
+     har ingenting ved siden av linjene å slippe på, og raden skal ligge nøyaktig
+     der den lå sidelengs — uten ledesnorens slakk. */
   function dndLockAxis(b) {
     const S = dragScope();
-    drag.oneAxis = !S.sideTargets && boardColumnCount(S) <= 1;
+    drag.oneAxis = S.strictAxis ? 'strict' : !S.sideTargets && boardColumnCount(S) <= 1;
     dndTuneAutoScroll(b);
   }
 
@@ -4685,6 +4712,7 @@
       DndAxisLock = class extends Smett.Modifier {
         apply(op) {
           if (!drag.oneAxis) return op.transform;
+          if (drag.oneAxis === 'strict') return Object.assign({}, op.transform, { x: 0 });
           const slakk = Math.max(0, (dndLiftedW || 0) / 2 - DND_LEASH_PAD);
           const d = op.transform.x;
           const x = d > slakk ? d - slakk : d < -slakk ? d + slakk : 0;
@@ -5076,8 +5104,9 @@
   let anchorBusy = false;
   const anchorHeights = new Map();   // kort → høyden vi sist så
 
-  // Scroll-containeren for scopet: nav-modalens kropp, ellers vinduet.
-  const anchorScroller = () => (dragScope() === navScope ? navModalBody : null);
+  // Scroll-containeren for scopet: nav-modalens (og kokebokmenyens) kropp,
+  // ellers vinduet.
+  const anchorScroller = () => dragScope().scroller || null;
   function anchorScrollPos() {
     const s = anchorScroller();
     return s ? s.scrollTop : window.scrollY;
@@ -5399,7 +5428,7 @@
   function dragTrashBtn() {
     if (!drag.active) return null;
     const S = dragScope();
-    // Oppskriftsscopene svarer selv: ÉN kasse per flate (docs/oppskrifter.md).
+    // Oppskriftsscopene svarer selv (docs/oppskrifter.md, «Søppelkassene»).
     if (S.trashBtn) return S.trashBtn(drag.kind);
     if (drag.kind === 'card') {
       if (S === navScope) return uniTrashBtn;
@@ -5617,8 +5646,12 @@
      nytt hver runde, og også om VERTEN: en container kan bli låst MENS draget
      pågår. Se de tre trinnene i `retargetDragTrash`. */
   function retargetDragTrash() {
-    if ((!drag.trashArmed && !drag.archiveArmed) || drag.kind !== 'item') return;
+    // Et kategori-drag har bare en kasse der scopet gir det én (kapitlene i
+    // kokebokmenyen); ellers er ingenting armet, og vi går tilbake her.
+    if ((!drag.trashArmed && !drag.archiveArmed) || drag.kind === 'card') return;
     const S = dragScope();
+    // En flate med ÉN fast kasse (`S.fixedTrash`) har ingen vert å bytte.
+    if (S.fixedTrash) return;
     // Avviser containeren raden (låst, virtuell, uten opprettelsesrett)? Samme
     // svar slippet ville gitt — `*RejectTarget` er autoriteten, her og der.
     const nekter = (el) => !el || !el.isConnected || S.refusesRow(el.dataset.id);
@@ -5678,7 +5711,7 @@
      ferdig. En skjult knapp måler 0×0 og treffes ikke. */
   function refreshTrashZones() {
     const S = dragScope();
-    const b = S === navScope ? navRowBoard
+    const b = S.rowBoard ? S.rowBoard
       : S === notesNavScope ? notesNavRowBoard
         : S === notesScope ? notesCardBoard : boardRowBoard;
     const reg = b && b.manager && b.manager.registry;
@@ -6508,7 +6541,7 @@
      operasjonen avsluttes (`AuthoritativeDrop`), mens vår egen mellomlagring er
      satt av siste `dragmove` — og den kan være koalescert bort i en rask gest. */
   function dropReleasedOnTrash(b) {
-    if (!drag.trashArmed || drag.kind !== 'item') return false;
+    if (!drag.trashArmed || drag.kind === 'card') return false;
     const at = b && b.manager.dragOperation.position;
     const pt = at && at.current;
     if (!pt) return false;
@@ -7082,7 +7115,7 @@
   // `withContainer` skiller de to board-ene: kolonnen har ikke noe navn verdt å
   // nevne, mens en mappe ligger i et område eller en mappekategori — og DA
   // betyr navnet noe.
-  function navPhrases(withContainer) {
+  function navPhrases(withContainer, containerName = navContainerName) {
     return {
       pickedUp: (name, position) => tr('dnd.a11yPickedUp', { name: quoted(name), position }),
       moving: (name, position) => tr('dnd.a11yMoving', { name: quoted(name), position }),
@@ -7092,7 +7125,7 @@
       failed: (name) => tr('dnd.a11yFailed', { name: quoted(name) }),
       inContainer: (index, total, containerId) => (withContainer
         ? tr('dnd.a11yPositionIn',
-          { pos: index + 1, total, name: quoted(navContainerName(containerId)) })
+          { pos: index + 1, total, name: quoted(containerName(containerId)) })
         : tr('dnd.a11yPosition', { pos: index + 1, total })),
       // Alle sonene i nav-modalen er søppelkasser, så id-en trenger ikke navn.
       overZone: () => tr('dnd.a11yOverTrash'),
@@ -7418,7 +7451,7 @@
   // Radboardet scopet som drar hører til (tre scope, tre radboard).
   function activeRowBoard() {
     const S = dragScope();
-    return S === navScope ? navRowBoard : S === ideaScope ? ideaRowBoard : boardRowBoard;
+    return S.rowBoard || (S === ideaScope ? ideaRowBoard : boardRowBoard);
   }
   function dndRefreshRowAccepts() {
     const b = activeRowBoard();
@@ -7562,8 +7595,9 @@
     };
   }
   function navTuneColumnCollision() {
-    if (!navCardBoard) return;
-    for (const droppable of navCardBoard.manager.registry.droppables) {
+    const b = dragScope().cardBoard;
+    if (!b) return;
+    for (const droppable of b.manager.registry.droppables) {
       const el = droppable.element;
       if (el && el.classList && el.classList.contains('board-col') &&
           droppable.collisionDetector !== navColumnCollision) {
@@ -7590,14 +7624,21 @@
     if (next && next.previousElementSibling !== el) next.before(el);
   }
 
-  /* ------- Boardene ------- */
-  function ensureNavBoards() {
-    if (navCardBoard || typeof Smett === 'undefined' || !Smett.SortableBoard) return;
-    // Roten er HELE MODALEN, ikke bare kroppen: område-søppelkassen ligger i
-    // modalens egen fot, utenfor både `#nav-board` OG `#nav-modal-body` (se
-    // index.html), og en sone må ligge under board-ets rot for å bli registrert.
+  /* ------- Boardene -------
+     Bygget av ÉN fabrikk, som kokebokmenyen deler (`recipesNavScope`): et scope
+     med samme oppbygning — kort i én kolonne, rader og kategorier i kortene —
+     får nøyaktig de samme to board-ene og de samme krokene. Det som er scopets
+     eget, er hvor det bor (modalen og selektor-prefikset), sonene og hva et
+     slipp BETYR (`commitCard`/`commitRow`). */
+  // Rad-boardets slag: en kategori er `groupcat`, alt annet en rad (`group`).
+  // Kokebokmenyen deler slagene — et kapittel ER en mappekategori der.
+  const navRowType = (el) => (el.classList.contains('category') ? 'groupcat' : 'group');
+  function buildNavBoards(S, o) {
+    // Roten er HELE MODALEN, ikke bare kroppen: kassen for kortnivået ligger i
+    // modalens egen fot, utenfor både board-et OG kroppen (se index.html), og
+    // en sone må ligge under board-ets rot for å bli registrert.
     const shared = {
-      root: navModal,
+      root: S.modal,
       idAttribute: 'data-id',
       axis: 'vertical',
       // Tastaturet er Huskis' eget (`attachKeyHandle`: F2, Alt+piler, «Flytt
@@ -7606,38 +7647,49 @@
       // en mapperad allerede betyr kollaps og naviger.
       keyboard: false,
       safeInsets: safeInsets,
-      onError: (err) => { if (window.console) console.error('[huskis] nav-dnd', err); },
+      describeItem: o.describe,
+      onZoneDrop: navZoneDrop,
+      onDropTarget: navDropTarget,
+      onError: (err) => { if (window.console) console.error('[huskis] ' + S.key + '-dnd', err); },
     };
-    navCardBoard = new Smett.SortableBoard(Object.assign({}, shared, {
+    const card = new Smett.SortableBoard(Object.assign({}, shared, {
       itemSelector: '.card',
       containerSelector: '.board-col',
       handleSelector: '.card-head',
-      zoneSelector: '#uni-trash-btn',
-      describeItem: navLabel,
-      phrases: navPhrases(false),
-      onCommit: navCommitCard,
-      onZoneDrop: navZoneDrop,
-      onDropTarget: navDropTarget,
+      zoneSelector: o.cardZone,
+      phrases: o.phrases(false),
+      onCommit: o.commitCard,
     }));
-    navRowBoard = new Smett.SortableBoard(Object.assign({}, shared, {
+    const row = new Smett.SortableBoard(Object.assign({}, shared, {
       itemSelector: '.item, .category',
       containerSelector: '.items-container, .cat-items',
-      // Mapperaden er sin egen dra-sone (hele raden), mappekategorien bare
-      // overskriften: hylla under er der medlemmene ligger, og et trykk der skal
-      // ikke løfte kategorien.
+      // Raden er sin egen dra-sone (hele raden), kategorien bare overskriften:
+      // hylla under er der medlemmene ligger, og et trykk der skal ikke løfte
+      // kategorien.
       handleSelector: '.cat-head, .item',
-      zoneSelector: '.group-trash-btn',
-      itemType: (el) => (el.classList.contains('category') ? 'groupcat' : 'group'),
+      zoneSelector: o.rowZone,
+      itemType: navRowType,
       containerAccept: navRowAccept,
-      describeItem: navLabel,
-      phrases: navPhrases(true),
-      onCommit: navCommitRow,
-      onZoneDrop: navZoneDrop,
-      onDropTarget: navDropTarget,
+      phrases: o.phrases(true),
+      onCommit: o.commitRow,
     }));
-    navWire(navCardBoard);
-    navWire(navRowBoard);
+    navWire(card, S);
+    navWire(row, S);
     dndInstallClickGuard();
+    return { card, row };
+  }
+  function ensureNavBoards() {
+    if (navCardBoard || typeof Smett === 'undefined' || !Smett.SortableBoard) return;
+    const b = buildNavBoards(navScope, {
+      cardZone: '#uni-trash-btn',
+      rowZone: '.group-trash-btn',
+      describe: navLabel,
+      phrases: navPhrases,
+      commitCard: navCommitCard,
+      commitRow: navCommitRow,
+    });
+    navCardBoard = b.card;
+    navRowBoard = b.row;
   }
 
   /* ------- Klikket etter draget (DELT av begge dnd-kit-scopene) -------
@@ -7665,7 +7717,7 @@
     document.addEventListener('pointerdown', () => { dndSwallowClick = false; }, true);
   }
 
-  function navWire(board) {
+  function navWire(board, S) {
     dndTuneManager(board);
     const monitor = board.manager.monitor;
     // `beforedragstart` er den ENESTE kroken som kjører før dnd-kit måler det
@@ -7673,7 +7725,7 @@
     // `intentRectangle` regner ut fra). Alt som endrer objektets størrelse ved
     // løft — kollapsen av alle områdekort, kategoriens sammenfolding — må
     // derfor skje der, ikke i `dragstart`.
-    monitor.addEventListener('beforedragstart', () => navDragBegin(board));
+    monitor.addEventListener('beforedragstart', () => navDragBegin(board, S));
     monitor.addEventListener('dragstart', () => navDragStart(board));
     monitor.addEventListener('dragmove', () => navDragMove(board));
     monitor.addEventListener('dragover', () => navDragOver(board));
@@ -7712,12 +7764,12 @@
     return el instanceof HTMLElement ? el : null;
   }
 
-  function navDragBegin(board) {
+  function navDragBegin(board, S) {
     const el = navSource(board);
     if (!el) return;
     const kind = el.classList.contains('card') ? 'card'
       : el.classList.contains('category') ? 'category' : 'item';
-    drag.scope = navScope;
+    drag.scope = S;
     drag.kind = kind;
     drag.el = el;
     drag.active = true;
@@ -7748,7 +7800,7 @@
       navTuneColumnCollision();
     } else {
       if (kind === 'category') dndCollapseCategory(el);
-      dndTuneRowCollisions(navRowBoard);
+      dndTuneRowCollisions(S.rowBoard);
     }
     armDragTrash();             // kassen for NIVÅET, avdekket for draget
     navHoldGrab(el, top0);
@@ -7920,12 +7972,14 @@
   function navScrollAfterDrop() {
     const id = navDroppedCardId;
     navDroppedCardId = null;
-    if (!id || !navModalBody) return;
-    dndAfterCloneGone(navBoard, () => {
+    const S = dragScope();
+    const root = S.root, body = S.scroller;
+    if (!id || !root || !body) return;
+    dndAfterCloneGone(root, () => {
       // ÉN frame til: klonen ble nettopp fjernet, og både kortets egen boks og
       // modalkroppens scrollhøyde er først ferdige etter den layout-runden.
       requestAnimationFrame(() => {
-        scrollDroppedIntoView(navBoard.querySelector('.card[data-id="' + id + '"]'), navModalBody);
+        scrollDroppedIntoView(root.querySelector('.card[data-id="' + id + '"]'), body);
       });
     });
   }
@@ -7946,13 +8000,15 @@
      kompensasjonen ligger i `navHoldGrab` — den måles etter ALT som flytter
      layouten ved løft, ikke bare etter kollapsen. `card.collapsed` er urørt, så
      `restoreCardsAfterDrag()` folder alt tilbake til lagret tilstand. */
-  let navBoardFrozen = false;
+  // Board-et som er frosset (nav-modalens eller kokebokmenyens), eller null.
+  let navBoardFrozen = null;
   function navCollapseCardsForDrag(draggedEl) {
-    const before = navBoard.getBoundingClientRect().height;
+    const root = dragScope().root;
+    const before = root.getBoundingClientRect().height;
     draggedEl.style.height = '';
-    navBoard.style.height = before + 'px';
-    navBoardFrozen = true;
-    navBoard.querySelectorAll('.card').forEach((cEl) => {
+    root.style.height = before + 'px';
+    navBoardFrozen = root;
+    root.querySelectorAll('.card').forEach((cEl) => {
       if (!cEl.classList.contains('collapsed')) collapseCardBody(cEl);
     });
   }
@@ -7969,6 +8025,7 @@
      For et KORTDRAG er board-høyden frosset og board-et `box-sizing: border-box`,
      så padding-en spiser av innholdet uten å gjøre modalen høyere igjen. */
   function navHoldGrab(el, top0) {
+    const root = dragScope().root;
     // Tre runder, ikke én: for et RADDRAG er board-høyden ikke frosset, så
     // padding-en gjør board-et høyere — og en sentrert modal gir da halvparten
     // av skiftet tilbake. Hver runde måler på nytt og lukker det som står igjen;
@@ -7978,15 +8035,16 @@
       // Bare NEDOVER: et negativt skift ville dratt objektet vekk fra fingeren
       // den andre veien.
       if (shift <= 0.5) return;
-      const pad = parseFloat(getComputedStyle(navBoard).paddingTop) || 0;
-      navBoard.style.paddingTop = (pad + shift) + 'px';
+      const pad = parseFloat(getComputedStyle(root).paddingTop) || 0;
+      root.style.paddingTop = (pad + shift) + 'px';
     }
   }
   function navReleaseBoard() {
-    if (!navBoardFrozen) return;
-    navBoardFrozen = false;
-    navBoard.style.height = '';
-    navBoard.style.paddingTop = '';
+    const root = navBoardFrozen;
+    if (!root) return;
+    navBoardFrozen = null;
+    root.style.height = '';
+    root.style.paddingTop = '';
   }
   // En mappekategori dras som en kompakt rad: hylla foldes sammen ved løft.
   // MOMENTANT, ikke over 300 ms som før — dnd-kit måler løftets boks ÉN gang, og
@@ -8038,7 +8096,7 @@
     // en `data-drag-revealed` som overlevde ville skjult en kasse som nå har
     // innhold.
     disarmDragTrash();
-    dropIntoTrash(navScope, drag.kind === 'card' ? 'card' : 'item', result.itemId);
+    dropIntoTrash(dragScope(), drag.kind === 'card' ? 'card' : 'item', result.itemId);
   }
 
   /* ------- Slippet: hva det BETYR ------- */
@@ -8055,16 +8113,18 @@
 
      Et kort i en FREMMED seksjon hoppes over, ikke stoppes ved: slipper man
      nedenfor alt, er svaret «sist i min egen seksjon» — ikke «ingen naboer». */
-  function navCardNeighbour(from, dir, rank) {
+  function dndCardNeighbour(S, from, dir, keep) {
     let n = from;
     while ((n = boardRowSibling(n, dir))) {
       if (!n.classList.contains('card')) continue;
-      const c = navScope.findContainer(n.dataset.id);
+      const c = S.findContainer(n.dataset.id);
       if (!c || c._virtual) continue;
-      if (sectionRank(c) === rank) return c;
+      if (keep(c)) return c;
     }
     return null;
   }
+  const navCardNeighbour = (from, dir, rank) =>
+    dndCardNeighbour(navScope, from, dir, (c) => sectionRank(c) === rank);
 
   // Områdene ordnes PERSONLIG: posisjonen ligger på min egen medlemskapsrad og
   // endrer aldri hva andre ser. Ny `pos` mellom naboene i leserekkefølge,
@@ -10296,7 +10356,7 @@
       [null].concat(liveChapters(b)).forEach((c) => {
         recipesIn(b.id, c ? c.id : null).forEach((n) => {
           const body = RECIPE.recipeText(n.recipe, recipeDec());
-          add('recipe', n, recipeTitle(n), [b.name, c ? c.name : tr('recipes.bookLevel')],
+          add('recipe', n, recipeTitle(n), c ? [b.name, c.name] : [b.name],
             { body, bodyNorm: searchNorm(body) });
         });
       });
@@ -17732,7 +17792,7 @@
     list.appendChild(buildNoteFreeRow(p));
     liveFolders(p).forEach((f) => list.appendChild(buildNoteFolderRow(f)));
     const addBtn = el.querySelector('.add-item-btn');
-    addBtn.querySelector('.add-kind-icon').innerHTML = ICONS.noteFolder;
+    paintAddKind(addBtn, ICONS.noteFolder);
     addBtn.hidden = !canAddNoteFolder(p);
     addBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
@@ -22524,8 +22584,14 @@
   const liveChapters = (b) => (b ? (b.folders || []).filter(noteVisible).sort(posCmp) : []);
   // Oppskriftene i ÉN plassering — samme regel som notatene (`leavesIn`).
   const recipesIn = (bookId, chapterId) => leavesIn(findRecipeBook(bookId), allRecipes(), chapterId);
-  const recipeCountInBook = (b) => liveChapters(b)
-    .reduce((sum, c) => sum + recipesIn(b.id, c.id).length, recipesIn(b.id, null).length);
+  // Bokens nivå 1: kapitlene og de frie oppskriftene om hverandre i pos-orden,
+  // som mappekategoriene og de ukategoriserte mappene i et område. Kapitler og
+  // frie oppskrifter deler altså posisjonsrommet.
+  const recipeLevel1 = (b) => (b ? liveChapters(b).concat(recipesIn(b.id, null)).sort(posCmp) : []);
+  // Alle oppskriftene en kokebok viser — det en sammenfoldet bok teller.
+  const recipesInBook = (b) => liveChapters(b)
+    .reduce((all, c) => all.concat(recipesIn(b.id, c.id)), recipesIn(b.id, null));
+  const recipeCountInBook = (b) => recipesInBook(b).length;
   const activeBookObj = () => findRecipeBook(state.activeBook);
   const activeChapterObj = () => (state.activeChapter ? findRecipeChapter(state.activeChapter) : null);
   const activeRecipes = () => recipesIn(state.activeBook, state.activeChapter);
@@ -22694,7 +22760,10 @@
     const b = activeBookObj();
     const c = activeChapterObj();
     crumbBookName.textContent = b ? b.name : tr('kind.recipeBook');
-    crumbChapterName.textContent = c ? c.name : tr('recipes.bookLevel');
+    // Rett i boken er stien bare boken — frie oppskrifter har ikke noe kapittel å nevne.
+    crumbChapterName.textContent = c ? c.name : '';
+    crumbChapterName.hidden = !c;
+    crumbChapterName.previousElementSibling.hidden = !c;
     if (addRecipeBtn) addRecipeBtn.disabled = !canAddNote(b, c);
   }
 
@@ -22732,7 +22801,7 @@
     const b = findRecipeBook(bookId);
     if (!canAddNoteFolder(b)) return null;
     const c = makeNoteFolder(tr('recipes.newChapter'), b.id, 'recipe');
-    c.pos = maxPos(b.folders) + 1;
+    c.pos = maxPos(recipeLevel1(b)) + 1;   // sist på nivå 1, som en ny mappekategori
     stampContent(c);
     stampPos(c);
     b.folders.push(c);
@@ -22749,7 +22818,7 @@
     const c = chapterId ? findRecipeChapter(chapterId) : null;
     if (!canAddNote(b, c)) return null;
     const n = makeNote(b.id, c ? c.id : null, 'recipe');
-    n.pos = maxPos(recipesIn(b.id, c ? c.id : null)) + 1;
+    n.pos = maxPos(c ? recipesIn(b.id, c.id) : recipeLevel1(b)) + 1;
     stampContent(n);
     stampPos(n);
     state.notes.push(n);
@@ -22761,13 +22830,14 @@
   /* ------------------------------------------------------------
      KOKEBOKMENYEN: hele treet i én modal
      ------------------------------------------------------------
-     Bygget av de samme klassene som listenes og notatenes nav-modal: hver
-     kokebok er et `.card` (farget etter posisjon, hodet er et trekkspill),
-     kapitlene er `.category`-rader i kortet — som kategoriene i en liste — og
-     oppskriftene er `.item`-rader, i et kapittel eller rett i boken. Den
-     grønne ＋-knappen lager en oppskrift, den gule et kapittel, nøyaktig som
-     den grønne og den gule knappen i en liste. */
+     Nav-modalen for lister, med oppskriftens navn: hver kokebok er et
+     områdekort (farget etter posisjon, hodet er et trekkspill), kapitlene er
+     mappekategorier og oppskriftene mapper. Frie oppskrifter står om hverandre
+     med kapitlene på bokens nivå 1, som ukategoriserte mapper i et område — det
+     finnes ingen egen «uten kapittel»-rad. Den grønne ＋-knappen lager en
+     oppskrift, den gule et kapittel. */
   const recipesNavModal = document.getElementById('recipes-nav-modal');
+  const recipesNavBody = document.getElementById('recipes-nav-body');
   const recipesNavBoard = document.getElementById('recipes-nav-board');
   const recipesNavCloseBtn = document.getElementById('recipes-nav-close');
   const recipeNavTrashBtn = document.getElementById('recipe-nav-trash-btn');
@@ -22831,23 +22901,20 @@
     return el;
   }
 
+  /* Kapittelet er en MAPPEKATEGORI: samme rad, samme oppførsel i draget, og
+     ikonet står i `.cat-drag-icon` — det vises når kapittelet er løftet, som
+     mappekategoriens. Et trykk på hodet viser kapittelet på flaten. */
   function buildRecipeChapter(b, c) {
     const el = fromTemplate(recipeChapterTpl);
     el.dataset.id = c.id;
-    el.querySelector('.cat-drag-icon').innerHTML = ICONS.grip;
-    el.querySelector('.chapter-icon').innerHTML = ICONS.chapter;
+    el.querySelector('.cat-drag-icon').innerHTML = ICONS.chapter;
     const title = el.querySelector('.cat-title');
     title.textContent = c.name;
-    const recipes = recipesIn(b.id, c.id);
-    el.querySelector('.chapter-count').textContent = '(' + recipes.length + ')';
     applyShareBadge(el, c);
     const canEdit = canEditNoteObj(c);
     const rename = canEdit ? recipeRenamer('recipeChapter', c.id, title) : null;
     if (rename) title.addEventListener('click', (ev) => { ev.stopPropagation(); rename(); });
     const head = el.querySelector('.cat-head');
-    /* Et trykk på kapittelhodet viser kapittelet på flaten — som en mappe i
-       nav-modalen. Kapitlene har ingen egen lukketilstand: innholdet er
-       oppskriftsrader, og de skal sees. */
     head.setAttribute('role', 'button');
     head.addEventListener('click', (ev) => {
       if (ev.target.closest('.obj-menu-btn, .edit-input, .cat-title')) return;
@@ -22865,41 +22932,17 @@
     attachObjMenu(menu, recipeObjMenuSpec('recipeChapter', c.id, rename));
     labelBtn(menu, tr('label.menuRecipeChapter', { name: quoted(c.name) }));
     const list = el.querySelector('.cat-items');
-    list.dataset.dndContainer = 'ch:' + c.id;
+    list.dataset.dndContainer = c.id;   // nivå-2-containeren i rad-boardet
     const addLi = list.querySelector('.cat-add');
-    recipes.forEach((n) => list.insertBefore(buildRecipeRow(n), addLi));
-    const addBtn = el.querySelector('.cat-add-btn');
-    addBtn.hidden = !canAddNote(b, c);
+    // ＋-raden er ingen oppskrift, og et trykk på den skal ikke løfte kapittelet.
+    addLi.dataset.dndIgnore = '';
+    recipesIn(b.id, c.id).forEach((n) => list.insertBefore(buildRecipeRow(n), addLi));
+    addLi.hidden = !canAddNote(b, c);
+    const addBtn = addLi.querySelector('.cat-add-btn');
+    paintAddKind(addBtn, ICONS.recipe);
     labelBtn(addBtn, tr('recipes.addRecipeInChapter', { name: quoted(c.name) }));
     addBtn.addEventListener('click', (ev) => { ev.stopPropagation(); addRecipe(b.id, c.id); });
     return el;
-  }
-
-  /* Bokens EGEN plass på flaten — oppskriftene uten kapittel. Ingen rad i
-     modellen: den står utenfor dra-containerne og navigerer bare. */
-  function buildRecipeLevelRow(b) {
-    const el = fromTemplate(recipeRowTpl);
-    el.classList.add('note-free-row', 'recipe-level-row');
-    el.dataset.dndIgnore = '';
-    el.querySelector('.recipe-row-icon').innerHTML = ICONS.cookbook;
-    el.querySelector('.item-text').textContent = tr('recipes.bookLevel');
-    const count = document.createElement('span');
-    count.className = 'collapse-count';
-    count.setAttribute('aria-hidden', 'true');
-    count.textContent = '(' + recipesIn(b.id, null).length + ')';
-    el.querySelector('.title-line').appendChild(count);
-    el.querySelector('.obj-menu-btn').hidden = true;
-    el.addEventListener('click', () => showRecipePlace(b.id, null));
-    el.addEventListener('keydown', (ev) => {
-      if (ev.key !== 'Enter' && ev.key !== ' ') return;
-      ev.preventDefault();
-      el.click();
-    });
-    el.classList.toggle('is-active', state.activeBook === b.id && !state.activeChapter);
-    const ul = document.createElement('ul');
-    ul.className = 'items-container recipe-level';
-    ul.appendChild(el);
-    return ul;
   }
 
   function buildRecipeBookCard(b) {
@@ -22931,21 +22974,23 @@
     });
     if (isShared) head.dataset.dndIgnore = '';
     else attachKeyHandle(head, 'recipeBook', () => b.id, { rename });
-    const body = el.querySelector('.card-body');
-    body.insertBefore(buildRecipeLevelRow(b), body.firstChild);
-    const chapters = el.querySelector('.recipe-chapters');
-    chapters.dataset.dndContainer = 'chs:' + b.id;
-    liveChapters(b).forEach((c) => chapters.appendChild(buildRecipeChapter(b, c)));
-    const free = el.querySelector('.recipe-free');
-    free.dataset.dndContainer = 'free:' + b.id;
-    recipesIn(b.id, null).forEach((n) => free.appendChild(buildRecipeRow(n)));
+    // Nivå 1: kapitler og frie oppskrifter om hverandre, i én container —
+    // som mappekategoriene og de ukategoriserte mappene i et område.
+    const list = el.querySelector('.items-container');
+    list.dataset.dndContainer = b.id;   // nivå-1-containeren i rad-boardet
+    const chapters = new Set(liveChapters(b));
+    recipeLevel1(b).forEach((o) => list.appendChild(chapters.has(o) ? buildRecipeChapter(b, o) : buildRecipeRow(o)));
     const addBtn = el.querySelector('.add-item-btn');
     addBtn.hidden = !canAddNote(b, null);
+    paintAddKind(addBtn, ICONS.recipe);
     addBtn.addEventListener('click', (ev) => { ev.stopPropagation(); addRecipe(b.id, null); });
     const catBtn = el.querySelector('.add-cat-btn');
     catBtn.hidden = !canAddNoteFolder(b);
+    paintAddKind(catBtn, ICONS.chapter);
     catBtn.addEventListener('click', (ev) => { ev.stopPropagation(); addRecipeChapter(b.id); });
     el.querySelector('.add-item-row').hidden = addBtn.hidden && catBtn.hidden;
+    // Den virtuelle boken er ingen ekte forelder og har ingen kasse.
+    if (!isShared) el.querySelector('.card-body').appendChild(buildRecipeBookTrash(b));
     const menu = el.querySelector('.obj-menu-btn');
     if (isShared) menu.hidden = true;
     else {
@@ -23014,7 +23059,7 @@
     if (!(opts && opts.keepFocus) && recipesCrumbBtn) recipesCrumbBtn.focus();
   }
   // Vis en plassering på flaten og lukk menyen — det et trykk på et kapittel
-  // eller på «Uten kapittel» betyr.
+  // betyr.
   function showRecipePlace(bookId, chapterId) {
     if (activeMainTab !== 'recipes') setMainTab('recipes');
     setRecipePlace(bookId, chapterId);
@@ -23033,8 +23078,9 @@
        `recipeEditScope` linjene og underinndelingene i redigeringen.
 
      Hvert scope svarer selv på hvilken kasse et drag sikter mot og hva et
-     slipp i den betyr (`trashBtn`/`canTrash`/`dropTrash`) — én kasse per
-     flate, for alle nivåene i den. Resten av limkoden er den delte. */
+     slipp i den betyr (`trashBtn`/`canTrash`/`dropTrash`): flaten har én fast
+     kasse, kokebokmenyen områdenes — bøkene i foten, resten i boken sin.
+     Resten av limkoden er den delte. */
   const recipeCanDelete = (o) => !!o && !o._virtual && cap(o, 'delete', !frozen(o));
   const recipesScope = {
     key: 'recipes',
@@ -23047,50 +23093,68 @@
     findRow: (id) => findRecipe(id),
     rowsOf: () => activeRecipes(),
     countIcon: null,
+    // Én kasse for flaten, og den står der den står (`retargetDragTrash`).
+    fixedTrash: true,
     trashBtn: () => recipeTrashBtn,
     canTrash: (kind, id) => recipeCanDelete(findRecipe(id)),
     dropTrash: (kind, id) => { deleteRecipeObject('recipe', id); keepTrashInView(recipeTrashBtn); },
   };
+  /* Kokebokmenyen er nav-modalens scope med oppskriftens navn: bøkene er
+     områdekort, kapitlene mappekategorier og oppskriftene mapper. Draget kjøres
+     av NØYAKTIG det samme maskineriet (`buildNavBoards` og krokene i
+     «NAV-SCOPET PÅ dnd-kit»), som leser modalen, rullefeltet og board-ene
+     herfra. Det som er eget, er hva et slipp betyr (`recipesNavCommit*`). */
   const recipesNavScope = {
     key: 'recipesNav',
     contKind: 'recipeBook', rowKind: 'recipe',
     contSelector: '.recipe-book-card',
     get root() { return recipesNavBoard; },
+    get modal() { return recipesNavModal; },
+    get scroller() { return recipesNavBody; },
+    get cardBoard() { return recipesNavCardBoard; },
+    get rowBoard() { return recipesNavRowBoard; },
     singleColumn: true,
     containers: () => visibleRecipeBooks(),
     findContainer: (id) => findRecipeBook(id),
     findRow: (id) => findRecipe(id) || findRecipeChapter(id),
-    // Det en sammenfoldet kokebok teller: alle oppskriftene i den.
-    rowsOf: (b) => allRecipes().filter((n) => noteVisible(n) && n.project === b.id),
+    // Det en sammenfoldet kokebok teller: alle oppskriftene den viser.
+    rowsOf: (b) => recipesInBook(b),
     countIcon: ICONS.recipe,
-    trashBtn: () => recipeNavTrashBtn,
+    // Et kapittel eller en oppskrift dratt ut av alle bøkene blir ingen ny bok.
+    canExtract: () => false,
+    reindexColors: () => reindexContainerColors(recipesNavScope),
+    afterDrop: () => { updateRecipesCrumbs(); renderRecipes(); },
+    // Kassene følger områdenes: bøkene i foten, kapitlene og oppskriftene i
+    // boken de svever over (`retargetDragTrash` flytter verten).
+    trashBtn: (kind) => {
+      if (kind === 'card') return recipeNavTrashBtn;
+      const host = drag.trashHost;
+      return host && host.isConnected ? host.querySelector('.recipe-row-trash-btn') : null;
+    },
+    // Kassen flytter bare inn i en bok raden også kunne landet i.
+    refusesRow: (bookId) => bookId !== navSourceCardId
+      && !!recipeRejectTarget(findRecipeBook(bookId), drag.kind === 'category' ? undefined : null),
     canTrash: (kind, id) => recipeCanDelete(RECIPE_KINDS[recipeKindOf(id)] ? RECIPE_KINDS[recipeKindOf(id)].find(id) : null),
     dropTrash: (kind, id) => {
       const k = recipeKindOf(id);
-      if (k) deleteRecipeObject(k, id);
-      keepTrashInView(recipeNavTrashBtn);
+      const o = k && RECIPE_KINDS[k].find(id);
+      if (!o) return;
+      deleteRecipeObject(k, id);
+      keepTrashInView(k === 'recipeBook' ? recipeNavTrashBtn : recipeBookTrashBtn(o.project));
     },
   };
   const recipeEditScope = {
     key: 'recipeEdit',
     singleColumn: true,
+    // Linjene dras bare opp og ned, og raden står i ro sidelengs (`dndLockAxis`).
+    strictAxis: true,
+    fixedTrash: true,
     get root() { return recipeSheet; },
     trashBtn: () => null,
     canTrash: () => false,
     dropTrash: () => {},
   };
 
-  // Fra en forelder-scope-agnostisk «hent meg»-oppslag til en pos fra DOM-naboene.
-  function recipeSiblingPos(el, sel, find) {
-    const step = (dir) => {
-      let n = el;
-      do { n = dir < 0 ? n.previousElementSibling : n.nextElementSibling; }
-      while (n && (!n.matches(sel) || n.hasAttribute('data-dnd-placeholder')));
-      const o = n ? find(n.dataset.id) : null;
-      return o ? o.pos : null;
-    };
-    return between(step(-1), step(1));
-  }
   function recipeDragBegin(b, S, kind) {
     const el = boardSource(b);
     if (!el) return null;
@@ -23208,78 +23272,47 @@
     relayoutBoardNow(recipesScope);
   }
 
-  /* ---- Board 2 og 3: bøkene og radene i kokebokmenyen ---- */
+  /* ---- Board 2 og 3: bøkene og radene i kokebokmenyen ----
+     Nav-modalens to board, fra den samme fabrikken. */
   let recipesNavCardBoard = null, recipesNavRowBoard = null;
   function ensureRecipesNavBoards() {
     if (recipesNavCardBoard || !recipesNavModal || typeof Smett === 'undefined' || !Smett.SortableBoard) return;
-    const shared = {
-      root: recipesNavModal,
-      idAttribute: 'data-id',
-      axis: 'vertical',
-      keyboard: false,
-      safeInsets: safeInsets,
-      zoneSelector: '#recipe-nav-trash-btn',
-      describeItem: recipeDescribe,
-      phrases: notesPhrases(),
-      onZoneDrop: (result) => notesCanDrop(recipesNavScope, result),
-      onDropTarget: notesCanTarget,
-      onError: (err) => { if (window.console) console.error('[huskis] recipes-nav-dnd', err); },
-    };
-    recipesNavCardBoard = new Smett.SortableBoard(Object.assign({}, shared, {
-      itemSelector: '#recipes-nav-board .recipe-book-card',
-      containerSelector: '#recipes-nav-board .board-col',
-      handleSelector: '.card-head',
-      onCommit: recipesNavCommitBook,
-    }));
-    /* Kapitlene og oppskriftene deler ETT board, fordi et kapittel er en rad
-       som selv er en container (som en kategori i en liste). TYPEN avgjør
-       hvor noe kan lande, allerede mens det dras: et kapittel bare blant
-       kapitlene i en bok, en oppskrift bare i et kapittel eller blant bokens
-       egne oppskrifter. */
-    recipesNavRowBoard = new Smett.SortableBoard(Object.assign({}, shared, {
-      itemSelector: '#recipes-nav-board .recipe-row:not(.recipe-level-row), #recipes-nav-board .recipe-chapter',
-      containerSelector: '#recipes-nav-board .recipe-chapters, #recipes-nav-board .recipe-free,' +
-        ' #recipes-nav-board .recipe-chapter .cat-items',
-      handleSelector: '.recipe-row, .recipe-chapter > .cat-head',
-      itemType: (el) => (el.classList.contains('recipe-chapter') ? 'recipeChapter' : 'recipe'),
-      containerAccept: (c) => [c.classList.contains('recipe-chapters') ? 'recipeChapter' : 'recipe'],
-      onCommit: recipesNavCommitRow,
-    }));
-    const begin = (kind) => (b) => {
-      const el = recipeDragBegin(b, recipesNavScope, kind);
-      if (!el) return;
-      dndCompactLift(el, b);
-      dndNoteLiftedBox(el);
-      dndLockAxis(b);
-      armDragTrash();
-    };
-    const end = (event) => {
-      if (!recipeDragEnd(event)) return;
-      // Tellerne og markeringene i menyen følger etter når klonen er borte.
-      dndAfterCloneGone(recipesNavBoard, () => { refreshRecipesNav(); renderRecipes(); });
-    };
-    recipeWire(recipesNavCardBoard, begin('card'), end);
-    recipeWire(recipesNavRowBoard, begin('item'), end);
-    dndInstallClickGuard();
+    const b = buildNavBoards(recipesNavScope, {
+      cardZone: '#recipe-nav-trash-btn',
+      rowZone: '.recipe-row-trash-btn',
+      describe: recipeDescribe,
+      // Kokeboken eller kapittelet raden står i, med navn.
+      phrases: (withContainer) => navPhrases(withContainer, (id) => {
+        const o = findRecipeBook(id) || findRecipeChapter(id);
+        return o ? o.name : id;
+      }),
+      commitCard: recipesNavCommitBook,
+      commitRow: recipesNavCommitRow,
+    });
+    recipesNavCardBoard = b.card;
+    recipesNavRowBoard = b.row;
   }
   function recipesNavSyncBoards() {
-    if (drag.active && dragScope() === recipesNavScope) return;
+    if (drag.active && dragScope() === recipesNavScope) { noteSyncOwed(); return; }
     if (recipesNavCardBoard) recipesNavCardBoard.sync();
     if (recipesNavRowBoard) recipesNavRowBoard.sync();
   }
+  // Bøkenes rekkefølge er PERSONLIG, som områdenes (`navCommitCard`).
   function recipesNavCommitBook() {
     const el = drag.el;
     if (!el || !el.isConnected) return;
+    navSettleCardInColumn(el);
     const b = findRecipeBook(el.dataset.id);
-    if (!b) return;
-    // Bøkenes rekkefølge er PERSONLIG, som områdenes og bokhyllenes.
-    commitPos(b, 'recipeBook', recipeSiblingPos(el, '.recipe-book-card', findRecipeBook));
-    visibleRecipeBooks().filter((x) => !x._virtual).forEach((x, i) => {
-      x.color = colorForIndex(i);
-      const card = recipesNavBoard.querySelector('.recipe-book-card[data-id="' + x.id + '"]');
-      if (card) paintCardColor(card, x.color);
-    });
+    if (b) {
+      const pos = (dir) => (dndCardNeighbour(recipesNavScope, el, dir, () => true) || {}).pos;
+      const pPrev = pos(-1), pNext = pos(1);
+      commitPos(b, 'recipeBook', between(pPrev == null ? null : pPrev, pNext == null ? null : pNext));
+    }
+    recipesNavScope.reindexColors();
     save();
+    restoreCardsAfterDrag();
+    navReleaseBoard();
+    navDroppedCardId = el.dataset.id;
   }
   /* Kan dette slippes HER? Samme svar som knappene og serveren: opprettelses-
      rett i målet, og aldri i den virtuelle «delt med meg»-kokeboken. */
@@ -23288,35 +23321,45 @@
     if (chapter === undefined) return canAddNoteFolder(book) ? null : tr('recipes.dropNoRight');
     return canAddNote(book, chapter) ? null : tr('recipes.dropNoRight');
   }
-  /* Et kapittel eller en oppskrift får ny plass. Står det i den samme
+  /* Et kapittel eller en oppskrift får ny plass — `navCommitRow` og
+     `navCommitCategory` med oppskriftens modell. Står det i den samme
      forelderen, er det en omrokkering (`commitPos`, personlig der den skal
      være det). Ellers er det en EKTE flytting: begge overstyringene fra «delt
      med meg» faller bort, og den nye plasseringen stemples. */
   function recipesNavCommitRow() {
-    const el = drag.el;
-    if (!el || !el.isConnected) return;
-    const cardEl = el.closest('.recipe-book-card');
-    const book = cardEl ? findRecipeBook(cardEl.dataset.id) : null;
-    const isChapter = el.classList.contains('recipe-chapter');
-    const chEl = isChapter ? null : el.parentElement.closest('.recipe-chapter');
-    const chapter = chEl ? findRecipeChapter(chEl.dataset.id) : null;
-    const obj = isChapter ? findRecipeChapter(el.dataset.id) : findRecipe(el.dataset.id);
-    if (!obj || !book) return;
-    const np = isChapter
-      ? recipeSiblingPos(el, '.recipe-chapter', findRecipeChapter)
-      : recipeSiblingPos(el, '.recipe-row', findRecipe);
-    const same = obj.project === book.id && (isChapter || (obj.folder || null) === (chapter ? chapter.id : null));
-    if (same) {
-      commitPos(obj, isChapter ? 'recipeChapter' : 'recipe', np);
-      save();
+    // Kassens treffsone sletter, også i ringen rundt knappen (`navCommitRow`).
+    if (dropReleasedOnTrash(recipesNavRowBoard)) {
+      const trashedId = drag.el && drag.el.dataset.id;
+      restoreDraggedToOrigin();
+      disarmDragTrash();
+      if (trashedId) dropIntoTrash(recipesNavScope, 'item', trashedId);
       return;
     }
+    const el = drag.el;
+    if (!el || !el.isConnected) return;
+    dndLandInPeekTarget();
+    const cardEl = el.closest('.card');
+    const book = cardEl ? findRecipeBook(cardEl.dataset.id) : null;
+    const isChapter = drag.kind === 'category';
+    const chEl = isChapter ? null : el.parentElement.closest('.category');
+    const chapter = chEl ? findRecipeChapter(chEl.dataset.id) : null;
+    const kind = isChapter ? 'recipeChapter' : 'recipe';
+    const obj = RECIPE_KINDS[kind].find(el.dataset.id);
+    if (!obj || !book) return;
+    const same = obj.project === book.id && (isChapter || (obj.folder || null) === (chapter ? chapter.id : null));
     // Et slipp serveren ville avvist skal ikke skje: si fra og kast, så ruller
     // Smett rekkefølgen tilbake til der draget startet.
-    const reason = recipeRejectTarget(book, isChapter ? undefined : chapter);
+    const reason = same ? null : recipeRejectTarget(book, isChapter ? undefined : chapter);
     if (reason) { showToast(reason); throw new Error(reason); }
-    placeRecipeObj(isChapter ? 'recipeChapter' : 'recipe', obj, book, chapter, np);
+    clearAllDragSeparators();
+    resolvePeekOnDrop(cardEl, chEl);
+    dndKeepCatAddLast();
+    const np = between(rowPos(dndRowSibling(el, -1)), rowPos(dndRowSibling(el, 1)));
+    if (same) commitPos(obj, kind, np);
+    else placeRecipeObj(kind, obj, book, chapter, np);
+    refreshAllCollapseCounts();
     save();
+    recipesNavScope.afterDrop();
   }
   /* Selve flyttingen — delt av draget og «Flytt til …». Et kapittel som
      flytter til en annen kokebok tar oppskriftene sine med (de peker på
@@ -23356,15 +23399,19 @@
      ------------------------------------------------------------
      Huskis' etablerte modell (docs/trash.md): optimistisk sletting med
      angre-toast, gjenoppretting fra kassen, og gravstein først når kassen
-     tømmes. Oppskriftsfanen har ÉN kasse for alle tre nivåene — den står i
-     foten på flaten og i foten på kokebokmenyen, og viser det samme.
+     tømmes. Kassene er UTSNITT av den samme kassen: foten på flaten viser alle
+     tre nivåene, mens kokebokmenyen har én kasse per nivå, som områdene —
+     bøkene i foten, kapitlene og oppskriftene i boken sin (`recipeTrashIn`).
 
      HIERARKIET ARVES IKKE SOM FLAGG. Legges en kokebok eller et kapittel i
      kassen, forsvinner innholdet MED den og kommer tilbake med den. Kassen
      viser derfor bare det som kan komme tilbake til en synlig plass: en
      oppskrift hvis bok og kapittel står der, et kapittel hvis bok står der.
      Først TØMMINGEN er rekursiv — da tas hele undertreet. */
-  function trashedRecipeRows() {
+  const recipeTrashAll = () => true;
+  const recipeTrashBooks = (r) => r.kind === 'recipeBook';
+  const recipeTrashIn = (bookId) => (r) => r.kind !== 'recipeBook' && r.obj.project === bookId;
+  function trashedRecipeRows(keep = recipeTrashAll) {
     const out = [];
     recipeBooks().filter((b) => !b._virtual).forEach((b) => {
       if (!live(b)) { out.push({ kind: 'recipeBook', obj: b }); return; }
@@ -23376,13 +23423,55 @@
       const c = n.folder ? findRecipeChapter(n.folder) : null;
       if (b && live(b) && (!c || live(c))) out.push({ kind: 'recipe', obj: n });
     });
-    return out;
+    return out.filter(keep);
   }
+  // Det kassen trykk og hold-og-sveip arbeider på — ett utsnitt av kassen.
+  const recipeTrashApi = (keep, title) => ({
+    count: () => trashedRecipeRows(keep).length,
+    open: () => openRecipeTrash(keep, title()),
+    empty: () => emptyRecipeTrash(keep),
+  });
+  // Bokens egen kasse i kokebokmenyen. Bygges ALLTID (skjult når tom), så et
+  // drag kan vise den fram som slippmål — som mappekassen i et område.
+  function buildRecipeBookTrash(b) {
+    const wrap = document.createElement('div');
+    wrap.className = 'item-trash';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'trashcan recipe-row-trash-btn';
+    btn.dataset.dndZone = 'recipe-row-trash:' + b.id;
+    btn.title = tr('recipes.trashInBtnTitle');
+    const ic = document.createElement('span');
+    ic.className = 'trashcan-icon';
+    ic.setAttribute('aria-hidden', 'true');
+    ic.innerHTML = ICONS.trash;
+    const cnt = document.createElement('span');
+    cnt.className = 'trashcan-count';
+    btn.append(ic, cnt);
+    attachTrashHold(btn, recipeTrashApi(recipeTrashIn(b.id),
+      () => tr('recipes.trashIn', { name: quoted((findRecipeBook(b.id) || b).name) })));
+    wrap.appendChild(btn);
+    paintRecipeBookTrash(btn, b);
+    return wrap;
+  }
+  function paintRecipeBookTrash(btn, b) {
+    const n = trashedRecipeRows(recipeTrashIn(b.id)).length;
+    paintCan(btn, btn.closest('.item-trash') || btn.parentElement,
+      n, tr('recipes.trashInCount', { count: n, name: quoted(b.name) }));
+  }
+  const recipeBookTrashBtn = (bookId) => recipesNavBoard
+    && recipesNavBoard.querySelector('.recipe-book-card[data-id="' + bookId + '"] .recipe-row-trash-btn');
   function paintRecipeTrash() {
     const n = trashedRecipeRows().length;
-    const label = tr('recipes.trashCount', { count: n });
-    paintCan(recipeTrashBtn, recipeTrashWrap, n, label);
-    paintCan(recipeNavTrashBtn, recipeNavTrashWrap, n, label);
+    paintCan(recipeTrashBtn, recipeTrashWrap, n, tr('recipes.trashCount', { count: n }));
+    const nb = trashedRecipeRows(recipeTrashBooks).length;
+    paintCan(recipeNavTrashBtn, recipeNavTrashWrap, nb, tr('recipes.trashBooksCount', { count: nb }));
+    if (!recipesNavBoard) return;
+    recipesNavBoard.querySelectorAll('.recipe-book-card').forEach((card) => {
+      const b = findRecipeBook(card.dataset.id);
+      const btn = card.querySelector('.recipe-row-trash-btn');
+      if (b && btn) paintRecipeBookTrash(btn, b);
+    });
   }
 
   function deleteRecipeObject(kind, id) {
@@ -23400,7 +23489,8 @@
     validateActiveNotes(state);
     renderRecipesNav();
     renderRecipes();
-    flyGhost(ghost, recipesNavOpen() ? recipeNavTrashBtn : recipeTrashBtn);
+    flyGhost(ghost, !recipesNavOpen() ? recipeTrashBtn
+      : kind === 'recipeBook' ? recipeNavTrashBtn : recipeBookTrashBtn(obj.project));
     pushDeleteToast(kind, id, name);
   }
   // Står den åpne oppskriften fortsatt et sted man kan se den?
@@ -23424,10 +23514,10 @@
   }
   // Tøm kassen: gravstein på hele undertreet (`tombSubtree`), som serverens
   // kaskade. Et kapittel tar oppskriftene som forsvant MED det, med seg.
-  function emptyRecipeTrash() {
-    const rows0 = trashedRecipeRows();
+  function emptyRecipeTrash(keep = recipeTrashAll) {
+    const rows0 = trashedRecipeRows(keep);
     commitBufferedFor(rows0.map((r) => r.obj.id));
-    const rows = trashedRecipeRows().filter((r) => recipeCanDelete(r.obj));
+    const rows = trashedRecipeRows(keep).filter((r) => recipeCanDelete(r.obj));
     if (!rows.length) return;
     const goneRecipes = new Set();
     rows.forEach(({ kind, obj }) => {
@@ -23454,13 +23544,13 @@
     save();
   }
   const RECIPE_TRASH_KIND = { recipeBook: 'kind.recipeBook', recipeChapter: 'kind.recipeChapter', recipe: 'kind.recipe' };
-  function openRecipeTrash() {
+  function openRecipeTrash(keep = recipeTrashAll, title = tr('recipes.trashTitle')) {
     showTrashModal({
-      title: tr('recipes.trashTitle'),
+      title,
       note: TRASH_NOTE,
       emptyLabel: tr('recipes.purge'),
       emptyMsg: tr('recipes.noTrashed'),
-      rows: () => trashedRecipeRows().map(({ kind, obj }) => ({
+      rows: () => trashedRecipeRows(keep).map(({ kind, obj }) => ({
         id: obj.id,
         name: RECIPE_KINDS[kind].name(obj) || tr('common.noName'),
         // Kassen er felles for tre nivåer, så raden sier hvilket den er.
@@ -23470,13 +23560,13 @@
         manage: recipeCanDelete(obj),
         restore: () => restoreRecipeObject(kind, obj.id),
       })),
-      empty: emptyRecipeTrash,
+      empty: () => emptyRecipeTrash(keep),
     });
   }
 
-  /* OPPLØS ET KAPITTEL: kapittelet forsvinner, oppskriftene blir. De legges
-     sist blant bokens oppskrifter uten kapittel, i den rekkefølgen de hadde —
-     som radene i en oppløst kategori.
+  /* OPPLØS ET KAPITTEL: kapittelet forsvinner, oppskriftene blir. De arver
+     kapittelets plass på bokens øverste nivå, i den rekkefølgen de hadde — som
+     radene i en oppløst kategori.
 
      Oppløsningen er en sletting av kapittelet OG en flytting av hver oppskrift,
      og den går som ÉN operasjon på serveren (`recipe_chapter_dissolve`), som
@@ -23579,7 +23669,7 @@
         return;
       }
       if (canAddNote(b, null) && !(obj.project === b.id && !obj.folder)) {
-        opts.push({ id: b.id + '/', label: b.name + ' · ' + tr('recipes.bookLevel') });
+        opts.push({ id: b.id + '/', label: b.name });
       }
       liveChapters(b).forEach((c) => {
         if (c.id !== obj.folder && canAddNote(b, c)) opts.push({ id: b.id + '/' + c.id, label: b.name + ' › ' + c.name });
@@ -23593,7 +23683,7 @@
       const chapter = chapterId ? findRecipeChapter(chapterId) : null;
       const live2 = RECIPE_KINDS[kind].find(id);
       if (!book || !live2) return;
-      const siblings = kind === 'recipe' ? recipesIn(book.id, chapter ? chapter.id : null) : liveChapters(book);
+      const siblings = chapter ? recipesIn(book.id, chapter.id) : recipeLevel1(book);
       placeRecipeObj(kind, live2, book, chapter, maxPos(siblings) + 1);
       save();
       renderRecipesNav();
@@ -23608,11 +23698,17 @@
     const cfg = RECIPE_KINDS[kind];
     const obj = cfg.find(id);
     if (!obj) return null;
+    const navOpen = recipesNavOpen();
+    const chapter = kind === 'recipe' && obj.folder ? findRecipeChapter(obj.folder) : null;
+    // I kokebokmenyen står kapitlene og de frie oppskriftene om hverandre på
+    // bokens nivå 1 (`recipeLevel1`); flaten viser bare oppskriftene i én
+    // plassering. Radene er da av to slag, og `kindOf` sier hvilket.
     const rows = kind === 'recipeBook' ? visibleRecipeBooks().filter((b) => !b._virtual)
-      : kind === 'recipeChapter' ? liveChapters(findRecipeBook(obj.project))
-        : recipesIn(obj.project, obj.folder && findRecipeChapter(obj.folder) ? obj.folder : null);
-    return { obj, cont: null, S: kind === 'recipe' && !recipesNavOpen() ? recipesScope : recipesNavScope,
-      name: cfg.name(obj), rows };
+      : chapter ? recipesIn(obj.project, chapter.id)
+        : kind === 'recipeChapter' || navOpen ? recipeLevel1(findRecipeBook(obj.project))
+          : recipesIn(obj.project, null);
+    return { obj, cont: null, S: kind === 'recipe' && !navOpen ? recipesScope : recipesNavScope,
+      name: cfg.name(obj), rows, kindOf: (o) => recipeKindOf(o.id) || kind };
   }
 
   /* Objektmenyen for de tre nivåene — den SAMME menyen som resten av appen
@@ -23892,10 +23988,12 @@
     b.addEventListener('click', (ev) => { ev.stopPropagation(); fn(); });
     return b;
   }
-  function recipeAddBtn(color, label, fn) {
+  // Grønn ＋ legger til en linje (som listepunktets ＋), gul en underinndeling
+  // med kategoriens ikon — som de to knappene i en liste.
+  function recipeAddBtn(color, icon, label, fn) {
     const b = recipeEl('button', 'btn-add btn-solid icon-only ' + color);
     b.type = 'button';
-    b.innerHTML = ICONS.plus;
+    b.innerHTML = icon;
     labelBtn(b, label);
     b.addEventListener('click', fn);
     return b;
@@ -23954,8 +24052,8 @@
     wrap.appendChild(main);
     const add = recipeEl('div', 'add-item-row recipe-add-row');
     add.append(
-      recipeAddBtn('btn-green', tr(L.addLine), () => addRecipeLine(sec, null)),
-      recipeAddBtn('btn-yellow', tr(L.addSub), () => addRecipeSub(sec)));
+      recipeAddBtn('btn-green', ICONS.plus, tr(L.addLine), () => addRecipeLine(sec, null)),
+      recipeAddBtn('btn-yellow', ICONS.category, tr(L.addSub), () => addRecipeSub(sec)));
     wrap.appendChild(add);
     return wrap;
   }
@@ -23983,7 +24081,7 @@
     box.appendChild(head);
     box.appendChild(buildRecipeEditLines(sec, u.id, u.items));
     const add = recipeEl('div', 'recipe-sub-add');
-    add.appendChild(recipeAddBtn('btn-green', tr(L.addLineIn, { name: quoted(label) }), () => addRecipeLine(sec, u.id)));
+    add.appendChild(recipeAddBtn('btn-green', ICONS.plus, tr(L.addLineIn, { name: quoted(label) }), () => addRecipeLine(sec, u.id)));
     box.appendChild(add);
     return box;
   }
@@ -24152,7 +24250,8 @@
       if (!el) return;
       // Et felt med fokus i det som løftes ville tatt med seg markøren.
       if (el.contains(document.activeElement)) document.activeElement.blur();
-      dndCompactLift(el, b);
+      // Ingen kompakt løft: raden løftes i full bredde og blir liggende der
+      // den lå, så feltene står rett over sine egne plasser.
       dndNoteLiftedBox(el);
       dndLockAxis(b);
     }, (event) => {
@@ -24206,8 +24305,8 @@
       recipesNavModal.addEventListener('click', (ev) => { if (ev.target === recipesNavModal) closeRecipesNav(); });
     }
     if (addRecipeBtn) addRecipeBtn.addEventListener('click', () => addRecipe(state.activeBook, state.activeChapter));
-    const trashApi = { count: () => trashedRecipeRows().length, open: openRecipeTrash, empty: emptyRecipeTrash };
-    [recipeTrashBtn, recipeNavTrashBtn].forEach((btn) => { if (btn) attachTrashHold(btn, trashApi); });
+    if (recipeTrashBtn) attachTrashHold(recipeTrashBtn, recipeTrashApi(recipeTrashAll, () => tr('recipes.trashTitle')));
+    if (recipeNavTrashBtn) attachTrashHold(recipeNavTrashBtn, recipeTrashApi(recipeTrashBooks, () => tr('recipes.trashBooks')));
     if (!recipeView) return;
     recipeBackBtn.addEventListener('click', () => closeRecipe());
     recipeEditBtn.addEventListener('click', () => setRecipeEditing(!recipeEditing));

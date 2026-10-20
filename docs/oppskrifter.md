@@ -9,13 +9,18 @@ del 14; dra-og-slipp-motoren i [drag-and-drop.md](drag-and-drop.md).
 ## Hierarkiet
 
 **Kokebok › Kapittel › Oppskrift.** En oppskrift ligger enten i et kapittel
-eller rett i kokeboken («Uten kapittel»). Kapitler er ett nivå; det finnes ingen
-underkapitler.
+eller rett i kokeboken. Kapitler er ett nivå; det finnes ingen underkapitler.
+Kapitlene er kokebokens KATEGORIER, som mappekategoriene i et område: de frie
+oppskriftene står om hverandre med kapitlene på bokens øverste nivå, sortert på
+den samme `pos`-en, og det finnes ingen egen «uten kapittel»-overskrift — verken
+i kokebokmenyen, i brødsmulen, i søket eller på den offentlige siden.
 
 Alle tre nivåene kan opprettes, gis nytt navn, slettes (til søppelkassen, med
 angre), sorteres, flyttes og deles. Et kapittel kan i tillegg **løses opp**:
-kapittelet forsvinner, og oppskriftene i det blir liggende rett i kokeboken, i
-samme rekkefølge. Ingen oppskrift slettes av det.
+kapittelet forsvinner, og oppskriftene i det blir liggende rett i kokeboken PÅ
+KAPITTELETS PLASS, i samme rekkefølge — som listepunktene i en oppløst
+mappekategori (jevnt fordelt i `pos`-gapet til neste rad på bokens øverste
+nivå). Ingen oppskrift slettes av det.
 
 Oppløsningen er en sletting av kapittelet OG en flytting av hver oppskrift til
 kokeboken, og den er **alt eller ingenting**: den går som ÉN operasjon på
@@ -116,11 +121,16 @@ finnes bare når oppskriften har et grunnlag.
 - **Fanen:** hovedbryteren er Lister | Notater | Oppskrifter. Brødsmulen viser
   kokebok › kapittel og åpner kokebokmenyen; den grønne ＋ lager en oppskrift
   der man står. Oppskriftene vises som notatkortene.
-- **Kokebokmenyen** er navigasjonsmodalens mønster: hver kokebok er et farget
-  kort (kan foldes sammen), kapitlene er kategoriene i en liste, og
-  oppskriftene er radene. «Uten kapittel» står først, med de frie oppskriftene
-  under seg. Grønn ＋ nederst i kortet lager en oppskrift rett i boken, gul ＋
-  et kapittel, og ＋ i kapittelet en oppskrift der.
+- **Kokebokmenyen** ER navigasjonsmodalen for oppskrifter: en kokebok er et
+  områdekort (kan foldes sammen), et kapittel en mappekategori og en oppskrift
+  en mappe. De frie oppskriftene står mellom kapitlene, som ukategoriserte
+  mapper. Grønn ＋ nederst i kortet lager en oppskrift rett i boken, gul ＋ et
+  kapittel, og ＋ i kapittelet en oppskrift der. ＋-knappene bærer ikonet for
+  det de lager, som alle grønne og gule ＋-knapper i appen.
+- **Søppelkassene** er utsnitt av den samme kassen. Foten på flaten viser alle
+  tre nivåene. I kokebokmenyen er det én kasse per nivå, som i
+  navigasjonsmodalen: bøkene i foten, kapitlene og oppskriftene i kokeboken de
+  ble slettet fra (`recipeTrashIn`) — bygget alltid, skjult når den er tom.
 - **Oppskriftsflaten** er notat-editorens fullskjermsbilde. Den åpner i
   **lesemodus**: beskrivelse, porsjonsvelger, ingredienser som punktliste og
   fremgangsmåten nummerert på nytt i hver underinndeling — uten
@@ -155,6 +165,19 @@ Hva som kan slippes hvor, er typestyrt (`itemType`/`containerAccept`), så et
 ulovlig slipp aldri får et mål. En flytting til en kokebok man ikke kan legge
 noe i, eller til den virtuelle «Delt med meg»-boken, avvises med en melding.
 Et kapittel som flyttes til en annen kokebok tar oppskriftene sine med.
+
+**Kokebokmenyen har ingen egen dra-kode.** Den kjøres av nav-modalens
+maskineri: de samme board-ene (`buildNavBoards`), den samme løft-, kollaps- og
+ankerkoden, den samme plasseringspolitikken og de samme kassene. En kokebok
+dras som et område, et kapittel som en mappekategori og en oppskrift som en
+mappe. Det som er eget, er hva et slipp BETYR (`recipesNavCommitBook` og
+`recipesNavCommitRow`: posisjon, ekte flytting og avvisning).
+Kassen for kapitler og oppskrifter følger boken raden svever over, men bare en
+bok raden også kunne landet i (`recipesNavScope.refusesRow`).
+
+**I redigeringen er draget låst til den loddrette aksen** (`strictAxis`): en
+linje dras bare opp og ned, og står i ro sidelengs. Håndtaket er nesten like
+høyt som feltene og midtstilt på linjen.
 
 ## Deling med medlemmer
 
@@ -211,7 +234,8 @@ delingsmodalen: `https://huskis.no/oppskrift.html#<nøkkel>`.
   Huskis-bruker tar ikke med seg sine rettigheter dit.
 - Svaret valideres ved grensen (`sanitizeRecipe`) og tegnes med den samme
   lesevisningen som appen (`renderReader`). Porsjonene kan skaleres lokalt.
-- En kokebok eller et kapittel viser en innholdsliste; en oppskrift åpnes som
+- En kokebok eller et kapittel viser en innholdsliste — oppskriftene rett i
+  boken først, uten overskrift, så kapitlene; en oppskrift åpnes som
   eget historikksteg, så tilbakeknappen fungerer. Innholdet hentes på nytt når
   fanen blir synlig igjen; den åpne oppskriften finnes igjen på tittelen, og er
   tittelen ikke entydig (svaret har ingen id-er), vises innholdslisten i stedet.

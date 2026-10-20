@@ -150,6 +150,13 @@
     var sheet = el('div', 'note-sheet pub-index');
     var any = data.recipes.length || data.chapters.some(function (c) { return c.recipes.length; });
     if (!any) sheet.appendChild(el('p', 'recipe-empty', tr('public.noRecipes')));
+    // Oppskriftene rett i kokeboken står først, uten overskrift — de hører til
+    // boken selv, som de frie oppskriftene i kokebokmenyen.
+    if (data.recipes.length) {
+      var free = el('section', 'pub-chapter');
+      free.appendChild(recipeList(data.recipes, null));
+      sheet.appendChild(free);
+    }
     data.chapters.forEach(function (ch, c) {
       var sec = el('section', 'pub-chapter');
       var h = el('h2', 'recipe-sec-title');
@@ -160,12 +167,6 @@
       else sec.appendChild(el('p', 'recipe-empty', tr('public.noRecipes')));
       sheet.appendChild(sec);
     });
-    if (data.recipes.length) {
-      var free = el('section', 'pub-chapter');
-      if (data.chapters.length) free.appendChild(el('h2', 'recipe-sec-title', tr('recipes.bookLevel')));
-      free.appendChild(recipeList(data.recipes, null));
-      sheet.appendChild(free);
-    }
     wrap.appendChild(sheet);
     return wrap;
   }

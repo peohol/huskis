@@ -48,6 +48,9 @@ er hvilket state-tre man slår opp i (`boardScope` / `navScope` / `ideaScope` /
 kokebøker som kort, kapitler og oppskrifter som rader) og `recipeEditBoard`
 (ingrediensene, stegene og underinndelingene i redigeringen). Hva som kan
 slippes hvor, står i [oppskrifter.md](oppskrifter.md); limkoden er den samme.
+Kokebokmenyens to board kommer fra den SAMME fabrikken som nav-modalens
+(`buildNavBoards(S, …)`), og hele nav-maskineriet leser modalen, rullefeltet og
+board-ene fra scopet (`S.modal`, `S.scroller`, `S.cardBoard`, `S.rowBoard`).
 
 **Notat-scopene har ingen kategorier og ingen ekstrahering**, så et slipp kan
 bety tre ting: ny plass i rekka (for en notatbok i tillegg en ny bokhylle),
@@ -597,6 +600,11 @@ board-grense.
 (`groupcat` i nav-scopet), og `containerAccept` sier at `.cat-items` bare tar
 `item` (`group`) — kategorier nøstes aldri. Regelen avvises dermed UNDER draget,
 av dnd-kits egen `accept`-port, ikke etter slippet.
+
+Ikonet vises fra det øyeblikket objektet er løftet (`.dnd-compact
+.cat-drag-icon`), ikke først når dnd-kit har satt `data-dnd-dragging`: dnd-kit
+måler den kompakte bredden ved løft, og et ikon som kom etterpå presset
+tittelen sammen til én bokstav per linje.
 
 Ved slipp bygges kortets `items` fra HELE DOM-treet (`reconcileRows`: nivå 1 +
 hver kategoris `.cat-items`), og `it.cat` settes; kun det flyttede listepunktets
@@ -1437,6 +1445,11 @@ og de står side om side — nederst på siden og i notatenes nav-modal. Der BET
 sidelengs bevegelse noe også i én kolonne: den er hele forskjellen på «legg bort»
 og «slett». Listesiden og nav-modalen har bare den ene kassen, og der er låsen
 som før.
+
+**Oppskriftsredigeringen er låst HELT** (`strictAxis` på `recipeEditScope` →
+`drag.oneAxis === 'strict'`): x nulles uten ledesnor, og linjen står i ro
+sidelengs. Linjene der løftes uten kompakt-krymping, så fingeren holder alltid
+i den.
 
 **Avgjørelsen tas ÉN gang per drag**, i `beforedragstart` (`dndLockAxis` →
 `drag.oneAxis`) — før dnd-kit har malt en eneste frame. Selve låsingen av x

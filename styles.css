@@ -1996,6 +1996,10 @@ body:not(.note-editing):has(.drop-dock:not([hidden]) .item-trash:not([hidden])) 
   height: 34px;
 }
 .cat-add-btn.btn-add.icon-only .icon { font-size: 26px; }
+/* ＋ med ikonet for det knappen lager (`paintAddKind`): samme høyde, men bred
+   nok til begge. */
+.cat-add-btn.btn-add:not(.icon-only) { height: 34px; padding: 0 12px; }
+.add-kind-icon { display: inline-flex; }
 
 /* ---------------- Add item ----------------
    To midtstilte knapper nederst i lista: grønn ＋ (nytt listepunkt) og gul
@@ -2582,6 +2586,11 @@ body.is-dragging * {
 /* Kategorien er allerede foldet sammen ved løft (`dndCollapseCategory`); her
    nulles bare luften hylla ellers holder av. */
 .dnd-compact.category { padding: 6px; }
+/* Kategoriens ikon er med i den KOMPAKTE boksen, ikke bare i den løftede:
+   `.dnd-compact` settes før dnd-kit måler, `[data-dnd-dragging]` etterpå. Kom
+   ikonet først med det siste, var bredden alt låst uten det, og tittelen ble
+   klemt sammen og brutt bokstav for bokstav. */
+.dnd-compact .cat-drag-icon { display: inline-flex; }
 
 /* Sikter man på søppelkassen, skifter det løftede objektet BAKGRUNNSFARGE til
    rødt: et slipp her sletter. Gjennomsikten og sløret er allerede signalet for
@@ -6455,18 +6464,9 @@ body.note-editing .corner-controls { display: none; }
    Autoritativt: docs/oppskrifter.md.
    ============================================================ */
 
-/* Kokebokmenyen: kokeboken er områdekortet, kapitlene kategoriene i en liste. */
-.recipe-book-card .card-body { padding-bottom: 6px; }
-.recipes-add-book { display: flex; justify-content: center; margin: 4px 0 2px; }
-.recipe-level { list-style: none; margin: 0 0 6px; padding: 0; }
-.recipe-level .item-text { font-style: italic; }
-/* Et tomt kapittel og en tom «rett i boken»-sone må fortsatt kunne ta imot et
-   slipp — ellers finnes det ingen flate å slippe på. */
-.recipe-chapters:empty,
-.recipe-free:empty { min-height: 0; }
-body.is-dragging .recipe-chapters:empty,
-body.is-dragging .recipe-free:empty { min-height: 36px; }
-.recipe-row-icon, .chapter-icon { flex: none; display: inline-flex; align-items: center; }
+/* Kokebokmenyen er nav-modalen: kokeboken er områdekortet, kapitlene
+   mappekategorier og oppskriftene mapper — ingen egne regler for oppsettet. */
+.recipe-row-icon { flex: none; display: inline-flex; align-items: center; }
 
 /* Hovedflaten: oppskriftskortet er notatkortet. */
 .recipe-card .note-card-excerpt-text { white-space: normal; }
@@ -6586,19 +6586,23 @@ body.is-dragging .recipe-free:empty { min-height: 36px; }
   font-weight: 700;
   color: var(--primary-dark);
 }
+/* Håndtaket er en knapp nesten like høy som feltene, midtstilt på raden. */
 .recipe-grip {
   flex: 0 0 auto;
+  align-self: center;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 38px;
+  width: 28px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  background: var(--wash);
   color: var(--ink-soft);
   cursor: grab;
   touch-action: none;
-  font-size: 18px;
+  font-size: 30px;
 }
-.recipe-line .icon-btn { align-self: flex-start; }
+.recipe-line .icon-btn { align-self: center; }
 .recipe-subs { display: flex; flex-direction: column; gap: 10px; }
 .recipe-subs:not(:empty) { margin-bottom: 10px; }
 .recipe-sub {
