@@ -29034,8 +29034,10 @@
      recipe_link_*). Lenken gir KUN lesetilgang, viser alltid nåtilstanden og
      kan slås av; nøkkelen er tilfeldig og lages av databasen. */
   function recipePublicUrl(token) {
-    // I testmodus må lenken også gå mot mock-backenden, ellers finnes ikke nøkkelen.
-    return authRedirectUrl() + 'oppskrift.html' + (useMock() ? '?mock=1' : '') + '#' + token;
+    // I testmodus (lokalt og i preview) må lenken gå mot mock-backenden på
+    // DENNE adressen — mock-databasen finnes bare her, ikke på huskis.no.
+    const base = useMock() ? location.origin + '/' : authRedirectUrl();
+    return base + 'oppskrift.html' + (useMock() ? '?mock=1' : '') + '#' + token;
   }
   function recipeLinkSection(type, id) {
     const el = document.createElement('div');
@@ -31078,7 +31080,7 @@
     openNotesNav, closeNotesNav, renderNotes, renderNotesNav,
     // Oppskriftene (docs/oppskrifter.md) — oppsett og inspeksjon i testene.
     openRecipesNav, closeRecipesNav, openRecipe, closeRecipe, setRecipeEditing, flushRecipeSave,
-    addRecipeBook, addRecipeChapter, addRecipe, setRecipePlace, dissolveRecipeChapter,
+    addRecipeBook, addRecipeChapter, addRecipe, setRecipePlace, dissolveRecipeChapter, recipePublicUrl,
     deleteRecipeObject, findRecipe, recipesIn,
     get recipeOpenId() { return recipeOpenId; },
     addNoteProject, addNoteFolder, addNote,

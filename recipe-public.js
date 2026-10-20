@@ -37,7 +37,7 @@
   var data = null;     // det siste svaret fra serveren
   var view = { c: null, r: null, title: '' };  // hvor leseren står (indekser i svaret)
   var chosen = {};     // valgt antall porsjoner per oppskrift, kun i denne fanen
-  var busy = false;
+  var inflight = null; // nøkkelen som hentes nå
 
   function token() {
     try { return decodeURIComponent((location.hash || '').slice(1)); } catch (e) { return ''; }
@@ -220,34 +220,39 @@
   window.addEventListener('popstate', function (ev) {
     var s = ev.state;
     view = s && s.r != null ? { c: s.c, r: s.r, title: s.title || '' } : { c: null, r: null, title: '' };
-    if (data) render();
+    if (data) { reconcileView(); render(); }
   });
 
-  /* Står leseren i en oppskrift når innholdet hentes på nytt, og den har
-     flyttet seg (noe er lagt til foran), finnes den igjen på tittelen. */
+  /* Står leseren i en oppskrift når innholdet hentes på nytt, finnes den
+     igjen på tittelen — men bare når tittelen er ENTYDIG. Svaret har ingen
+     id-er (med vilje), så to oppskrifter med samme tittel kan ikke skilles;
+     da går leseren heller tilbake til innholdslisten enn å vise feil
+     oppskrift. */
   function reconcileView() {
     if (view.r == null) return;
-    var x = recipeAt(view.c, view.r);
-    if (x && x.title === view.title) return;
     var lists = [[null, data.recipes]].concat(data.chapters.map(function (ch, i) { return [i, ch.recipes]; }));
-    for (var i = 0; i < lists.length; i++) {
-      for (var j = 0; j < lists[i][1].length; j++) {
-        if (lists[i][1][j].title === view.title) { view.c = lists[i][0]; view.r = j; return; }
-      }
-    }
+    var hits = [];
+    lists.forEach(function (l) {
+      l[1].forEach(function (x, j) { if (x.title === view.title) hits.push([l[0], j]); });
+    });
+    if (hits.length === 1) { view.c = hits[0][0]; view.r = hits[0][1]; return; }
     view = { c: null, r: null, title: '' };
+    history.replaceState(null, '');
   }
 
   function load() {
     var t = token();
     if (!t) { message('public.gone', 'public.goneHint'); return; }
-    if (busy) return;
-    busy = true;
+    // Samme nøkkel er alt på vei. En NY nøkkel (fragmentet er byttet) hentes
+    // med en gang; svaret for den gamle kastes når det kommer.
+    if (inflight === t) return;
+    inflight = t;
     if (!data) main.setAttribute('aria-busy', 'true');
+    function done() { if (inflight === t) inflight = null; return t === token(); }
     Promise.resolve()
       .then(function () { return cli().rpc('recipe_public_get', { p_token: t }); })
       .then(function (res) {
-        busy = false;
+        if (!done()) return;
         if (res && res.error) throw res.error;
         data = clean(res && res.data);
         if (!data) { message('public.gone', 'public.goneHint'); return; }
@@ -255,7 +260,7 @@
         render();
       })
       .catch(function () {
-        busy = false;
+        if (!done()) return;
         // Har vi allerede noe å vise, blir det stående; en glipp i nettet er
         // ingen grunn til å ta bort oppskriften man står og lager.
         if (!data) message('public.error', null, true);

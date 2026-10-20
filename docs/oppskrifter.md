@@ -184,7 +184,12 @@ delingsmodalen: `https://huskis.no/oppskrift.html#<nøkkel>`.
   lesevisningen som appen (`renderReader`). Porsjonene kan skaleres lokalt.
 - En kokebok eller et kapittel viser en innholdsliste; en oppskrift åpnes som
   eget historikksteg, så tilbakeknappen fungerer. Innholdet hentes på nytt når
-  fanen blir synlig igjen.
+  fanen blir synlig igjen; den åpne oppskriften finnes igjen på tittelen, og er
+  tittelen ikke entydig (svaret har ingen id-er), vises innholdslisten i stedet.
+- Byttes fragmentet mens en henting pågår, hentes den nye nøkkelen, og svaret
+  for den gamle kastes.
+- I testmodus (`?mock=1`, lokalt og i preview) peker lenken på adressen appen
+  kjører på, der mock-databasen finnes; ellers på det kanoniske domenet.
 - Samme innholdssikkerhetspolicy som appen, ingen inline-kode, og
   `noindex` ([sikkerhetsheadere.md](sikkerhetsheadere.md)).
 

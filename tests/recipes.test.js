@@ -26,7 +26,9 @@
    11. Offentlig lenke: lages i delingsvinduet, åpnes UTEN innlogging, viser
        bare det som er delt, svaret inneholder verken id-er eller personer,
        den anonyme leseren kan ikke skrive, endringer vises, og en avslått
-       lenke slutter å virke
+       lenke slutter å virke; et fragment som byttes midt i en henting viser
+       den nye lenken, en tvetydig tittel gir innholdslisten, og lenken i
+       testmodus peker på adressen appen kjører på
    12. Ingen JS-feil
 
   Kjøres på BÅDE desktop- og mobil-viewport (dra-og-slipp og layout); delingen
@@ -499,6 +501,56 @@ async function runSharing() {
   await a.evaluate(async (ids) => {
     await window.HK_MOCK._edit((db) => { db.notes.find((n) => n.id === ids.R1).folder_id = ids.C1; });
   }, ids);
+
+  // Et fragment som byttes mens den forrige hentingen er på vei: den NYE
+  // nøkkelen hentes, og svaret for den gamle kastes — ellers viser siden den
+  // gamle lenkens innhold under den nye adressen.
+  const tok2 = await a.evaluate(async (id) => {
+    const r = await window.HK_MOCK.createClient().rpc('recipe_link_create', { p_type: 'note_folder', p_id: id });
+    return r.data;
+  }, ids.C2);
+  await anon.goto(url.replace('?mock=1', '?mock=1&lag=700'));
+  await anon.evaluate((t) => { location.hash = t; }, tok2);
+  await anon.waitForSelector('.pub-index', { timeout: 8000 });
+  await anon.waitForTimeout(1200);  // fraværsbevis: det gamle svaret skal ikke tegnes over
+  const byttet = await anon.evaluate(() => [...document.querySelectorAll('.pub-recipe-title')].map((e) => e.textContent));
+  log('lenke: et byttet fragment viser den nye lenkens innhold, ikke svaret for den gamle',
+    JSON.stringify(byttet) === '["Sjokoladekake"]', JSON.stringify(byttet));
+
+  // To oppskrifter med samme tittel kan ikke skilles uten id-er: står leseren i
+  // den ene når innholdet hentes på nytt, går hen til innholdslisten i stedet
+  // for å vise den andre.
+  await anon.goto(url);
+  await anon.waitForSelector('.pub-index', { timeout: 8000 });
+  await anon.click('.pub-recipe');
+  await anon.waitForSelector('.recipe-ing-list', { timeout: 8000 });
+  const dupId = U();
+  await a.evaluate(async ({ ids, dupId }) => {
+    await window.HK_MOCK._edit((db) => {
+      const r = db.notes.find((n) => n.id === ids.R1);
+      db.notes.push(Object.assign(JSON.parse(JSON.stringify(r)), { id: dupId, pos: -1,
+        recipe: Object.assign({}, r.recipe, { desc: 'En helt annen suppe.' }) }));
+    });
+  }, { ids, dupId });
+  await anon.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  const tilListe = await anon.waitForSelector('.pub-index', { timeout: 8000 }).then(() => true, () => false);
+  const annenSuppe = await anon.evaluate(() => /En helt annen suppe/.test(document.body.textContent));
+  log('lenke: en tvetydig tittel etter ny henting gir innholdslisten, ikke en annen oppskrift',
+    tilListe && !annenSuppe, 'liste=' + tilListe + ' annen=' + annenSuppe);
+  await a.evaluate(async (dupId) => {
+    await window.HK_MOCK._edit((db) => { db.notes = db.notes.filter((n) => n.id !== dupId); });
+  }, dupId);
+
+  // I testmodus (lokalt OG i en preview-deploy) peker lenken på DENNE adressen,
+  // der mock-databasen finnes — ikke på det kanoniske domenet.
+  const altBase = BASE.replace(/\/\/(localhost|127\.0\.0\.1)(?=[:/]|$)/, '//127.0.0.2');
+  const alt = await ctx.newPage();
+  await alt.goto(altBase + '/?mock=1');
+  await alt.waitForFunction(() => window.__huskis && window.__huskis.recipePublicUrl, null, { timeout: 8000 });
+  const altUrl = await alt.evaluate(() => window.__huskis.recipePublicUrl('abc'));
+  log('lenke: i testmodus peker lenken på adressen appen kjører på',
+    altUrl === altBase + '/oppskrift.html?mock=1#abc', altUrl);
+  await alt.close();
 
   // Slå av lenken.
   await a.evaluate((ids) => window.__huskis.openRecipesNav(), ids);
