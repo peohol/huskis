@@ -91,7 +91,8 @@ Line = ingrediens: { id, q, q2, f, qs, u, t }
 ### «Øvrige ingredienser» / «Øvrige steg»
 
 «Øvrige» er **avledet, ikke lagret**. `items` er linjene som ikke står i noen
-underinndeling:
+underinndeling. Overskriften er dempet (grå) bare i redigeringen; ellers står
+den som de andre underinndelingenes.
 
 1. Uten underinndelinger vises linjene rett under hovedoverskriften, og en ny
    linje havner der.
@@ -258,8 +259,8 @@ delingsmodalen: `https://huskis.no/oppskrift.html#<nøkkel>`.
 - Klienten er laget uten økt (`persistSession: false`), så en innlogget
   Huskis-bruker tar ikke med seg sine rettigheter dit.
 - Svaret valideres ved grensen (`sanitizeRecipe`) og tegnes med den samme
-  lesevisningen som appen (`renderReader`), men uten porsjoner
-  (`servings: false`): mengdene står slik de er lagret.
+  lesevisningen som appen (`renderReader`), porsjonsvelgeren med: leseren
+  kan skalere porsjonene lokalt, og valget lagres aldri.
 - Toppmenyen er appens glass (gjennomskinnelig, blur) og står fast. Huskis-merket
   står i midten og lenker til appens forside på samme domene (`./`, altså
   huskis.no — siden ligger der, se lenken over). Relativt med vilje: webkoden
@@ -275,6 +276,8 @@ delingsmodalen: `https://huskis.no/oppskrift.html#<nøkkel>`.
   fast stripe nederst (samme glass). Siden spør bare om appens øktnøkkel
   FINNES (`sb-<prosjekt>-auth-token`), aldri om innholdet. × lukker den for godt
   i den nettleseren (`hk-pub-invite-closed` i localStorage).
+  Teksten står midtstilt i to linjer, som bare brytes når skjermen er for
+  smal, og «Meld deg inn nå» står midtstilt under; × står i hjørnet.
 - Byttes fragmentet mens en henting pågår, hentes den nye nøkkelen, og svaret
   for den gamle kastes.
 - I testmodus (`?mock=1`) og i en preview-deploy peker lenken på adressen

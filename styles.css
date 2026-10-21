@@ -6568,7 +6568,9 @@ body.note-editing .corner-controls { display: none; }
   border-bottom: 1px solid var(--line);
 }
 .recipe-sub-name { font-size: var(--fs-md); font-weight: 700; margin: 12px 0 4px; }
-.recipe-other-name { color: var(--ink-soft); }
+/* «Øvrige …» er dempet bare i redigeringen, der den er en sone å slippe i;
+   i lesevisningen er den en overskrift som de andre. */
+.recipe-sec-edit .recipe-other-name { color: var(--ink-soft); }
 .recipe-empty { color: var(--ink-soft); font-style: italic; margin: 4px 0; }
 .recipe-ing-list, .recipe-step-list { margin: 0 0 6px; padding-left: 1.4em; }
 .recipe-ing-list li { margin: 0 0 4px; }
@@ -6746,7 +6748,9 @@ body.note-editing .corner-controls { display: none; }
 .pub-recipe .pub-icon { font-size: 22px; }
 .pub-recipe-title { flex: 1 1 auto; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
 .pub-message-title { font-size: var(--fs-lg); font-weight: 700; margin: 0 0 6px; }
-/* Invitasjonen nederst: samme glass som toppmenyen, liten skrift. */
+/* Invitasjonen nederst: samme glass som toppmenyen, liten skrift. Teksten
+   står midtstilt i to linjer (de brytes bare når skjermen er for smal), og
+   knappen midtstilt under; × står i hjørnet. */
 .pub-invite {
   position: fixed;
   left: 0;
@@ -6754,9 +6758,11 @@ body.note-editing .corner-controls { display: none; }
   bottom: 0;
   z-index: 2;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 8px calc(10px + var(--safe-right)) calc(8px + var(--safe-bottom)) calc(14px + var(--safe-left));
+  gap: 8px;
+  padding: 10px calc(12px + var(--safe-right)) calc(10px + var(--safe-bottom)) calc(12px + var(--safe-left));
+  text-align: center;
   background: var(--glass-bg);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -6765,11 +6771,16 @@ body.note-editing .corner-controls { display: none; }
   color: var(--ink);
 }
 .pub-invite[hidden] { display: none; }
-.pub-invite-text { flex: 1 1 auto; min-width: 0; }
+.pub-invite-text { min-width: 0; }
 .pub-invite-text p { margin: 0; }
-.pub-invite-title { font-weight: 700; }
-.pub-invite-sub { color: var(--ink-soft); }
+.pub-invite-title { font-weight: 700; padding: 0 30px; }   /* fri for × i hjørnet */
+.pub-invite-sub { color: var(--ink-soft); text-wrap: balance; }
 .pub-invite-brand { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .pub-invite-brand .pub-logo { width: 18px; height: 18px; }
 .pub-invite-cta { flex: none; text-decoration: none; }
-.pub-invite-close { flex: none; font-size: 22px; }
+.pub-invite .pub-invite-close {
+  position: absolute;
+  top: 4px;
+  right: calc(4px + var(--safe-right));
+  font-size: 22px;
+}

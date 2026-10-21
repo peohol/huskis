@@ -542,9 +542,7 @@
     doc = doc || emptyRecipe();
     root.textContent = '';
     if (doc.desc) root.appendChild(el('p', 'recipe-desc', doc.desc));
-    // `servings: false` viser ingen porsjoner — mengdene står som lagret
-    // (den offentlige lesevisningen).
-    var base = o.servings === false ? null : num(doc.serv);
+    var base = num(doc.serv);
     var chosen = base ? (num(o.chosen) || base) : null;
     var factor = scaleFactor(base, chosen);
     if (base) {

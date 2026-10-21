@@ -215,10 +215,14 @@ async function runOwner(navn, viewport, touch) {
     ekstraRad === 0, JSON.stringify({ tre, ekstraRad }));
   const ikoner = await p.evaluate(() => {
     const card = document.querySelector('#recipes-nav-board .recipe-book-card');
-    const has = (sel) => !!card.querySelector(sel + ' .add-kind-icon svg');
+    // «＋» foran ikonet for det knappen lager — også den gule kapittelknappen.
+    const has = (sel) => {
+      const b = card.querySelector(sel);
+      return !!b && !!b.querySelector('.add-kind-icon svg') && !!b.querySelector(':scope > svg.icon');
+    };
     return { oppskrift: has('.add-item-btn'), kapittel: has('.add-cat-btn'), iKapittel: has('.cat-add-btn') };
   });
-  log(navn + ': ＋-knappene bærer ikonet for det de lager (oppskrift, kapittel, oppskrift i kapittel)',
+  log(navn + ': ＋-knappene viser ＋ og ikonet for det de lager (oppskrift, kapittel, oppskrift i kapittel)',
     ikoner.oppskrift && ikoner.kapittel && ikoner.iKapittel, JSON.stringify(ikoner));
 
   /* 2b. Kaker over Supper — som en mappekategori */
@@ -699,6 +703,24 @@ async function runOwner(navn, viewport, touch) {
   log(navn + ': en tom ny linje forsvinner når man klikker et annet sted eller trykker Enter i den',
     tomInne === 1 && tomUte === 0 && nesteRad === 2 && JSON.stringify(stegEtter) === '["Rør"]',
     JSON.stringify({ tomInne, tomUte, nesteRad, stegEtter }));
+
+  // «Øvrige ingredienser» er dempet bare mens man redigerer.
+  await p.click(sec('ing') + ' .recipe-add-row .btn-green');
+  await p.waitForTimeout(150);
+  await p.keyboard.type('sukker');
+  await p.waitForTimeout(150);
+  const farge = () => p.evaluate((s) => {
+    const c = (el) => el && getComputedStyle(el).color;
+    return { øvrige: c(document.querySelector(s + ' .recipe-other-name')),
+      gruppe: c(document.querySelector(s + ' .recipe-sub-name:not(.recipe-other-name)')) };
+  }, sec('ing'));
+  const iRed = await farge();
+  await p.click('#recipe-edit-btn');
+  await p.waitForTimeout(300);
+  const iLes = await farge();
+  log(navn + ': «Øvrige ingredienser» er grå i redigeringen og som de andre overskriftene ellers',
+    !!iRed.øvrige && iRed.øvrige !== iRed.gruppe && !!iLes.øvrige && iLes.øvrige === iLes.gruppe,
+    JSON.stringify({ iRed, iLes }));
   await p.evaluate(() => window.__huskis.closeRecipe());
   await p.waitForTimeout(200);
 
@@ -853,16 +875,38 @@ async function runSharing() {
   log('lenke: toppmenyen har Huskis-logoen som lenke til appens forside (huskis.no), ingen «kun lesing» og ingen Tilbake i innholdslisten',
     !topp.tilbake && topp.hjem && topp.logo && !topp.lesing, JSON.stringify(topp));
   log('lenke: en som ikke er logget inn får invitasjonen nederst', topp.invitasjon, JSON.stringify(topp));
+  // Stripa: to midtstilte tekstlinjer, knappen midtstilt UNDER dem. Linjene
+  // brytes ikke når det er plass — heller ikke på en vanlig telefon.
+  const stripe = () => anon.evaluate(() => {
+    const r = (s) => document.querySelector(s).getBoundingClientRect();
+    // Linjene teksten faktisk står på: toppene til tekstboksene, med slingring
+    // for logoen midt i tittelen.
+    const linjer = (s) => {
+      const rg = document.createRange();
+      rg.selectNodeContents(document.querySelector(s));
+      const tops = [...rg.getClientRects()].filter((q) => q.width > 0).map((q) => q.top).sort((a, b) => a - b);
+      return tops.filter((t, i) => i === 0 || t - tops[i - 1] > 10).length;
+    };
+    const box = r('#pub-invite'), cta = r('.pub-invite-cta'), tekst = r('.pub-invite-text');
+    return { tittel: linjer('.pub-invite-title'), under: linjer('.pub-invite-sub'),
+      knappMidt: Math.abs((cta.left + cta.right) / 2 - (box.left + box.right) / 2) <= 2,
+      knappUnder: cta.top >= tekst.bottom - 0.5 };
+  });
+  const stripeBred = await stripe();
+  await anon.setViewportSize({ width: 390, height: 780 });
+  await anon.waitForTimeout(200);
+  const stripeSmal = await stripe();
+  await anon.setViewportSize(viewport);
+  log('lenke: invitasjonen er to linjer tekst med «Meld deg inn nå» midtstilt under (desktop og telefon)',
+    [stripeBred, stripeSmal].every((x) => x.tittel === 1 && x.knappMidt && x.knappUnder) && stripeBred.under === 1,
+    JSON.stringify({ stripeBred, stripeSmal }));
   await anon.click('.pub-recipe');
-  await anon.waitForSelector('.recipe-ing-list li');
+  await anon.waitForSelector('.recipe-serv-more');
   log('lenke: inne i en oppskrift står Tilbake i toppmenyen',
     await anon.evaluate(() => !document.getElementById('pub-back').hidden && !document.querySelector('#pub-main .pub-back')));
-  const pubLese = await anon.evaluate(() => ({
-    første: document.querySelector('.recipe-ing-list li').textContent,
-    porsjoner: !!document.querySelector('#pub-main .recipe-serv'),
-  }));
-  log('lenke: oppskriften viser mengdene slik de er lagret, uten antall porsjoner',
-    pubLese.første === '400 g hermetiske tomater' && !pubLese.porsjoner, JSON.stringify(pubLese));
+  await anon.click('.recipe-serv-more');
+  const pubSkalert = await anon.evaluate(() => document.querySelector('.recipe-ing-list li').textContent);
+  log('lenke: leseren kan skalere porsjonene lokalt', pubSkalert === '500 g hermetiske tomater', pubSkalert);
 
   // Eieren endrer — lenken viser det ved neste henting.
   await a.evaluate((id) => {
@@ -912,6 +956,27 @@ async function runSharing() {
   const byttet = await anon.evaluate(() => [...document.querySelectorAll('.pub-recipe-title')].map((e) => e.textContent));
   log('lenke: et byttet fragment viser den nye lenkens innhold, ikke svaret for den gamle',
     JSON.stringify(byttet) === '["Sjokoladekake"]', JSON.stringify(byttet));
+
+  // Et valgt antall porsjoner følger ikke med til en annen oppskrift som får
+  // samme plass i en annen lenke.
+  await a.evaluate(async (ids) => {
+    await window.HK_MOCK._edit((db) => { db.notes.find((n) => n.id === ids.R3).recipe.serv = 2; });
+  }, ids);
+  await anon.goto(url);
+  await anon.waitForSelector('.pub-index', { timeout: 8000 });
+  await anon.click('.pub-recipe');
+  await anon.waitForSelector('.recipe-serv-more', { timeout: 8000 });
+  await anon.click('.recipe-serv-more');
+  await anon.evaluate((t) => { location.hash = t; }, tok2);
+  await anon.waitForSelector('.pub-index', { timeout: 8000 });
+  await anon.click('.pub-recipe');
+  await anon.waitForSelector('.recipe-serv-value', { timeout: 8000 });
+  const annenOppskrift = await anon.evaluate(() => document.querySelector('.recipe-serv-value').textContent);
+  log('lenke: porsjonsvalget i én oppskrift følger ikke med til en annen på samme plass',
+    annenOppskrift === '2 porsjoner', annenOppskrift);
+  await a.evaluate(async (ids) => {
+    await window.HK_MOCK._edit((db) => { db.notes.find((n) => n.id === ids.R3).recipe.serv = null; });
+  }, ids);
 
   // To oppskrifter med samme tittel kan ikke skilles uten id-er: står leseren i
   // den ene når innholdet hentes på nytt, går hen til innholdslisten i stedet
