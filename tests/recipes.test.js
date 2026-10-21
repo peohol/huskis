@@ -163,6 +163,17 @@ const settle = (p) => p.waitForFunction(() => {
   return !s || s.dataset.state !== 'saving';
 }, null, { timeout: 8000, polling: 150 }).catch(() => {});
 
+/* Et løft rett etter et slipp kan komme før brettet er løftbart igjen, og i en
+   modal er et mislykket forsøk dyrt: gestens nytt-forsøk slipper musa på
+   bakteppet (`dnd-gestures.js`, AWAY), og det lukker modalen. Vent derfor til
+   raden har stått som den SAMME noden en stund før neste løft. */
+const quiet = (p, sel) => p.evaluate(() => { window.__stille = null; }).then(() => p.waitForFunction((s) => {
+  const el = document.querySelector(s);
+  const w = window.__stille || (window.__stille = { el: null, t: 0, bytt: 0 });
+  if (el !== w.el) { w.el = el; w.t = performance.now(); w.bytt++; return false; }
+  return !!el && performance.now() - w.t > 400;
+}, sel, { timeout: 8000, polling: 100 })).catch(() => {});
+
 const navText = (p) => p.evaluate(() => [...document.querySelectorAll('#recipes-nav-board .recipe-book-card')]
   .map((c) => [...c.querySelectorAll('.recipe-row .item-text, .recipe-chapter .cat-title')].map((e) => e.textContent)));
 const rowSel = (id) => '#recipes-nav-board .recipe-row[data-id="' + id + '"] .item-text';
@@ -258,6 +269,7 @@ async function runOwner(navn, viewport, touch) {
       const r = document.querySelector(sel).getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom)];
     }, kapHode(id)) });
   };
+  await quiet(p, rowSel(ids.R2));
   await G.lift(p, await G.centre(p, rowSel(ids.R2)), touch);
   await siktHode(ids.C2);
   const overFørste = await hull();
@@ -268,6 +280,7 @@ async function runOwner(navn, viewport, touch) {
     !!overFørste && overFørste.nivå1 && overFørste.foran === ids.C2 && overFørste.synlig && førstNå[0][0] === 'Brød',
     JSON.stringify({ overFørste, førstNå, hodeSikt }));
   await settle(p);
+  await quiet(p, rowSel(ids.R2));
   await G.lift(p, await G.centre(p, rowSel(ids.R2)), touch);
   await siktHode(ids.C1);
   const mellom = await hull();
