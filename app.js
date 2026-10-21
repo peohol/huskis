@@ -1683,6 +1683,7 @@
     get cardBoard() { return navCardBoard; },
     get rowBoard() { return navRowBoard; },
     singleColumn: true,               // nav-modalen har alltid én kolonne
+    edgeHole: true,                   // kantreglene for kategorier (`dndEdgeRules`)
     containers: () => visibleUniverses(),
     findContainer: (id) => findUniverse(id),
     findRow: (id) => findGroupAnywhere(id),
@@ -6995,6 +6996,17 @@
     const ro = new ResizeObserver(syncTopChrome);
     ro.observe(topbarEl);
     if (cornerControls) ro.observe(cornerControls);
+    /* Editorenes verktøylinje er gjennomskinnelig og ligger OVER dokumentet,
+       som ruller under den — slik toppmenyen gjør over board-et. Høyden varierer
+       (knappene brytes på smal skjerm), så den måles inn i `--note-bar-h` på
+       editoren, og dokumentet holder av akkurat så mye. */
+    const barRO = new ResizeObserver((entries) => {
+      for (const e of entries) {
+        const ed = e.target.closest('.note-editor');
+        if (ed) ed.style.setProperty('--note-bar-h', Math.round(e.target.getBoundingClientRect().height) + 'px');
+      }
+    });
+    document.querySelectorAll('.note-editor > .note-editor-bar').forEach((el) => barRO.observe(el));
   }
   // Kolonneantallet følger vindusbredden og budsjettet skjermhøyden — begge deler
   // endres her. (ResizeObserver-en på board-et fanger bredde-endringer, men ikke
@@ -7183,12 +7195,76 @@
         if (cat.hasAttribute('data-dnd-dragging') || cat.hasAttribute('data-dnd-placeholder')) continue;
         // En KOLLAPSET kategori er ikke et mål ennå — peek folder den ut først.
         if (cat.classList.contains('collapsed')) continue;
-        if (pointerInRect(cat.getBoundingClientRect(), drag.lastX, drag.lastY)) {
-          return cat.querySelector('.cat-items');
-        }
+        const inn = dndEdgeRules() ? dndPointerInCat(cat, drag.lastX, drag.lastY)
+          : pointerInRect(cat.getBoundingClientRect(), drag.lastX, drag.lastY);
+        if (inn) return cat.querySelector('.cat-items');
       }
     }
     return card.querySelector('.items-container');
+  }
+  /* Kantreglene under (hodehalvdelen, hullet ved kantene, byttet mot pekeren og
+     vakten for rader i en kategori) gjelder nav-modalene — områder/mapper,
+     bokhyller/notatbøker og kokebøker/kapitler — der kategoriene er mapper og
+     kapitler med rader rundt seg. Listetavla har dnd-kits egne regler. */
+  const dndEdgeRules = () => !!dragScope().edgeHole;
+  // Hvor en åpen kategori begynner som MÅL: midt i hodet. Over det er pekeren
+  // på KANTEN mellom kategorien og raden over, og der lander raden foran den,
+  // på nivå 1 (`dndPreviewKantHull`).
+  function dndCatEdgeTop(cat, r) {
+    const head = cat.querySelector('.cat-head');
+    const h = head ? head.getBoundingClientRect() : null;
+    return h && h.height ? h.top + h.height / 2 : r.top;
+  }
+  function dndPointerInCat(cat, x, y) {
+    const r = cat.getBoundingClientRect();
+    return pointerInRect(r, x, y) && y >= dndCatEdgeTop(cat, r);
+  }
+  /* ------- HULLET VED KANTENE: inntil en kategori, og ytterst i en kategorihylle -------
+     Der finnes det ingen RAD for dnd-kit å bytte med (se «Forhåndsvisningen når
+     ikke alltid fram» i `docs/drag-and-drop.md`). Hullet ble da liggende der
+     det sist var — ofte INNE i en kategori, eller i nivået pekeren nettopp
+     forlot — mens slippet (`insertByPoint`) la raden et annet sted. Her flyttes
+     hullet til mellomrommet pekeren står i, i containeren slippet gjelder.
+
+     Regelen er KANTBASERT, ikke senterbasert, og det er det som gjør den stabil:
+     hullet som settes inn skyver radene under ned, men pekeren står fortsatt i
+     det samme mellomrommet, så neste runde gir samme svar. Den rører bare
+     mellomrom der dnd-kit ikke har noe å bytte med — inntil en kategori, og
+     ytterst i en kategorihylle; mellom to vanlige rader, og ytterst i en
+     liste, sorterer dnd-kit selv. En åpen
+     kategori begynner midt i hodet (`dndCatEdgeTop`), så den øvre halvdelen av
+     hodet er mellomrommet over den. */
+  function dndPreviewKantHull(b) {
+    if (drag.kind !== 'item' || !drag.el || !b || !b.registry || !dndEdgeRules()) return;
+    const cont = dndRowTargetCont;
+    if (!cont || dndInCollapsedTarget(cont)) return;
+    const kl = document.body.classList;
+    if (kl.contains('is-extracting') || kl.contains('is-over-trash')) return;
+    const y = drag.lastY;
+    const rows = [...cont.children].filter((el) => el !== drag.el &&
+      !el.hasAttribute('data-dnd-placeholder') && el.matches('.item, .category'));
+    let prev = null;
+    let next = null;
+    for (const el of rows) {
+      const r = el.getBoundingClientRect();
+      const åpen = el.classList.contains('category') && !el.classList.contains('collapsed');
+      if (y < (åpen ? dndCatEdgeTop(el, r) : r.top)) { next = el; break; }
+      if (y <= r.bottom) return;            // inne i en rad: dnd-kits
+      prev = el;
+    }
+    const kat = (el) => !!el && el.classList.contains('category');
+    // På nivå 1 er det bare mellomrommene ved en kategori; ytterst i lista
+    // tar dnd-kit og dra-ankeret seg av det som før. I en kategorihylle også
+    // ytterst: der lå hullet ellers igjen utenfor kategorien pekeren er i.
+    const hylle = cont.classList.contains('cat-items');
+    if (!kat(prev) && !kat(next) && !(hylle && (!prev || !next))) return;
+    if (drag.el.parentNode === cont && (next ? drag.el.nextElementSibling === next
+      : prev ? drag.el.previousElementSibling === prev
+        : true)) return;
+    if (next) cont.insertBefore(drag.el, next);
+    else if (prev) prev.after(drag.el);
+    else return;                            // tom container: Smett gjør det selv
+    b.registry.sync();
   }
   /* ------- Et KOLLAPSET mål må stå stille til peek har åpnet det -------
      Flyttes raden inn med én gang, krymper kilden med en radhøyde og målet
@@ -7367,6 +7443,7 @@
     return !!tilstand && Smett.admitsSwap(tilstand, dndHyst(tilstand));
   }
   function dndSortCollision(input) {
+    if (dndRowInCatOffPointer(input)) return null;
     const tilstand = dndSortTilstand(input.droppable, input.dragOperation);
     if (!dndSortAdmits(tilstand)) return null;
     const d = Math.hypot(tilstand.senter.dx, tilstand.senter.dy);
@@ -7376,6 +7453,25 @@
       type: Smett.CollisionType.Collision,
       priority: Smett.CollisionPriority.Normal,
     };
+  }
+  /* En rad i en kategori er bare en nabo når pekeren er INNE i kategorien —
+     ellers lander raden ikke der (`dndPickRowContainer`). Uten denne vakten
+     kunne det løftede objektets nedre kant overlappe første rad i en kategori
+     mens pekeren sto på kanten OVER den, og dnd-kit la hullet inn i kategorien.
+
+     Svaret leses av pekeren dnd-kit selv holder (`position.current`), i
+     detektoren — ikke av `dndRowTargetCont`, som settes i `dragmove` ETTER
+     kollisjonsrunden og ville vært én bevegelse for gammelt (se
+     `docs/drag-and-drop.md`: et for gammelt svar blir et veto). */
+  function dndRowInCatOffPointer(input) {
+    if (drag.kind !== 'item' || !dndEdgeRules()) return false;
+    const el = input.droppable.element;
+    const shelf = el && el.parentNode;
+    if (!shelf || !shelf.classList || !shelf.classList.contains('cat-items')) return false;
+    const cat = shelf.closest('.category');
+    const pos = input.dragOperation && input.dragOperation.position;
+    const pt = pos && pos.current;
+    return !!cat && !!pt && !dndPointerInCat(cat, pt.x, pt.y);
   }
   /* HYSTERESEN ER VÅR EGEN NÅ, og da må den kunne måles direkte. Låsen kan
      ikke leses av DOM-en — mens den holder igjen godtas ingen mål, og
@@ -7418,16 +7514,28 @@
     const el = input.droppable.element;
     if (!el || !el.classList) return null;
     if (el.classList.contains('collapsed')) return null;
-    if (drag.kind === 'item' && dndPointerInEl(el, input)) return null;
+    // En RAD bytter bare plass med en kategori MOT pekeren: står hullet over
+    // kategorien, bare når pekeren er under den, og omvendt. Står pekeren inne
+    // i kategorien, er den målet, ikke en nabo. Et bytte den andre veien ville
+    // lagt hullet på motsatt side av pekeren, og `dndPreviewKantHull` hadde
+    // flyttet det tilbake — fram og tilbake.
+    // (Nav-modalene. På listetavla er en kategori med pekeren inni ingen nabo.)
+    if (drag.kind === 'item' && (dndEdgeRules() ? !dndCatSwapTowardPointer(el, input)
+      : dndPointerInRect(el, input))) return null;
     return dndRowHysteresis ? dndRowHysteresis(input) : null;
   }
-  // Pekeren AKKURAT NÅ, lest fra draget dnd-kit holder på med. `drag.lastX/Y`
-  // settes i vår egen `dragmove`-lytter, som løper ETTER kollisjonsrunden — den
-  // ville vært én bevegelse for gammel her.
-  function dndPointerInEl(el, input) {
+  function dndPointerInRect(el, input) {
     const pos = input.dragOperation && input.dragOperation.position;
     const pt = pos && pos.current;
     return !!pt && pointerInRect(el.getBoundingClientRect(), pt.x, pt.y);
+  }
+  function dndCatSwapTowardPointer(cat, input) {
+    const pos = input.dragOperation && input.dragOperation.position;
+    const pt = pos && pos.current;
+    if (!pt || !drag.el) return false;
+    const r = cat.getBoundingClientRect();
+    const holeBefore = !!(drag.el.compareDocumentPosition(cat) & Node.DOCUMENT_POSITION_FOLLOWING);
+    return holeBefore ? pt.y > r.bottom : pt.y < dndCatEdgeTop(cat, r);
   }
   /* Målet pekeren venter på akkurat nå, festet per bevegelse. Brukes KUN ved
      slippet: et rask slipp (før peek rakk) skal lande i det kollapsede målet. */
@@ -8959,7 +9067,29 @@
      scopene. */
   let dndRowPolicyBusy = false;
   let dndPolicyX = null, dndPolicyY = null;
-  function dndRowPolicy(b, update) {
+  /* EN RUNDE TIL NÅR POSISJONEN ER SKREVET. dnd-kit sender `dragmove` FØR den
+     skriver den nye posisjonen — den settes i en mikrooppgave etterpå, så
+     lytteren kan avbryte bevegelsen. Runden som `dragmove` gir, leser derfor
+     FORRIGE posisjon, og bare et `dragover` (et nytt kollisjonssvar) ville
+     tatt igjen resten. Der ingenting nytt kolliderer — over øverste kategori,
+     ved kanten av en liste — ble svaret stående én bevegelse bak pekeren.
+     MÅLT på telefon: fingeren på den øvre halvdelen av et kapittelhode, mens
+     policyen fortsatt så pekeren 32 px lenger ned, inne i kapittelet.
+
+     Etterslepet tas igjen med én runde til etter dnd-kits mikrooppgave (to
+     ledd: vår første står i køen FORAN dnd-kits). Samme punkt gir samme svar
+     (`dndPolicyX/Y`), så runden er gratis når ingenting har flyttet seg. */
+  let dndCatchUpOwed = false;
+  function dndRowPolicyCatchUp(b, update) {
+    if (dndCatchUpOwed) return;
+    dndCatchUpOwed = true;
+    queueMicrotask(() => queueMicrotask(() => {
+      dndCatchUpOwed = false;
+      dndRowPolicy(b, update, true);
+    }));
+  }
+  function dndRowPolicy(b, update, catchUp) {
+    if (!catchUp && dndEdgeRules()) dndRowPolicyCatchUp(b, update);
     /* ET DRAG SOM ER OVER HAR INGEN POLITIKK. dnd-kit kan levere et `dragmove`/
        `dragover` ETTER `dragend` — typisk når en avbrutt gest fortsatt har en
        retur-animasjon på vei — og en runde der ville malt ekstraheringsmodus på
@@ -9040,6 +9170,7 @@
       dndPolicyY = drag.lastY;
       updatePeek(drag.lastX, drag.lastY);
       update();
+      dndPreviewKantHull(b);
     } finally {
       dndRowPolicyBusy = false;
       // Til slutt, når modusen er avgjort av `update()`: lukk hullet helt om det
@@ -18763,6 +18894,7 @@
     contSelector: '.card',
     get root() { return notesNavBoard; },
     singleColumn: true,               // nav-modalen har alltid én kolonne
+    edgeHole: true,
     // … men BEGGE nivåene har et arkiv ved siden av søppelkassen, så draget er
     // ikke låst loddrett her (se `dndLockAxis`).
     sideTargets: true,
@@ -22652,9 +22784,6 @@
   const recipeTrashBtn = document.getElementById('recipe-trash-btn');
   const recipeTrashWrap = document.getElementById('recipe-trash');
 
-  // «4 porsjoner»: tellerformen fra ordboken, med tallet skrevet med språkets
-  // desimaltegn (den samme funksjonen som lesevisningen bruker).
-  const servingsText = (n) => RECIPE.servingsText(n, tr, recipeDec());
   /* Kortets utdrag: beskrivelsen hvis den finnes, ellers ingrediensene — det
      er det man kjenner en oppskrift igjen på. */
   function recipeExcerpt(n, max) {
@@ -22679,10 +22808,9 @@
     el.querySelector('.note-card-excerpt-text').textContent = text;
     el.querySelector('.note-card-excerpt').hidden = !text;
     el.querySelector('.note-card-body').hidden = !text;
-    const serv = n.recipe && n.recipe.serv;
-    const meta = el.querySelector('.note-card-meta');
-    meta.textContent = serv ? servingsText(serv) : '';
-    meta.hidden = !serv;
+    // Kortet viser ikke porsjonene: de hører til oppskriften, ikke til hvordan
+    // man kjenner den igjen.
+    el.querySelector('.note-card-meta').hidden = true;
     // Kortet navngir seg selv (se `buildNoteCard`): ellers ville navnet blitt
     // regnet ut av alt innholdet, menyknappen medregnet.
     el.setAttribute('aria-label', tr('label.recipe', { name: quoted(title) }));
@@ -22912,12 +23040,13 @@
     title.textContent = c.name;
     applyShareBadge(el, c);
     const canEdit = canEditNoteObj(c);
+    // Navnet endres fra menyen (eller F2); et trykk på hodet, også på navnet,
+    // viser kapittelet — som en mappe i nav-modalen.
     const rename = canEdit ? recipeRenamer('recipeChapter', c.id, title) : null;
-    if (rename) title.addEventListener('click', (ev) => { ev.stopPropagation(); rename(); });
     const head = el.querySelector('.cat-head');
     head.setAttribute('role', 'button');
     head.addEventListener('click', (ev) => {
-      if (ev.target.closest('.obj-menu-btn, .edit-input, .cat-title')) return;
+      if (ev.target.closest('.obj-menu-btn, .edit-input')) return;
       showRecipePlace(b.id, c.id);
     });
     head.classList.toggle('is-active', state.activeBook === b.id && state.activeChapter === c.id);
@@ -22959,12 +23088,12 @@
     if (!isShared) applyShareBadge(el, b);
     const canEdit = !isShared && canEditNoteObj(b);
     const rename = canEdit ? recipeRenamer('recipeBook', b.id, title) : null;
-    if (rename) title.addEventListener('click', (ev) => { ev.stopPropagation(); rename(); });
-    // Hodet er et TREKKSPILL, som områdekortets: det åpner og lukker boken.
+    // Hodet er et TREKKSPILL, som områdekortets: et trykk, også på navnet,
+    // åpner og lukker boken. Navnet endres fra menyen (eller F2).
     const head = el.querySelector('.card-head');
     head.setAttribute('aria-expanded', b.collapsed ? 'false' : 'true');
     head.addEventListener('click', (ev) => {
-      if (ev.target.closest('.edit-input, .obj-menu-btn, .card-title')) return;
+      if (ev.target.closest('.edit-input, .obj-menu-btn')) return;
       toggleCardCollapsed(el, b, recipesNavScope);
     });
     head.addEventListener('keydown', (ev) => {
@@ -23114,6 +23243,7 @@
     get cardBoard() { return recipesNavCardBoard; },
     get rowBoard() { return recipesNavRowBoard; },
     singleColumn: true,
+    edgeHole: true,
     containers: () => visibleRecipeBooks(),
     findContainer: (id) => findRecipeBook(id),
     findRow: (id) => findRecipe(id) || findRecipeChapter(id),
@@ -24250,14 +24380,55 @@
       if (!el) return;
       // Et felt med fokus i det som løftes ville tatt med seg markøren.
       if (el.contains(document.activeElement)) document.activeElement.blur();
+      recipeEditDragBegin(el);
       // Ingen kompakt løft: raden løftes i full bredde og blir liggende der
       // den lå, så feltene står rett over sine egne plasser.
       dndNoteLiftedBox(el);
       dndLockAxis(b);
     }, (event) => {
+      const id = drag.el ? drag.el.dataset.id : null;
       if (!recipeDragEnd(event)) return;
-      dndAfterCloneGone(recipeSheet, () => { if (recipeEditing) renderRecipeView(); });
+      dndAfterCloneGone(recipeSheet, () => recipeEditDragSettle(id));
     });
+  }
+  /* Draget svarer bare i SIN EGEN seksjon. En linje åpner den tomme
+     hovedsonen i sin seksjon (`.is-drag-lines`) — den andre hoveddelen tar
+     uansett ikke imot, og en sone som åpnet seg der lovet et slipp som ikke
+     finnes. En underinndeling foldes sammen ved løft, sammen med søsknene i
+     samme seksjon (`.is-drag-subs`), slik kategorier og kort gjør: da er det
+     overskriftene som byttes om. Det løftede blir liggende under fingeren —
+     folder noe over det seg sammen, rulles flaten like mye. */
+  function recipeEditDragBegin(el) {
+    const sec = el.closest('.recipe-sec-edit');
+    if (!sec) return;
+    if (!el.classList.contains('recipe-sub')) { sec.classList.add('is-drag-lines'); return; }
+    const top0 = el.getBoundingClientRect().top;
+    sec.classList.add('is-drag-subs');
+    recipeHoldAt(el, top0);
+  }
+  function recipeHoldAt(el, top0) {
+    const shift = el.getBoundingClientRect().top - top0;
+    if (Math.abs(shift) < 0.5) return;
+    const room = recipeBody.scrollTop;
+    recipeBody.scrollTop = room + shift;
+    // Det rullefeltet ikke rakk (objektet lå for høyt til å rulles ned til):
+    // legg det til over arket. Tas av igjen ved slipp.
+    const rest = top0 - el.getBoundingClientRect().top;
+    if (rest > 0.5) recipeSheet.style.marginTop = rest + 'px';
+  }
+  // Etter slippet: alt foldes ut igjen, og det som ble dratt står der det ble
+  // sluppet.
+  function recipeEditDragSettle(id) {
+    const at = (key) => key && recipeSheet.querySelector('[data-id="' + key + '"]');
+    const before = at(id);
+    const top0 = before ? before.getBoundingClientRect().top : null;
+    recipeSheet.style.marginTop = '';
+    recipeSheet.querySelectorAll('.is-drag-lines, .is-drag-subs')
+      .forEach((sec) => sec.classList.remove('is-drag-lines', 'is-drag-subs'));
+    if (recipeEditing) renderRecipeView();
+    const after = at(id);
+    if (top0 !== null && after) recipeHoldAt(after, top0);
+    recipeSheet.style.marginTop = '';
   }
   /* Slippet: rekkefølgen og medlemskapet leses av DOM-en, som Smett allerede
      har sortert. Hver linje og underinndeling slås opp på id og settes inn

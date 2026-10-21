@@ -234,6 +234,51 @@ async function runOwner(navn, viewport, touch) {
   log(navn + ': kapittelrekkefølgen lagres',
     await waitDb(p, 'note_folders', ids.C2, 'row && row.pos < 0'));
 
+  /* 2c. Hullet ved kantene: over et kapittel (den øvre halvdelen av hodet) og
+     i gapet mellom to kapitler står plassholderen på bokens nivå 1 — der
+     slippet lander — og ikke inne i kapittelet. */
+  await settle(p);
+  const hull = () => p.evaluate(() => {
+    const ph = document.querySelector('#recipes-nav-board .recipe-book-card [data-dnd-placeholder]');
+    if (!ph) return null;
+    const nivå1 = ph.parentNode.classList.contains('items-container');
+    const neste = ph.nextElementSibling;
+    return { nivå1, i: ph.parentNode.className, foran: neste && neste.dataset.id, synlig: !document.body.classList.contains('is-hole-gone') };
+  });
+  const hodeTopp = (id) => p.evaluate((sel) => {
+    const r = document.querySelector(sel).getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + 3 };
+  }, kapHode(id));
+  // Hullet flytter layouten mens pekeren er på vei, så målet siktes inn på nytt
+  // der det står når pekeren er framme.
+  let hodeSikt = null;
+  const siktHode = async (id) => {
+    for (let i = 0; i < 3; i++) { hodeSikt = await G.travel(p, await hodeTopp(id), touch); await p.waitForTimeout(120); }
+    hodeSikt = Object.assign({}, hodeSikt, { hode: await p.evaluate((sel) => {
+      const r = document.querySelector(sel).getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom)];
+    }, kapHode(id)) });
+  };
+  await G.lift(p, await G.centre(p, rowSel(ids.R2)), touch);
+  await siktHode(ids.C2);
+  const overFørste = await hull();
+  await G.drop(p, undefined, touch);
+  await p.waitForTimeout(300);
+  const førstNå = await navText(p);
+  log(navn + ': over øverste kapittel står plassholderen foran kapittelet, og oppskriften lander der',
+    !!overFørste && overFørste.nivå1 && overFørste.foran === ids.C2 && overFørste.synlig && førstNå[0][0] === 'Brød',
+    JSON.stringify({ overFørste, førstNå, hodeSikt }));
+  await settle(p);
+  await G.lift(p, await G.centre(p, rowSel(ids.R2)), touch);
+  await siktHode(ids.C1);
+  const mellom = await hull();
+  await G.drop(p, undefined, touch);
+  await p.waitForTimeout(300);
+  const mellomNå = await navText(p);
+  log(navn + ': mellom to kapitler står plassholderen mellom dem, og oppskriften lander der',
+    !!mellom && mellom.nivå1 && mellom.foran === ids.C1 && mellom.synlig &&
+    JSON.stringify(mellomNå[0]) === JSON.stringify(['Kaker', 'Sjokoladekake', 'Brød', 'Supper', 'Tomatsuppe']),
+    JSON.stringify({ mellom, mellomNå, hodeSikt }));
+
   /* 3. Dra Brød inn i Supper. Synk-runden etter kapittel-slippet tegner menyen
      på nytt; et løft midt i den mister raden under fingeren. */
   await settle(p);
@@ -482,6 +527,80 @@ async function runOwner(navn, viewport, touch) {
   await p.evaluate(() => window.__huskis.closeRecipe());
   await p.waitForTimeout(200);
 
+  /* 8b. Draget i redigeringen svarer bare i sin egen seksjon. En oppskrift med
+     ingredienser og ingen steg: en løftet ingrediens rører ikke
+     fremgangsmåten. En løftet ingrediensgruppe foldes sammen med søsknene
+     sine, mens gruppene i fremgangsmåten står urørt. Hullet er malt, og det
+     som dras slipper lys gjennom, som alt annet som dras. */
+  await p.evaluate((id) => window.__huskis.openRecipe(id, { edit: true }), ids.R3);
+  await p.waitForTimeout(300);
+  const sec = (k) => '.recipe-sec[data-sec="' + k + '"]';
+  const nyGruppe = async (k, navn2) => {
+    await p.click(sec(k) + ' .recipe-add-row .btn-yellow');
+    await p.waitForTimeout(150);
+    await p.keyboard.type(navn2);
+  };
+  await p.click(sec('ing') + ' .recipe-add-row .btn-green');
+  await p.waitForTimeout(150);
+  await p.keyboard.type('mel');
+  await nyGruppe('ing', 'Deig');
+  await nyGruppe('ing', 'Fyll');
+  await p.waitForTimeout(250);
+  const stegHøyde = () => p.evaluate((s) => document.querySelector(s).getBoundingClientRect().height, sec('step'));
+  const malt = () => p.evaluate(() => {
+    const ph = document.querySelector('#recipe-sheet [data-dnd-placeholder]');
+    const dr = document.querySelector('#recipe-sheet [data-dnd-dragging]');
+    // `color-mix` kan gi både rgba(…) og color(srgb … / a).
+    const alfa = (c) => {
+      const slash = c.match(/\/\s*([\d.]+)\s*\)\s*$/);
+      if (slash) return parseFloat(slash[1]);
+      const v = (c.match(/rgba?\(([^)]+)\)/) || [])[1];
+      const parts = v ? v.split(/[\s,]+/).filter(Boolean) : [];
+      return parts.length > 3 ? parseFloat(parts[3]) : 1;
+    };
+    return { hull: !!ph && getComputedStyle(ph).visibility === 'visible',
+      gjennomsiktig: !!dr && alfa(getComputedStyle(dr).backgroundColor) < 1 };
+  });
+  const melGrep = await p.evaluate((s) => {
+    const l = [...document.querySelectorAll(s + ' .recipe-main .recipe-line')].pop();
+    return l ? '.recipe-line[data-id="' + l.dataset.id + '"] .recipe-grip' : null;
+  }, sec('ing'));
+  const h0 = await stegHøyde();
+  const melFra = await G.centre(p, melGrep);
+  await G.lift(p, melFra, touch);
+  await G.travel(p, { x: melFra.x, y: melFra.y + 4 }, touch);
+  await p.waitForTimeout(150);
+  const h1 = await stegHøyde();
+  const linjeMalt = await malt();
+  await G.travel(p, melFra, touch);
+  await G.drop(p, undefined, touch);
+  await p.waitForTimeout(300);
+  log(navn + ': en løftet ingrediens rører ikke fremgangsmåten, hullet er malt og linjen slipper lys gjennom',
+    Math.abs(h1 - h0) < 1 && linjeMalt.hull && linjeMalt.gjennomsiktig, JSON.stringify({ h0, h1, linjeMalt }));
+  await nyGruppe('step', 'Forberedelse');
+  await p.waitForTimeout(250);
+  const fyllFra = await G.centre(p, sec('ing') + ' .recipe-sub:last-child .recipe-sub-head .recipe-grip');
+  await G.lift(p, fyllFra, touch);
+  await G.travel(p, { x: fyllFra.x, y: fyllFra.y + 4 }, touch);
+  await p.waitForTimeout(150);
+  const foldet = await p.evaluate(([ing, step]) => {
+    const shown = (el) => !!el && getComputedStyle(el).display !== 'none';
+    const subs = (s) => [...document.querySelectorAll(s + ' .recipe-sub:not([data-dnd-placeholder])')]
+      .map((u) => shown(u.querySelector('.recipe-lines')));
+    return { ing: subs(ing), step: subs(step) };
+  }, [sec('ing'), sec('step')]);
+  const gruppeMalt = await malt();
+  await G.travel(p, fyllFra, touch);
+  await G.drop(p, undefined, touch);
+  await p.waitForTimeout(400);
+  const utfoldet = await p.evaluate((s) => [...document.querySelectorAll(s + ' .recipe-sub .recipe-lines')]
+    .every((el) => getComputedStyle(el).display !== 'none'), sec('ing'));
+  log(navn + ': en løftet ingrediensgruppe foldes sammen med søsknene, og gruppene i fremgangsmåten står urørt',
+    foldet.ing.length === 2 && foldet.ing.every((v) => !v) && foldet.step.length === 1 && foldet.step[0] &&
+    gruppeMalt.hull && gruppeMalt.gjennomsiktig && utfoldet, JSON.stringify({ foldet, gruppeMalt, utfoldet }));
+  await p.evaluate(() => window.__huskis.closeRecipe());
+  await p.waitForTimeout(200);
+
   /* 9. Søket */
   await p.evaluate(() => { window.__huskis.openSearchModal(); window.__huskis.setSearchScope('recipes'); });
   await p.fill('#search-input', 'tomater');
@@ -622,8 +741,20 @@ async function runSharing() {
   log('lenke: den anonyme leseren kan verken skrive eller lese noe annet',
     skriv.link && skriv.doc && etterSkriv.title === 'Tomatsuppe med basilikum', JSON.stringify(skriv));
 
+  const topp = await anon.evaluate(() => ({
+    tilbake: !document.getElementById('pub-back').hidden,
+    hjem: document.querySelector('.pub-bar .pub-brand').getAttribute('href'),
+    logo: !!document.querySelector('.pub-bar .pub-brand img.pub-logo'),
+    lesing: /kun lesing/.test(document.querySelector('.pub-bar').textContent),
+    invitasjon: !document.getElementById('pub-invite').hidden,
+  }));
+  log('lenke: toppmenyen har Huskis-logoen som lenke til huskis.no, ingen «kun lesing» og ingen Tilbake i innholdslisten',
+    !topp.tilbake && topp.hjem === 'https://huskis.no/' && topp.logo && !topp.lesing, JSON.stringify(topp));
+  log('lenke: en som ikke er logget inn får invitasjonen nederst', topp.invitasjon, JSON.stringify(topp));
   await anon.click('.pub-recipe');
   await anon.waitForSelector('.recipe-serv-more');
+  log('lenke: inne i en oppskrift står Tilbake i toppmenyen',
+    await anon.evaluate(() => !document.getElementById('pub-back').hidden && !document.querySelector('#pub-main .pub-back')));
   await anon.click('.recipe-serv-more');
   const pubSkalert = await anon.evaluate(() => document.querySelector('.recipe-ing-list li').textContent);
   log('lenke: leseren kan skalere porsjonene lokalt', pubSkalert === '500 g hermetiske tomater', pubSkalert);
@@ -730,6 +861,22 @@ async function runSharing() {
     return r.data;
   }, ids.C1);
   log('lenke: en ny lenke får en ny nøkkel', ny && ny !== tok);
+
+  // Invitasjonen: × lukker den for godt i nettleseren, og en innlogget
+  // Huskis-bruker (her: Alices fane) ser den aldri.
+  const tokNy = '#' + ny;
+  await anon.goto(url.split('#')[0] + tokNy);
+  await anon.waitForSelector('.pub-index', { timeout: 8000 });
+  await anon.click('#pub-invite-close');
+  await anon.reload();
+  await anon.waitForSelector('.pub-index', { timeout: 8000 });
+  const lukket = await anon.evaluate(() => document.getElementById('pub-invite').hidden);
+  await anon.evaluate(() => localStorage.removeItem('hk-pub-invite-closed'));
+  await a.goto(url.split('#')[0] + tokNy);
+  await a.waitForSelector('.pub-index', { timeout: 8000 });
+  const innlogget = await a.evaluate(() => document.getElementById('pub-invite').hidden);
+  log('lenke: invitasjonen kan lukkes for godt, og en innlogget bruker ser den ikke', lukket && innlogget,
+    JSON.stringify({ lukket, innlogget }));
 
   log('deling og lenke: ingen JS-feil', errs.length === 0, errs.slice(0, 3).join(' | '));
   await browser.close();

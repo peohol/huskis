@@ -120,7 +120,8 @@ finnes bare når oppskriften har et grunnlag.
 
 - **Fanen:** hovedbryteren er Lister | Notater | Oppskrifter. Brødsmulen viser
   kokebok › kapittel og åpner kokebokmenyen; den grønne ＋ lager en oppskrift
-  der man står. Oppskriftene vises som notatkortene.
+  der man står. Oppskriftene vises som notatkortene: tittel og utdrag
+  (beskrivelsen, ellers ingrediensene), uten porsjonene.
 - **Kokebokmenyen** ER navigasjonsmodalen for oppskrifter: en kokebok er et
   områdekort (kan foldes sammen), et kapittel en mappekategori og en oppskrift
   en mappe. De frie oppskriftene står mellom kapitlene, som ukategoriserte
@@ -177,7 +178,14 @@ bok raden også kunne landet i (`recipesNavScope.refusesRow`).
 
 **I redigeringen er draget låst til den loddrette aksen** (`strictAxis`): en
 linje dras bare opp og ned, og står i ro sidelengs. Håndtaket er nesten like
-høyt som feltene og midtstilt på linjen.
+høyt som feltene og midtstilt på linjen. Arket er en `.dnd-surface`, så det som
+dras er halvgjennomsiktig i kortform og hullet det kom fra er malt, som på alle
+andre dra-flater. Draget svarer bare i sin egen seksjon
+(`recipeEditDragBegin`): en linje åpner den tomme hovedsonen i SIN seksjon
+(`.is-drag-lines`), aldri i den andre, som uansett ikke tar imot. En løftet
+underinndeling foldes sammen til overskriften sin sammen med søsknene i samme
+seksjon (`.is-drag-subs`), slik kategorier gjør, og blir liggende under
+fingeren; etter slippet foldes alt ut igjen.
 
 ## Deling med medlemmer
 
@@ -234,11 +242,18 @@ delingsmodalen: `https://huskis.no/oppskrift.html#<nøkkel>`.
   Huskis-bruker tar ikke med seg sine rettigheter dit.
 - Svaret valideres ved grensen (`sanitizeRecipe`) og tegnes med den samme
   lesevisningen som appen (`renderReader`). Porsjonene kan skaleres lokalt.
+- Toppmenyen er appens glass (gjennomskinnelig, blur) og står fast. Huskis-merket
+  står i midten og lenker til det kanoniske domenet (`canonicalAppUrl`);
+  Tilbake står til venstre, bare inne i en oppskrift åpnet fra innholdslisten.
 - En kokebok eller et kapittel viser en innholdsliste — oppskriftene rett i
   boken først, uten overskrift, så kapitlene; en oppskrift åpnes som
   eget historikksteg, så tilbakeknappen fungerer. Innholdet hentes på nytt når
   fanen blir synlig igjen; den åpne oppskriften finnes igjen på tittelen, og er
   tittelen ikke entydig (svaret har ingen id-er), vises innholdslisten i stedet.
+- Den som ikke er logget inn i Huskis i nettleseren, får en invitasjon i en
+  fast stripe nederst (samme glass). Siden spør bare om appens øktnøkkel
+  FINNES (`sb-<prosjekt>-auth-token`), aldri om innholdet. × lukker den for godt
+  i den nettleseren (`hk-pub-invite-closed` i localStorage).
 - Byttes fragmentet mens en henting pågår, hentes den nye nøkkelen, og svaret
   for den gamle kastes.
 - I testmodus (`?mock=1`, lokalt og i preview) peker lenken på adressen appen

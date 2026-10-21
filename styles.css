@@ -1771,9 +1771,12 @@ body:not(.note-editing):has(.drop-dock:not([hidden]) .item-trash:not([hidden])) 
    til mappen i stedet for å redigere navnet — se buildGroupRow(). Fjern derfor
    tekst-cursoren og hover-bakgrunnen `.item-text` ellers har: `inherit` henter
    pekehånden fra raden (`.nav-board .card:not(.is-locked) .item`), så navnet
-   ikke ser redigerbart ut. */
-.group-row .item-text { cursor: inherit; }
-.group-row .item-text:hover { background: none; }
+   ikke ser redigerbart ut. Kapittelets navn er det samme: et trykk viser
+   kapittelet. */
+.group-row .item-text,
+.recipe-chapter .cat-title { cursor: inherit; }
+.group-row .item-text:hover,
+.recipe-chapter .cat-title:hover { background: none; }
 /* Gjort element: lavere bakgrunns-opacity + gjennomstreket, dempet tekst.
    Avkryssede dras ikke (de ligger i «Utført») — raden får `data-dnd-ignore`. */
 .item.done { background: var(--plate-done); }
@@ -2475,7 +2478,9 @@ body.is-dragging * {
   cursor: grabbing;
 }
 .dnd-surface .item[data-dnd-dragging],
-.dnd-surface .category[data-dnd-dragging] {
+.dnd-surface .category[data-dnd-dragging],
+.dnd-surface .recipe-line[data-dnd-dragging],
+.dnd-surface .recipe-sub[data-dnd-dragging] {
   scale: 1.03;
   box-shadow: var(--shadow-lg);
   background: color-mix(in srgb, var(--surface) var(--dnd-veil), transparent);
@@ -2492,6 +2497,17 @@ body.is-dragging * {
 
    Ikke `opacity`: den ville tatt teksten med seg. Bakgrunnen alene slipper lys
    gjennom, innholdet står i full styrke (`dnd-drop-animation`, punkt 6). */
+/* Oppskriftens linjer er rader i KORTFORM mens de dras (avrundet, luft
+   rundt feltene), og feltene er platene som slipper lys gjennom. */
+.dnd-surface .recipe-line[data-dnd-dragging],
+.dnd-surface .recipe-sub[data-dnd-dragging] {
+  padding: 6px 8px;
+  border-radius: 10px;
+}
+.dnd-surface .recipe-line[data-dnd-dragging] { scale: 1.01; }
+.dnd-surface [data-dnd-dragging] :is(input, textarea) {
+  background: color-mix(in srgb, var(--surface-3) var(--dnd-veil), transparent);
+}
 .dnd-surface [data-dnd-dragging] .card-head {
   background: color-mix(in srgb, var(--card-head) var(--dnd-veil), transparent);
 }
@@ -2733,7 +2749,9 @@ body.is-dragging * {
    INNHOLDET i stedet. */
 .dnd-surface .card[data-dnd-placeholder],
 .dnd-surface .item[data-dnd-placeholder],
-.dnd-surface .category[data-dnd-placeholder] {
+.dnd-surface .category[data-dnd-placeholder],
+.dnd-surface .recipe-line[data-dnd-placeholder],
+.dnd-surface .recipe-sub[data-dnd-placeholder] {
   visibility: visible;
   background: var(--scrim);
   box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.22);
@@ -2741,7 +2759,10 @@ body.is-dragging * {
 }
 .dnd-surface .card[data-dnd-placeholder] { border-radius: var(--radius); }
 .dnd-surface .item[data-dnd-placeholder],
-.dnd-surface .category[data-dnd-placeholder] { border-radius: 10px; }
+.dnd-surface .category[data-dnd-placeholder],
+.dnd-surface .recipe-line[data-dnd-placeholder],
+.dnd-surface .recipe-sub[data-dnd-placeholder] { border-radius: 10px; }
+.dnd-surface .recipe-sub[data-dnd-placeholder] { border-color: transparent; }
 /* Klonen er tatt av det løftede objektet ETTER at skalaen er satt, så den
    bærer den som en INLINE-stil — og en inline-stil slår enhver klasseregel.
    Hullet i lista skal stå i sin egen størrelse, så her må det `!important`
@@ -5824,14 +5845,23 @@ body.no-auth .corner-controls { display: none; }
 /* Hjørnegruppen ville ellers ligget oppå verktøylinjen — idéer og drakt finnes
    i stedet i editorens egen linje (.note-editor-aside). */
 body.note-editing .corner-controls { display: none; }
+/* Verktøylinjen er toppmenyens glass (samme flate og blur som `.topbar`), og
+   dokumentet ruller UNDER den. Den ligger derfor over editorkroppen, som holder
+   av den målte høyden (`--note-bar-h`, app.js). */
 .note-editor-bar {
-  flex: 0 0 auto;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: calc(10px + var(--safe-top)) calc(10px + var(--safe-right))
            10px calc(10px + var(--safe-left));
-  background: var(--surface-2);
+  background: var(--glass-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
 }
 .note-back { flex: 0 0 auto; }
@@ -6003,8 +6033,9 @@ body.note-editing .corner-controls { display: none; }
 .note-editor-body {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 18px calc(18px + var(--safe-right)) calc(24px + var(--safe-bottom) + var(--sync-pill-h))
-           calc(18px + var(--safe-left));
+  padding: calc(18px + var(--note-bar-h, 0px)) calc(18px + var(--safe-right))
+           calc(24px + var(--safe-bottom) + var(--sync-pill-h)) calc(18px + var(--safe-left));
+  scroll-padding-top: var(--note-bar-h, 0px);
 }
 .note-sheet-wrap {
   width: 100%;
@@ -6617,11 +6648,16 @@ body.note-editing .corner-controls { display: none; }
 .recipe-sub-add { display: flex; justify-content: center; margin-top: 4px; }
 .recipe-sub-add .btn-add.icon-only { width: 34px; height: 34px; }
 .recipe-sub-add .btn-add.icon-only .icon { font-size: 26px; }
-/* «Øvrige»-sonen uten linjer har ingen overskrift — bortsett fra mens noe dras,
-   da den må synes for å kunne ta imot. */
+/* «Øvrige»-sonen uten linjer har ingen overskrift — bortsett fra mens en
+   linje fra SAMME seksjon dras, da den må synes for å kunne ta imot
+   (`recipeEditDragBegin`). Den andre seksjonen står urørt: den tar ikke imot. */
 .recipe-main.has-subs.is-empty > .recipe-other-name { display: none; }
-body.is-dragging .recipe-main.has-subs.is-empty > .recipe-other-name { display: block; }
-body.is-dragging .recipe-main .recipe-lines:empty { min-height: 36px; }
+.recipe-sec-edit.is-drag-lines .recipe-main.has-subs.is-empty > .recipe-other-name { display: block; }
+.recipe-sec-edit.is-drag-lines .recipe-main .recipe-lines:empty { min-height: 36px; }
+/* En løftet underinndeling og søsknene i seksjonen er bare overskriften sin. */
+.recipe-sec-edit.is-drag-subs .recipe-sub > .recipe-lines,
+.recipe-sec-edit.is-drag-subs .recipe-sub > .recipe-sub-add { display: none; }
+.recipe-sec-edit.is-drag-subs .recipe-sub-head { margin-bottom: 0; }
 .recipe-add-row { margin-top: 8px; padding: 0; }
 
 @media (max-width: 560px) {
@@ -6642,23 +6678,31 @@ body.is-dragging .recipe-main .recipe-lines:empty { min-height: 36px; }
    Oppskriftsflatens lesemodus, alene på siden: samme linje øverst, samme ark,
    ingen redigeringskontroller. */
 .pub-page { min-height: 100vh; display: flex; flex-direction: column; }
-.pub-bar { position: sticky; top: 0; z-index: 2; }
-.pub-brand { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-size: var(--fs-md); }
-.pub-brand-icon { font-size: 22px; }
-.pub-readonly {
-  flex: 1 1 auto;
-  min-width: 0;
-  text-align: center;
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--ink-soft);
+/* Toppmenyen er toppmenyens glass (arvet fra `.note-editor-bar`) og står fast
+   mens siden ruller under den. Tre kolonner: Tilbake, merket i midten (lenke
+   til huskis.no), drakten — de to ytterste like brede, så merket står midt på. */
+.pub-bar {
+  position: sticky;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
 }
+.pub-bar-start { display: flex; justify-content: flex-start; min-width: 0; }
+.pub-bar-end { justify-self: end; }
+.pub-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  font-size: var(--fs-lg);
+  color: var(--ink);
+  text-decoration: none;
+}
+.pub-brand:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 3px; border-radius: 6px; }
+.pub-logo { width: 30px; height: 30px; flex: none; }
 .share-public-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .share-public-url { flex: 1 1 14em; min-width: 0; padding: 8px 10px; font-size: var(--fs-sm); }
-.pub-main { padding-bottom: calc(24px + var(--safe-bottom)); }
+.pub-main { padding-bottom: calc(24px + var(--safe-bottom) + var(--pub-invite-h, 0px)); }
 .pub-loading { color: #fff; text-shadow: var(--text-shadow); text-align: center; }
-.pub-back { margin: 0 auto 10px; display: flex; max-width: 760px; width: fit-content; }
-.pub-main > .pub-back { margin-left: max(0px, calc((100% - 760px) / 2)); }
 .pub-icon { font-size: var(--fs-xl); }
 .pub-chapter .recipe-sec-title { display: flex; align-items: center; gap: 6px; }
 .recipe-sec-title .pub-icon { font-size: 1em; }
@@ -6684,10 +6728,31 @@ body.is-dragging .recipe-main .recipe-lines:empty { min-height: 36px; }
 .pub-recipe:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
 .pub-recipe .pub-icon { font-size: 22px; }
 .pub-recipe-title { flex: 1 1 auto; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
-.pub-recipe-meta { flex: 0 0 auto; font-size: var(--fs-sm); color: var(--ink-soft); }
 .pub-message-title { font-size: var(--fs-lg); font-weight: 700; margin: 0 0 6px; }
-@media (max-width: 560px) {
-  .pub-readonly { order: 3; flex: 1 1 100%; }
-  .pub-bar { flex-wrap: wrap; }
-  .pub-brand { flex: 1 1 auto; }
+/* Invitasjonen nederst: samme glass som toppmenyen, liten skrift. */
+.pub-invite {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px calc(10px + var(--safe-right)) calc(8px + var(--safe-bottom)) calc(14px + var(--safe-left));
+  background: var(--glass-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-xs);
+  color: var(--ink);
 }
+.pub-invite[hidden] { display: none; }
+.pub-invite-text { flex: 1 1 auto; min-width: 0; }
+.pub-invite-text p { margin: 0; }
+.pub-invite-title { font-weight: 700; }
+.pub-invite-sub { color: var(--ink-soft); }
+.pub-invite-brand { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.pub-invite-brand .pub-logo { width: 18px; height: 18px; }
+.pub-invite-cta { flex: none; text-decoration: none; }
+.pub-invite-close { flex: none; font-size: 22px; }

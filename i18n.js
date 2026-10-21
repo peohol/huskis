@@ -1455,7 +1455,11 @@
     'public.error':    ['Kunne ikke hente innholdet. Sjekk forbindelsen og prøv igjen.',
                         'Could not load the content. Check your connection and try again.'],
     'public.retry':    ['Prøv igjen', 'Try again'],
-    'public.readOnly': ['Delt med lenke · kun lesing', 'Shared by link · read only'],
+    'public.inviteTitle': ['Hold styr på livet ditt med {brand} ❤️', 'Keep track of your life with {brand} ❤️'],
+    'public.inviteText': ['Lag lister, notater og oppskrifter, og del dem med andre.',
+      'Make lists, notes and recipes, and share them with others.'],
+    'public.inviteCta': ['Meld deg inn nå', 'Join now'],
+    'public.inviteClose': ['Lukk', 'Close'],
     'public.back':     ['Tilbake', 'Back'],
     'public.noRecipes': ['Ingen oppskrifter her ennå.', 'No recipes here yet.'],
     /* ==== HUSKIS_I18N_DICT_END ==== */

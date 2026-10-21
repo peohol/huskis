@@ -33,6 +33,11 @@
 
   var main = document.getElementById('pub-main');
   var themeBtn = document.getElementById('pub-theme');
+  var backBtn = document.getElementById('pub-back');
+  var invite = document.getElementById('pub-invite');
+  var HOME = ((window.HUSKIS_CONFIG && window.HUSKIS_CONFIG.canonicalAppUrl) || 'https://huskis.no')
+    .replace(/\/+$/, '') + '/';
+  var INVITE_KEY = 'hk-pub-invite-closed';
 
   var data = null;     // det siste svaret fra serveren
   var view = { c: null, r: null, title: '' };  // hvor leseren står (indekser i svaret)
@@ -108,15 +113,6 @@
     row.appendChild(el('h1', 'recipe-title', text));
     return row;
   }
-  function backButton(label, fn) {
-    var b = el('button', 'btn btn-ghost btn-small pub-back');
-    b.type = 'button';
-    b.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" ' +
-      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5 8 12l7 7"></path></svg>';
-    b.appendChild(el('span', null, label));
-    b.addEventListener('click', fn);
-    return b;
-  }
   function recipeList(list, c) {
     var ul = el('ul', 'pub-list');
     list.forEach(function (x, r) {
@@ -125,7 +121,6 @@
       b.type = 'button';
       b.appendChild(icon('recipe'));
       b.appendChild(el('span', 'pub-recipe-title', titleOf(x)));
-      if (x.recipe.serv) b.appendChild(el('span', 'pub-recipe-meta', RECIPE.servingsText(x.recipe.serv, tr, dec)));
       b.addEventListener('click', function () { go(c, r); });
       li.appendChild(b);
       ul.appendChild(li);
@@ -182,6 +177,7 @@
       sheet.appendChild(b);
     }
     box.appendChild(sheet);
+    if (backBtn) backBtn.hidden = true;
     main.textContent = '';
     main.appendChild(box);
     main.setAttribute('aria-busy', 'false');
@@ -190,6 +186,10 @@
   function render() {
     main.textContent = '';
     main.setAttribute('aria-busy', 'false');
+    // Tilbake står i toppmenyen, og finnes bare inne i en oppskrift man kom
+    // til fra innholdslisten.
+    var inRecipe = data.type !== 'recipe' && view.r != null && !!recipeAt(view.c, view.r);
+    if (backBtn) backBtn.hidden = !inRecipe;
     // Én oppskrift alene har ingen innholdsliste å gå tilbake til.
     if (data.type === 'recipe') {
       var only = data.recipes[0];
@@ -201,7 +201,6 @@
     var x = view.r == null ? null : recipeAt(view.c, view.r);
     if (x) {
       setTitle(titleOf(x));
-      main.appendChild(backButton(tr('public.back'), function () { history.back(); }));
       main.appendChild(renderRecipe(x, view.c + ':' + view.r));
     } else {
       setTitle(data.name);
@@ -283,9 +282,57 @@
     });
   }
 
+  /* ---- Invitasjonen nederst ----
+     Bare for den som ikke er logget inn i Huskis i denne nettleseren. Siden
+     selv er alltid anonym (`cli`), så spørsmålet er om APPEN har en økt her:
+     Supabase-klienten lagrer den under `sb-<prosjekt>-auth-token`, og
+     mock-backenden per fane. Vi ser bare etter at nøkkelen finnes — innholdet
+     leses aldri. Lukket er lukket for godt i denne nettleseren. */
+  function store(fn) { try { return fn(); } catch (e) { return null; } }
+  function signedIn() {
+    if (window.HK_MOCK && /[?&]mock=1/.test(location.search)) {
+      return !!store(function () { return sessionStorage.getItem('hk-mock-session'); });
+    }
+    return !!store(function () {
+      return Object.keys(localStorage).some(function (k) { return /^sb-.+-auth-token$/.test(k); });
+    });
+  }
+  function paintInvite() {
+    if (!invite) return;
+    var closed = store(function () { return localStorage.getItem(INVITE_KEY); }) === '1';
+    invite.hidden = closed || signedIn();
+    document.body.classList.toggle('has-invite', !invite.hidden);
+    var title = document.getElementById('pub-invite-title');
+    if (!title || title.firstChild) return;
+    // «… med {brand} ❤️»: merket er Huskis-logoen og navnet, som i toppmenyen.
+    var parts = tr('public.inviteTitle').split('{brand}');
+    title.appendChild(document.createTextNode(parts[0]));
+    var brand = el('span', 'pub-invite-brand');
+    var logo = el('img', 'pub-logo');
+    logo.src = 'favicon.svg';
+    logo.alt = '';
+    brand.appendChild(logo);
+    brand.appendChild(document.createTextNode('Huskis'));
+    title.appendChild(brand);
+    title.appendChild(document.createTextNode(parts.slice(1).join('')));
+  }
+  if (invite) {
+    // Siden holder av plass til stripa, så det nederste ikke ligger under den.
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(function () {
+        document.documentElement.style.setProperty('--pub-invite-h', (invite.hidden ? 0 : invite.offsetHeight) + 'px');
+      }).observe(invite);
+    }
+    document.getElementById('pub-invite-close').addEventListener('click', function () {
+      store(function () { localStorage.setItem(INVITE_KEY, '1'); });
+      paintInvite();
+    });
+  }
+
   I18N.applyStatic(document);
-  var brandIcon = document.getElementById('pub-brand-icon');
-  if (brandIcon) brandIcon.innerHTML = ICONS.recipe || '';
+  document.querySelectorAll('.pub-home').forEach(function (a) { a.href = HOME; });
+  if (backBtn) backBtn.addEventListener('click', function () { history.back(); });
+  paintInvite();
   paintTheme();
   window.addEventListener('hashchange', function () { data = null; view = { c: null, r: null, title: '' }; load(); });
   document.addEventListener('visibilitychange', function () { if (!document.hidden) load(); });
