@@ -6723,9 +6723,15 @@ body.note-editing .corner-controls { display: none; }
 .pub-main { padding-bottom: calc(24px + var(--safe-bottom) + var(--pub-invite-h, 0px)); }
 .pub-loading { color: #fff; text-shadow: var(--text-shadow); text-align: center; }
 .pub-icon { font-size: var(--fs-xl); }
-.pub-chapter .recipe-sec-title { display: flex; align-items: center; gap: 6px; }
+/* Kapitteloverskriftene i innholdslisten står uten skillelinje, med like mye
+   luft over (fra forrige kort) som under (til første kort). */
+.pub-index { --pub-chapter-gap: 18px; }
+.pub-chapter .recipe-sec-title {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: var(--pub-chapter-gap); padding-bottom: 0; border-bottom: 0;
+}
 .recipe-sec-title .pub-icon { font-size: 1em; }
-.pub-chapter + .pub-chapter { margin-top: 18px; }
+.pub-chapter + .pub-chapter { margin-top: var(--pub-chapter-gap); }
 .pub-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .pub-recipe {
   appearance: none;

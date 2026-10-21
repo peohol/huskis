@@ -905,6 +905,27 @@ async function runSharing() {
   });
   log('lenke: logoen og «Huskis» står i vater med resten av invitasjonen, uten hjerte',
     vater.navn <= 1 && vater.logo <= 2 && !vater.hjerte, JSON.stringify(vater));
+
+  // Kokeboken: kapitteloverskriftene har ingen skillelinje, og like mye luft
+  // over (fra forrige kort) som under (til første kort).
+  const bokTok = await a.evaluate(async (id) =>
+    (await window.HK_MOCK.createClient().rpc('recipe_link_create', { p_type: 'note_project', p_id: id })).data, ids.B);
+  const bok = await ctx.newPage();
+  bok.on('pageerror', (e) => errs.push('bok: ' + e.message));
+  await bok.goto(url.split('#')[0] + '#' + bokTok);
+  await bok.waitForSelector('.pub-index .pub-chapter h2', { timeout: 8000 });
+  const luft = await bok.evaluate(() => [...document.querySelectorAll('.pub-chapter h2')].map((h) => {
+    const r = document.createRange(); r.selectNodeContents(h);
+    const tekst = r.getBoundingClientRect();
+    const sec = h.closest('.pub-chapter'), forrige = sec.previousElementSibling;
+    const kort = sec.querySelector('.pub-recipe').getBoundingClientRect();
+    return { linje: getComputedStyle(h).borderBottomStyle !== 'none' && getComputedStyle(h).borderBottomWidth !== '0px',
+      over: forrige ? Math.round(tekst.top - [...forrige.querySelectorAll('.pub-recipe')].pop().getBoundingClientRect().bottom) : null,
+      under: Math.round(kort.top - tekst.bottom) };
+  }));
+  log('lenke: kapitteloverskriftene i kokeboken har ingen skillelinje og like mye luft over og under',
+    luft.length === 2 && luft.every((x) => !x.linje && x.over != null && Math.abs(x.over - x.under) <= 2), JSON.stringify(luft));
+  await bok.close();
   const stripeBred = await stripe();
   await anon.setViewportSize({ width: 390, height: 780 });
   await anon.waitForTimeout(200);

@@ -268,7 +268,8 @@ delingsmodalen: `https://huskis.no/oppskrift.html#<nøkkel>`.
   lenker»), og det samme gjelder «Meld deg inn nå»;
   Tilbake står til venstre, bare inne i en oppskrift åpnet fra innholdslisten.
 - En kokebok eller et kapittel viser en innholdsliste — oppskriftene rett i
-  boken først, uten overskrift, så kapitlene; en oppskrift åpnes som
+  boken først, uten overskrift, så kapitlene (overskriften uten skillelinje,
+  med like mye luft over som under); en oppskrift åpnes som
   eget historikksteg, så tilbakeknappen fungerer. Innholdet hentes på nytt når
   fanen blir synlig igjen; den åpne oppskriften finnes igjen på tittelen, og er
   tittelen ikke entydig (svaret har ingen id-er), vises innholdslisten i stedet.
