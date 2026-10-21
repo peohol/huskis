@@ -892,6 +892,19 @@ async function runSharing() {
       knappMidt: Math.abs((cta.left + cta.right) / 2 - (box.left + box.right) / 2) <= 2,
       knappUnder: cta.top >= tekst.bottom - 0.5 };
   });
+  // Merket står i vater: «Huskis» på samme linje som teksten foran, og logoen
+  // midtstilt på den linja. Ingen hjerte.
+  const vater = await anon.evaluate(() => {
+    const t = document.querySelector('.pub-invite-title');
+    const brand = t.querySelector('.pub-invite-brand');
+    const rect = (node) => { const r = document.createRange(); r.selectNodeContents(node); return r.getBoundingClientRect(); };
+    const foran = rect(t.firstChild), navn = rect(brand.lastChild);
+    const logo = brand.querySelector('img').getBoundingClientRect();
+    return { navn: Math.abs(navn.bottom - foran.bottom), logo: Math.abs((logo.top + logo.bottom) / 2 - (foran.top + foran.bottom) / 2),
+      hjerte: /[❤♥]/.test(t.textContent) };
+  });
+  log('lenke: logoen og «Huskis» står i vater med resten av invitasjonen, uten hjerte',
+    vater.navn <= 1 && vater.logo <= 2 && !vater.hjerte, JSON.stringify(vater));
   const stripeBred = await stripe();
   await anon.setViewportSize({ width: 390, height: 780 });
   await anon.waitForTimeout(200);

@@ -1461,7 +1461,7 @@
     'public.error':    ['Kunne ikke hente innholdet. Sjekk forbindelsen og prøv igjen.',
                         'Could not load the content. Check your connection and try again.'],
     'public.retry':    ['Prøv igjen', 'Try again'],
-    'public.inviteTitle': ['Hold styr på livet ditt med {brand} ❤️', 'Keep track of your life with {brand} ❤️'],
+    'public.inviteTitle': ['Hold styr på livet ditt med {brand}', 'Keep track of your life with {brand}'],
     'public.inviteText': ['Lag lister, notater og oppskrifter, og del dem med andre.',
       'Make lists, notes and recipes, and share them with others.'],
     'public.inviteCta': ['Meld deg inn nå', 'Join now'],

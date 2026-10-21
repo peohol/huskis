@@ -6775,8 +6775,11 @@ body.note-editing .corner-controls { display: none; }
 .pub-invite-text p { margin: 0; }
 .pub-invite-title { font-weight: 700; padding: 0 30px; }   /* fri for × i hjørnet */
 .pub-invite-sub { color: var(--ink-soft); text-wrap: balance; }
-.pub-invite-brand { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.pub-invite-brand .pub-logo { width: 18px; height: 18px; }
+/* Merket står i tekstlinja: «Huskis» på samme grunnlinje som teksten foran,
+   og logoen midtstilt på linja (en inline-flex-boks ville fått logoens
+   underkant som grunnlinje og løftet navnet). */
+.pub-invite-brand { white-space: nowrap; }
+.pub-invite-brand .pub-logo { width: 1.3em; height: 1.3em; margin-right: 3px; vertical-align: -0.3em; }
 .pub-invite-cta { flex: none; text-decoration: none; }
 .pub-invite .pub-invite-close {
   position: absolute;
