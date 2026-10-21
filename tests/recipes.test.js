@@ -957,6 +957,27 @@ async function runSharing() {
   log('lenke: et byttet fragment viser den nye lenkens innhold, ikke svaret for den gamle',
     JSON.stringify(byttet) === '["Sjokoladekake"]', JSON.stringify(byttet));
 
+  // Et valgt antall porsjoner følger ikke med til en annen oppskrift som får
+  // samme plass i en annen lenke.
+  await a.evaluate(async (ids) => {
+    await window.HK_MOCK._edit((db) => { db.notes.find((n) => n.id === ids.R3).recipe.serv = 2; });
+  }, ids);
+  await anon.goto(url);
+  await anon.waitForSelector('.pub-index', { timeout: 8000 });
+  await anon.click('.pub-recipe');
+  await anon.waitForSelector('.recipe-serv-more', { timeout: 8000 });
+  await anon.click('.recipe-serv-more');
+  await anon.evaluate((t) => { location.hash = t; }, tok2);
+  await anon.waitForSelector('.pub-index', { timeout: 8000 });
+  await anon.click('.pub-recipe');
+  await anon.waitForSelector('.recipe-serv-value', { timeout: 8000 });
+  const annenOppskrift = await anon.evaluate(() => document.querySelector('.recipe-serv-value').textContent);
+  log('lenke: porsjonsvalget i én oppskrift følger ikke med til en annen på samme plass',
+    annenOppskrift === '2 porsjoner', annenOppskrift);
+  await a.evaluate(async (ids) => {
+    await window.HK_MOCK._edit((db) => { db.notes.find((n) => n.id === ids.R3).recipe.serv = null; });
+  }, ids);
+
   // To oppskrifter med samme tittel kan ikke skilles uten id-er: står leseren i
   // den ene når innholdet hentes på nytt, går hen til innholdslisten i stedet
   // for å vise den andre.
