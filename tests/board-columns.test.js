@@ -408,10 +408,13 @@ async function lift(p, sel) {
     });
     await p.waitForTimeout(400);
     const empty = await live();
-    /* Fire PERMANENTE mål står igjen: toppmenyen, hjørnegruppen og de to
-       board-ene (listenes og notatenes — docs/notater-plan.md). Kortene skal
-       være meldt av. */
-    log('8 tom mappe slipper alle kort-observasjoner', empty.total <= 4 && empty.detached === 0, JSON.stringify(empty));
+    /* De PERMANENTE målene står igjen: toppmenyen, hjørnegruppen, de to
+       board-ene (listenes og notatenes — docs/notater-plan.md) og verktøylinja
+       i hver editor (notat og oppskrift, `--note-bar-h` — docs/design-system.md).
+       Kortene skal være meldt av. */
+    const faste = 4 + await p.evaluate(() => document.querySelectorAll('.note-editor > .note-editor-bar').length);
+    log('8 tom mappe slipper alle kort-observasjoner', empty.total <= faste && empty.detached === 0,
+      JSON.stringify(Object.assign({ faste }, empty)));
     log('8 ingen JS-feil', errs.length === 0, errs.join(' | '));
     await p.close();
   }
