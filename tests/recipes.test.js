@@ -743,13 +743,14 @@ async function runSharing() {
 
   const topp = await anon.evaluate(() => ({
     tilbake: !document.getElementById('pub-back').hidden,
-    hjem: document.querySelector('.pub-bar .pub-brand').getAttribute('href'),
+    hjem: document.querySelector('.pub-bar .pub-brand').href === location.origin + '/'
+      && document.querySelector('.pub-invite-cta').href === location.origin + '/',
     logo: !!document.querySelector('.pub-bar .pub-brand img.pub-logo'),
     lesing: /kun lesing/.test(document.querySelector('.pub-bar').textContent),
     invitasjon: !document.getElementById('pub-invite').hidden,
   }));
-  log('lenke: toppmenyen har Huskis-logoen som lenke til huskis.no, ingen «kun lesing» og ingen Tilbake i innholdslisten',
-    !topp.tilbake && topp.hjem === 'https://huskis.no/' && topp.logo && !topp.lesing, JSON.stringify(topp));
+  log('lenke: toppmenyen har Huskis-logoen som lenke til appens forside (huskis.no), ingen «kun lesing» og ingen Tilbake i innholdslisten',
+    !topp.tilbake && topp.hjem && topp.logo && !topp.lesing, JSON.stringify(topp));
   log('lenke: en som ikke er logget inn får invitasjonen nederst', topp.invitasjon, JSON.stringify(topp));
   await anon.click('.pub-recipe');
   await anon.waitForSelector('.recipe-serv-more');

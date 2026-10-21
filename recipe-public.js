@@ -35,8 +35,6 @@
   var themeBtn = document.getElementById('pub-theme');
   var backBtn = document.getElementById('pub-back');
   var invite = document.getElementById('pub-invite');
-  var HOME = ((window.HUSKIS_CONFIG && window.HUSKIS_CONFIG.canonicalAppUrl) || 'https://huskis.no')
-    .replace(/\/+$/, '') + '/';
   var INVITE_KEY = 'hk-pub-invite-closed';
 
   var data = null;     // det siste svaret fra serveren
@@ -330,7 +328,6 @@
   }
 
   I18N.applyStatic(document);
-  document.querySelectorAll('.pub-home').forEach(function (a) { a.href = HOME; });
   if (backBtn) backBtn.addEventListener('click', function () { history.back(); });
   paintInvite();
   paintTheme();

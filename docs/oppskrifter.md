@@ -243,7 +243,10 @@ delingsmodalen: `https://huskis.no/oppskrift.html#<nøkkel>`.
 - Svaret valideres ved grensen (`sanitizeRecipe`) og tegnes med den samme
   lesevisningen som appen (`renderReader`). Porsjonene kan skaleres lokalt.
 - Toppmenyen er appens glass (gjennomskinnelig, blur) og står fast. Huskis-merket
-  står i midten og lenker til det kanoniske domenet (`canonicalAppUrl`);
+  står i midten og lenker til appens forside på samme domene (`./`, altså
+  huskis.no — siden ligger der, se lenken over). Relativt med vilje: webkoden
+  har ingen utgående lenker (`tests/capacitor-android.test.js`, «Eksterne
+  lenker»), og det samme gjelder «Meld deg inn nå»;
   Tilbake står til venstre, bare inne i en oppskrift åpnet fra innholdslisten.
 - En kokebok eller et kapittel viser en innholdsliste — oppskriftene rett i
   boken først, uten overskrift, så kapitlene; en oppskrift åpnes som
