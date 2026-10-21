@@ -552,7 +552,7 @@ Full modell: [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
 | `create_share_invite(type, id, email, role)` / `accept_share_invite(invite)` / `decline_share_invite` / `revoke_share_invite` | delingsflyt, medlem eller eierskap; aksept krever ingen plassering |
 | `revoke_share` / `set_member_role` / `leave_share` / `set_locked` / `set_unlocked` / `set_invite_policy` / `get_members` | administrasjon (roller, låsing + unntak, invitasjonspolicy; `get_members` gir `viewer.caps`) |
 | `move_group(group, universe, cat, pos)` | ATOMISK mappeflytting: reorder / reparent / kopier-og-slett med id-mapping |
-| `recipe_chapter_dissolve(folder, ts, org)` | ATOMISK oppløsning av et kapittel: alle oppskriftene til «Uten kapittel» + slett kapittelet, eller ingenting |
+| `recipe_chapter_dissolve(folder, ts, org)` | ATOMISK oppløsning av et kapittel: alle oppskriftene rett i kokeboken, på kapittelets plass + slett kapittelet, eller ingenting |
 | `notify_record(rows, cursor)` / `notify_set_prefs(prefs)` | varselhistorikken: logg passerte terskler idempotent (unik `(user_id, key)`) og flytt generator-markøren; de fire av/på-valgene (`varsler.md`) |
 | `update memberships set pos` (egen rad) | personlig rekkefølge (toppnivå-områder + frie mapper) |
 | Realtime `postgres_changes` på tabellene | live-oppdatering (tabellene ligger i `supabase_realtime`-publikasjonen) |

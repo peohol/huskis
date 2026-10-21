@@ -7168,6 +7168,9 @@ declare
   uid uuid := auth.uid();
   f public.note_folders;
   v_pos double precision;
+  v_next double precision;
+  v_step double precision;
+  v_n integer;
   v_out jsonb := '[]'::jsonb;
   r record;
   v_row jsonb;
@@ -7189,11 +7192,22 @@ begin
     raise exception 'mangler myndighet til å flytte alle oppskriftene i kapittelet'
       using errcode = 'insufficient_privilege';
   end if;
-  select coalesce(max(n.pos), 0) into v_pos
-    from public.notes n where n.project_id = f.project_id and n.folder_id is null;
+  -- Oppskriftene ARVER kapitlets plass på bokens øverste nivå, som listepunktene
+  -- i en oppløst kategori: jevnt fordelt i gapet mellom kapitlet og neste rad der
+  -- (et kapittel eller en oppskrift rett i boken), i samme rekkefølge. Er kapitlet
+  -- sist, får de hele heltall etter det.
+  select min(x.pos) into v_next from (
+    select n.pos from public.notes n
+     where n.project_id = f.project_id and n.folder_id is null and n.pos > f.pos
+    union all
+    select g.pos from public.note_folders g
+     where g.project_id = f.project_id and g.id <> f.id and g.pos > f.pos) x;
+  select count(*) into v_n from public.notes n where n.folder_id = f.id;
+  v_step := (coalesce(v_next, f.pos + v_n + 1) - f.pos) / (v_n + 1);
+  v_pos := f.pos;
   for r in select n.id, n.pos_ts from public.notes n
             where n.folder_id = f.id order by n.pos, n.id loop
-    v_pos := v_pos + 1;
+    v_pos := v_pos + v_step;
     update public.notes
        set folder_id = null, pos = v_pos,
            pos_ts = greatest(coalesce(p_ts, 0), r.pos_ts + 1), pos_org = coalesce(p_org, '')

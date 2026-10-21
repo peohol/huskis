@@ -581,6 +581,13 @@ Størrelse/form kommer fra egne klasser: `.btn` (modaler), `.btn-small`,
   konsekvente streken. De tekst+ikon-
   knappene (liste/mappe/område) beholder `.btn-add .icon`-størrelsen (19px);
   kun de kvadratiske icon-only-knappene skaleres opp til 34px (se over).
+- **＋-knappene bærer ikonet for det de lager.** Alle grønne og gule
+  ＋-knapper — unntatt listepunktets — viser typeikonet ved siden av ＋-en
+  (`paintAddKind(btn, ICONS.<type>)` fyller `.add-kind-icon`): mappe-＋ i et
+  område og i en mappekategori bærer mappeikonet, oppskrift-＋ oppskriftsikonet,
+  den gule kapittelknappen kapittelikonet. Ikonet hentes fra `ICONS`, så det er
+  det samme som raden det lager. I oppskriftsredigeringen bærer den gule
+  underinndelingsknappen kategori-ikonet.
 - **Kategorier** (`.category` / `.cat-head` / `.cat-title` / `.cat-cog` /
   `.cat-items`): en nivå-1-rad med en header (tittel/meta + objektmenyknapp)
   over en nøstet elementliste. Overskriftslinjen (unntatt menyknappen) er
@@ -834,8 +841,13 @@ ARKET er papiret (`.note-sheet`, `--surface` med `--line`-kant og
 Brødteksten er `--ink` på arket, og det paret er det som er målt i begge
 draktene (`docs/tilgjengelighet.md`). Notatets tittel ligger OVER arket, med
 notatikonet foran seg, i hvit skrift med skygge som alt annet på board-flaten —
-den er notatets NAVN, ikke dokumentets første overskrift. Verktøylinjen står på
-`--surface-2` med en `--line`-kant under.
+den er notatets NAVN, ikke dokumentets første overskrift. Verktøylinjen er
+toppmenyens glass — `--glass-bg` med `backdrop-filter: blur(14px)` og en
+`--line`-kant under, som `.topbar` — og ligger OVER kroppen, som ruller under
+den. Høyden varierer (knappene brytes på smal skjerm), så den måles inn i
+`--note-bar-h`, og kroppen holder av akkurat så mye (`padding-top` og
+`scroll-padding-top`). Det gjelder notatene, oppskriftene og den offentlige
+oppskriftssiden.
 
 - Linjen er delt i tre: `.note-back` (Huskis' vanlige `.btn`-flate, ikke
   verktøyenes) alene til venstre, `.note-tools` sentrert i midten, og

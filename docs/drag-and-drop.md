@@ -48,6 +48,9 @@ er hvilket state-tre man slår opp i (`boardScope` / `navScope` / `ideaScope` /
 kokebøker som kort, kapitler og oppskrifter som rader) og `recipeEditBoard`
 (ingrediensene, stegene og underinndelingene i redigeringen). Hva som kan
 slippes hvor, står i [oppskrifter.md](oppskrifter.md); limkoden er den samme.
+Kokebokmenyens to board kommer fra den SAMME fabrikken som nav-modalens
+(`buildNavBoards(S, …)`), og hele nav-maskineriet leser modalen, rullefeltet og
+board-ene fra scopet (`S.modal`, `S.scroller`, `S.cardBoard`, `S.rowBoard`).
 
 **Notat-scopene har ingen kategorier og ingen ekstrahering**, så et slipp kan
 bety tre ting: ny plass i rekka (for en notatbok i tillegg en ny bokhylle),
@@ -359,10 +362,31 @@ en RAD. Er det ingen rad å overlappe — stripen over første rad, stripen unde
 siste, en kategori som er for høy til at et listepunkt dekker en femtedel av
 den — er CONTAINEREN selv slippmålet, og plasseringen avgjøres først ved SLIPPET
 (Smetts `AuthoritativeDrop` → `insertByPoint`, som er punktbasert). Slippet
-lander riktig; det er bare hullet som ikke rekker å flytte seg først.
+lander riktig; ved kantene flytter Huskis hullet selv («Hullet ved kantene»
+under).
 
 Det er derfor kollisjonsdetektorene under finnes: de gjør containeren til et
 svar, slik at slippet har et mål å lande i.
+
+**Hullet ved kantene** (`dndPreviewKantHull`, fra `dndRowPolicy`). Inntil en
+kategori, og over første eller under siste rad i en kategorihylle, finnes det
+ingen rad å bytte med, og
+hullet ble liggende der det sist var — ofte INNE i en kategori, mens slippet la
+raden utenfor. Der flyttes hullet til mellomrommet pekeren står i, i containeren
+slippet gjelder. Regelen er KANTBASERT, ikke senterbasert, og det er det som
+gjør den stabil: hullet som settes inn skyver radene under ned, men pekeren
+står fortsatt i det samme mellomrommet, så neste runde gir samme svar — og det
+samme som `insertByPoint` ved slippet. Mellom to vanlige rader, og ytterst i
+en liste, gjør den ingenting; der sorterer dnd-kit, og dra-ankeret er stemt
+etter når hullet kommer (`dnd-layout-anchor`).
+
+**Kantreglene gjelder nav-modalene** — områder/mapper, bokhyller/notatbøker og
+kokebøker/kapitler — der kategoriene (mapper, kapitler) står med rader rundt
+seg og hullet ellers havnet feil. Scopet sier det selv (`edgeHole: true`,
+lest av `dndEdgeRules`): hullet ved kantene, hodehalvdelen, byttet mot pekeren,
+vakten for rader i en kategori og etterslepsrunden (alle under). Listetavla har
+dnd-kits egne regler, med hele kategorien som mål og ingen kanthull; der er
+linjene rundt kategoriene stemt etter dem (`dnd-separators-preview`).
 
 **Unntaket er en TOM container** — en tom liste, en tom kategori. Der finnes det
 ingen rad å overlappe i det hele tatt, så hullet ville aldri kommet etter, og
@@ -524,21 +548,41 @@ skal stå der.
   annen layout enn den bevegelsen svarte på — da skifter bevegelsen og
   kollisjonen på å ha rett, én gang per frame.
 
+  **Og den bevegelsen er den SISTE.** dnd-kit sender `dragmove` før den skriver
+  den nye posisjonen (den settes i en mikrooppgave etterpå), så runden
+  `dragmove` gir, leser forrige posisjon. Der ingen ny kollisjon gir et
+  `dragover` — over øverste kategori, ved kanten av en liste — ble svaret
+  stående én bevegelse bak pekeren; på telefon er det en hel fingerbevegelse.
+  `dndRowPolicy` tar derfor én runde til etter dnd-kits mikrooppgave
+  (`dndRowPolicyCatchUp`, i nav-modalene); samme punkt gir samme svar, så runden er gratis når
+  ingenting har flyttet seg.
+
 - **Kategoriens OVERSKRIFT er en vei INN i kategorien** (`dndShelfCollision`).
-  Pekeren inne i en kategori — overskriften like mye som hylla — betyr «legg
-  raden i kategorien». For dnd-kit er overskriften en del av kategori-RADEN, så
+  Pekeren inne i en kategori — den nedre halvdelen av overskriften like mye som
+  hylla — betyr «legg raden i kategorien». Den ØVRE halvdelen er kanten over
+  kategorien (`dndCatEdgeTop`/`dndPointerInCat`): der lander raden foran den, på
+  nivå 1 — se «Hullet ved kantene» over (nav-modalene; på listetavla er hele
+  overskriften en vei inn). For dnd-kit er overskriften en del av kategori-RADEN, så
   et sikte der ville lest som «bytt plass med kategorien». Hylla svarer derfor på
   overskriften også, med høy prioritet; står pekeren i selve hylla, svarer den
   med lav, slik at radene der bestemmer plassen. En KOLLAPSET kategori er unntatt
   — der er hylla uten høyde, og nivå 1 gjelder til peek har foldet den ut.
 
-- **En kategori pekeren står INNI er ikke en nabo — den er MÅLET**
-  (`dndCategoryRowCollision`). Kategorien er den eneste raden som også er en
-  container, og hysteresen byttet det løftede listepunktet med kategori-RADEN
-  mens pekeren allerede var inne i kategorien: kategorien hoppet en radhøyde
-  oppover, siktepunktet ble liggende under den, og raden landet ved siden av
-  kategorien i stedet for i den — og var hylla TOM, fantes det ingen rad inni å
-  sortere mot som kunne rettet det opp.
+- **Et listepunkt bytter bare plass med en kategori MOT pekeren**
+  (`dndCategoryRowCollision` → `dndCatSwapTowardPointer`). Kategorien er den
+  eneste raden som også er en container, og hysteresen byttet det løftede
+  listepunktet med kategori-RADEN: med pekeren inne i kategorien hoppet
+  kategorien en radhøyde oppover og raden landet ved siden av den i stedet for
+  i den. Står pekeren inne i kategorien, er den derfor MÅLET, ikke en nabo. I
+  nav-modalene byttes det i tillegg utenfor den bare når byttet legger hullet på pekerens side — står
+  hullet over kategorien, bare med pekeren under den, og omvendt. Et bytte den
+  andre veien ville lagt hullet på motsatt side av pekeren, og
+  `dndPreviewKantHull` hadde flyttet det tilbake.
+
+- **En rad i en kategori er bare en nabo når pekeren er inne i kategorien**
+  (`dndRowInCatOffPointer`, i `dndSortCollision`; nav-modalene). Uten den kunne det løftede
+  objektets nedre kant overlappe første rad i en kategori mens pekeren sto på
+  kanten over den, og hullet havnet i kategorien der slippet ikke lander.
 
   **Svaret må leses av pekeren dnd-kit selv holder**
   (`dragOperation.position.current`), i detektoren. En vakt hengt på `dragmove`
@@ -547,8 +591,8 @@ skal stå der.
   ble først prøvd med et NOTAT i stedet («radene konkurrerer bare inne i
   containeren totrinnsregelen valgte»), og det gjorde vondt verre: et for gammelt
   svar ble til et VETO, og et slipp nederst i en liste sluttet å bytte plass med
-  siste rad. Gjelder bare listepunkt-drag — en kategori kan ikke ligge i en
-  kategori.
+  siste rad. Begge vaktene over leser derfor pekeren i detektoren. Gjelder bare
+  listepunkt-drag — en kategori kan ikke ligge i en kategori.
 
 - **En KOLLAPSET kategori er ingen nabo** — samme detektor, samme grunn. Se
   stabilitets-vakten under [«Peek»](#peek-åpning-av-kollapsede-dra-mål-updatepeek-peek_ms--200-ms).
@@ -597,6 +641,11 @@ board-grense.
 (`groupcat` i nav-scopet), og `containerAccept` sier at `.cat-items` bare tar
 `item` (`group`) — kategorier nøstes aldri. Regelen avvises dermed UNDER draget,
 av dnd-kits egen `accept`-port, ikke etter slippet.
+
+Ikonet vises fra det øyeblikket objektet er løftet (`.dnd-compact
+.cat-drag-icon`), ikke først når dnd-kit har satt `data-dnd-dragging`: dnd-kit
+måler den kompakte bredden ved løft, og et ikon som kom etterpå presset
+tittelen sammen til én bokstav per linje.
 
 Ved slipp bygges kortets `items` fra HELE DOM-treet (`reconcileRows`: nivå 1 +
 hver kategoris `.cat-items`), og `it.cat` settes; kun det flyttede listepunktets
@@ -1437,6 +1486,11 @@ og de står side om side — nederst på siden og i notatenes nav-modal. Der BET
 sidelengs bevegelse noe også i én kolonne: den er hele forskjellen på «legg bort»
 og «slett». Listesiden og nav-modalen har bare den ene kassen, og der er låsen
 som før.
+
+**Oppskriftsredigeringen er låst HELT** (`strictAxis` på `recipeEditScope` →
+`drag.oneAxis === 'strict'`): x nulles uten ledesnor, og linjen står i ro
+sidelengs. Linjene der løftes uten kompakt-krymping, så fingeren holder alltid
+i den.
 
 **Avgjørelsen tas ÉN gang per drag**, i `beforedragstart` (`dndLockAxis` →
 `drag.oneAxis`) — før dnd-kit har malt en eneste frame. Selve låsingen av x

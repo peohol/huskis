@@ -221,13 +221,14 @@ select public.set_locked('note_project', :'K', false);
 -- ---------- 4b. Løs opp et kapittel: alt eller ingenting ----------
 -- `recipe_chapter_dissolve` er én transaksjon: slettingen av kapitlet og
 -- flyttingen av hver oppskrift sjekkes og gjøres sammen, eller ikke i det hele
--- tatt. KC er et nytt kapittel i K med to oppskrifter.
+-- tatt. KC er et nytt kapittel i K med to oppskrifter, MELLOM kapitlet KA (1)
+-- og den frie oppskriften Grøt (2) på bokens øverste nivå.
 \set KC '7e000000-7777-0000-0000-00000000000d'
 \set R6 '7e000000-7777-0000-0000-00000000000e'
 \set R7 '7e000000-7777-0000-0000-00000000000f'
 reset role; select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
 insert into public.note_folders (id, owner_id, project_id, name, ts, org, pos, pos_ts, pos_org)
-  values (:'KC', :'A', :'K', 'Supper', 1, 'a', 3, 1, 'a');
+  values (:'KC', :'A', :'K', 'Supper', 1, 'a', 1.5, 1, 'a');
 insert into public.notes (id, owner_id, project_id, folder_id, title, recipe, ts, org, pos, pos_ts, pos_org)
   values (:'R6', :'A', :'K', :'KC', 'Tomatsuppe', '{"v":1}', 1, 'a', 1, 1, 'a'),
          (:'R7', :'A', :'K', :'KC', 'Løksuppe', '{"v":1}', 1, 'a', 2, 1, 'a');
@@ -263,12 +264,13 @@ select public.set_locked('note', :'R7', false);
 reset role; select set_config('request.jwt.claim.sub', :'B', false); set role authenticated;
 select public.recipe_chapter_dissolve(:'KC', 100, 'b')::text as dis \gset
 reset role;
-select public.t_check('når alt er lov: kapitlet er borte, og oppskriftene ligger sist rett i kokeboken i samme rekkefølge',
+select public.t_check('når alt er lov: kapitlet er borte, og oppskriftene ligger rett i kokeboken PÅ KAPITLETS PLASS, i samme rekkefølge — som listepunktene i en oppløst kategori',
   not exists (select 1 from public.note_folders where id = :'KC')
   and (select folder_id is null and project_id = :'K' from public.notes where id = :'R6')
   and (select folder_id is null and project_id = :'K' from public.notes where id = :'R7')
-  and (select pos from public.notes where id = :'R6') > (select pos from public.notes where id = :'R2')
-  and (select pos from public.notes where id = :'R7') > (select pos from public.notes where id = :'R6'));
+  and (select pos from public.notes where id = :'R6') > 1.5
+  and (select pos from public.notes where id = :'R7') > (select pos from public.notes where id = :'R6')
+  and (select pos from public.notes where id = :'R7') < (select pos from public.notes where id = :'R2'));
 select public.t_check('… med et nyere posisjonsregister enn oppskriftenes eget, og en gravstein for kapitlet',
   (select pos_ts = 100 and pos_org = 'b' from public.notes where id = :'R6')
   and exists (select 1 from public.tombstones where resource_type = 'note_folder' and resource_id = :'KC'));
@@ -328,7 +330,9 @@ select public.t_check('kokeboklenken viser boken, kapitlene og oppskriftene — 
   and jsonb_array_length(public.recipe_public_get(:'tok_book') -> 'chapters') = 2
   and (public.recipe_public_get(:'tok_book') -> 'chapters' -> 0 -> 'recipes' -> 0 ->> 'title') = 'Lasagne'
   and jsonb_array_length(public.recipe_public_get(:'tok_book') -> 'chapters' -> 1 -> 'recipes') = 0
-  and (public.recipe_public_get(:'tok_book') -> 'recipes' -> 0 ->> 'title') = 'Grøt');
+  -- Oppskriftene fra det oppløste kapitlet KC fikk dets plass FØR Grøt.
+  and (select jsonb_agg(x ->> 'title') from jsonb_array_elements(public.recipe_public_get(:'tok_book') -> 'recipes') x)
+      = '["Tomatsuppe", "Løksuppe", "Grøt"]'::jsonb);
 select public.t_check('svaret lekker ingen id-er, brukere, e-poster eller private oppskrifter',
   position(:'A' in :'pub_book') = 0 and position(:'K' in :'pub_book') = 0
   and position(:'R1' in :'pub_book') = 0 and position('example.com' in :'pub_book') = 0

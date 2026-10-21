@@ -322,6 +322,13 @@
     at.list[at.index] = next;
     return next;
   }
+  // En linje uten noe i seg — verken mengde, enhet eller tekst.
+  function isEmptyLine(sec, line) {
+    if (!line) return false;
+    var blank = function (v) { return !String(v || '').trim(); };
+    if (sec === 'step') return blank(line.t);
+    return line.q == null && blank(line.qs) && blank(line.u) && blank(line.t);
+  }
   function removeLine(doc, sec, lineId) {
     var at = locate(doc, sec, lineId);
     if (!at) return null;
@@ -356,6 +363,45 @@
     var sub = s.subs.splice(i, 1)[0];
     s.subs.splice(clampIndex(toIndex, s.subs.length), 0, sub);
     return true;
+  }
+  /* Ett steg opp (`step` < 0) eller ned uten dra-og-slipp. Lesestrømmen er
+     underinndelingene i rekkefølge og hovednivået sist; en linje i kanten av
+     lista si går over i nabolista (sist i den forrige, først i den neste), så
+     hver plass i seksjonen nås med de to stegene alene. Svaret er plassen i
+     seksjonen etterpå, `{ pos, total }` (1-basert), eller false når den alt
+     står ytterst. */
+  function stepLine(doc, sec, lineId, step) {
+    var s = section(doc, sec);
+    var lists = s.subs.map(function (u) { return u.items; }).concat([s.items]);
+    var at = locate(doc, sec, lineId);
+    if (!at) return false;
+    var li = lists.indexOf(at.list);
+    var to = at.index + (step < 0 ? -1 : 1);
+    var line = at.list[at.index];
+    if (to >= 0 && to < at.list.length) {
+      at.list.splice(at.index, 1);
+      at.list.splice(to, 0, line);
+    } else {
+      var next = lists[li + (step < 0 ? -1 : 1)];
+      if (!next) return false;
+      at.list.splice(at.index, 1);
+      if (step < 0) next.push(line); else next.unshift(line);
+    }
+    var pos = 0, total = 0;
+    lists.forEach(function (l) {
+      var j = l.indexOf(line);
+      if (j !== -1) pos = total + j + 1;
+      total += l.length;
+    });
+    return { pos: pos, total: total };
+  }
+  function stepSub(doc, sec, subId, step) {
+    var s = section(doc, sec);
+    var i = s.subs.findIndex(function (u) { return u.id === subId; });
+    var to = i + (step < 0 ? -1 : 1);
+    if (i === -1 || to < 0 || to >= s.subs.length) return false;
+    moveSub(doc, sec, subId, to);
+    return { pos: to + 1, total: s.subs.length };
   }
   /* Oppløs: underinndelingen forsvinner, linjene består. De legges FØRST på
      hovednivået — der de stod i lesestrømmen. Var den den eneste, er
@@ -496,7 +542,9 @@
     doc = doc || emptyRecipe();
     root.textContent = '';
     if (doc.desc) root.appendChild(el('p', 'recipe-desc', doc.desc));
-    var base = num(doc.serv);
+    // `servings: false` viser ingen porsjoner — mengdene står som lagret
+    // (den offentlige lesevisningen).
+    var base = o.servings === false ? null : num(doc.serv);
     var chosen = base ? (num(o.chosen) || base) : null;
     var factor = scaleFactor(base, chosen);
     if (base) {
@@ -562,7 +610,9 @@
     formatNumber: formatNumber, formatAmount: formatAmount, amountInputText: amountInputText,
     ingredientText: ingredientText, scaleFactor: scaleFactor,
     addLine: addLine, updateLine: updateLine, removeLine: removeLine, moveLine: moveLine,
+    isEmptyLine: isEmptyLine,
     addSub: addSub, renameSub: renameSub, moveSub: moveSub,
+    stepLine: stepLine, stepSub: stepSub,
     dissolveSub: dissolveSub, deleteSub: deleteSub, restoreSub: restoreSub,
     findSub: findSub, locate: locate, groups: groups, lineCount: lineCount,
     recipeText: recipeText, LABELS: LABELS, servingsText: servingsText, renderReader: renderReader,

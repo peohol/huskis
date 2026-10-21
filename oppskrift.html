@@ -30,19 +30,39 @@
      innhold tegnes av recipe-public.js med den samme lesevisningen som appen
      (recipe-core.js). Se docs/oppskrifter.md. -->
 <body class="pub-page">
+  <!-- Toppmenyen: Tilbake (bare inne i en oppskrift fra en bok eller et
+       kapittel), Huskis-merket i midten som lenke til huskis.no, drakten til
+       høyre. Lenkene får adressen fra config.js (recipe-public.js). -->
   <header class="note-editor-bar pub-bar">
-    <span class="pub-brand">
-      <span class="kind-icon pub-brand-icon" id="pub-brand-icon" aria-hidden="true"></span>
-      <span class="pub-brand-name">Huskis</span>
+    <span class="pub-bar-start">
+      <button class="btn btn-ghost btn-small pub-back" id="pub-back" type="button" hidden>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5 8 12l7 7"></path></svg>
+        <span data-i18n="public.back">Tilbake</span>
+      </button>
     </span>
-    <span class="pub-readonly" data-i18n="public.readOnly">Delt med lenke · kun lesing</span>
-    <span class="note-editor-aside">
+    <a class="pub-brand" href="./">
+      <img class="pub-logo" src="favicon.svg" alt="" width="30" height="30" />
+      <span class="pub-brand-name">Huskis</span>
+    </a>
+    <span class="note-editor-aside pub-bar-end">
       <button class="corner-btn note-editor-btn" id="pub-theme" type="button"></button>
     </span>
   </header>
   <main class="note-editor-body pub-main" id="pub-main" aria-live="polite" aria-busy="true">
     <p class="pub-loading" data-i18n="public.loading">Henter …</p>
   </main>
+  <!-- Invitasjonen nederst, bare for den som ikke er logget inn i Huskis.
+       Lukkes med ×, og forblir lukket (recipe-public.js). -->
+  <aside class="pub-invite" id="pub-invite" hidden>
+    <div class="pub-invite-text">
+      <p class="pub-invite-title" id="pub-invite-title"></p>
+      <p class="pub-invite-sub" data-i18n="public.inviteText">Lag lister, notater og oppskrifter, og del dem med andre.</p>
+    </div>
+    <a class="btn btn-solid btn-green btn-small pub-invite-cta" href="./"
+       data-i18n="public.inviteCta">Meld deg inn nå</a>
+    <button class="icon-btn pub-invite-close" id="pub-invite-close" type="button"
+            data-i18n-title="public.inviteClose" data-i18n-aria-label="public.inviteClose">×</button>
+  </aside>
 
   <script src="vendor/supabase-js-2.111.0.js"></script>
   <script src="config.js"></script>
