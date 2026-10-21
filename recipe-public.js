@@ -305,7 +305,7 @@
     document.body.classList.toggle('has-invite', !invite.hidden);
     var title = document.getElementById('pub-invite-title');
     if (!title || title.firstChild) return;
-    // «… med {brand} ❤️»: merket er Huskis-logoen og navnet, som i toppmenyen.
+    // «… med {brand}»: merket er Huskis-logoen og navnet, som i toppmenyen.
     var parts = tr('public.inviteTitle').split('{brand}');
     title.appendChild(document.createTextNode(parts[0]));
     var brand = el('span', 'pub-invite-brand');
