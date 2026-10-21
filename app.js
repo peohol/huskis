@@ -14799,6 +14799,7 @@
     // samme rader, bare et annet sett av dem.
     if (NOTE_KINDS[kind]) return NOTE_KINDS[kind].find(id);
     if (RECIPE_KINDS[kind]) return RECIPE_KINDS[kind].find(id);
+    if (RECIPE_PART_KINDS.has(kind)) return recipeEditPart(id);
     return findItemById(id);
   }
   function objMenuCont(kind, obj) {
@@ -14811,6 +14812,7 @@
     if (kind === 'recipeBook') return null;
     if (kind === 'recipeChapter') return findRecipeBook(obj.project);
     if (kind === 'recipe') return (obj.folder && findRecipeChapter(obj.folder)) || findRecipeBook(obj.project);
+    if (RECIPE_PART_KINDS.has(kind)) return null;
     return findCard(obj.home);
   }
   // Objekttypen i bestemt form, slik den leses inne i menyens overskrift og i
@@ -14823,6 +14825,7 @@
     card: 'list', item: null, category: 'category',
     noteProject: 'noteProject', noteFolder: 'noteFolder', note: 'note',
     recipeBook: 'cookbook', recipeChapter: 'chapter', recipe: 'recipe',
+    recipeSub: 'category', recipeIng: null, recipeStep: null,
   };
   // Menyknappen for et objekt, funnet på nytt i DOM-en. Brukes etter en
   // rendring (sortering i menyen bygger board-et om) så popoveren kan bli
@@ -14831,14 +14834,15 @@
     const host = objMenuHost(spec);
     if (!host) return null;
     return host.querySelector(':scope > .obj-menu-btn, :scope > .card-head > .obj-menu-btn,' +
-      ' :scope > .cat-head > .obj-menu-btn');
+      ' :scope > .cat-head > .obj-menu-btn, :scope > .recipe-sub-head > .obj-menu-btn');
   }
   function objMenuHost(spec) {
     const root = spec.scope === navScope ? navBoard
       : spec.scope === notesNavScope ? notesNavBoard
         : spec.scope === notesScope ? notesBoard
           : spec.scope === recipesScope ? recipesBoard
-            : spec.scope === recipesNavScope ? recipesNavBoard : board;
+            : spec.scope === recipesNavScope ? recipesNavBoard
+              : spec.scope === recipeEditScope ? recipeSheet : board;
     return (root && root.querySelector('[data-id="' + spec.id + '"]')) || null;
   }
   // Tittel-elementet slik det ser ut NÅ. `spec.rename` er en closure fra
@@ -15113,7 +15117,9 @@
     /* 4) Flytt — tastaturflyttingens knapper, for dem som ikke kan eller vil
           bruke dra-og-slipp. «Flytt opp/ned» lar menyen stå åpen så flere hakk
           kan tas etter hverandre; «Flytt til …» åpner velger-modalen. */
-    const canOrder = canReorderObj(kind, obj, cont);
+    // `spec.move` er objektets egen flytting (oppskriftens linjer og grupper);
+    // ellers tastaturflyttingen.
+    const canOrder = spec.move ? true : canReorderObj(kind, obj, cont);
     const canRehome = kind === 'card' || kind === 'item' || kind === 'group' ||
       kind === 'recipe' || kind === 'recipeChapter';
     if (canOrder) {
@@ -15121,7 +15127,8 @@
         const box = document.createElement('div');
         box.className = 'obj-menu-movebox';
         const step = (dir, icon, label) => objMenuRow(icon, label, () => {
-          keyboardReorder(kind, spec.id, dir);
+          if (spec.move) spec.move(dir);
+          else keyboardReorder(kind, spec.id, dir);
           repaintObjMenu();
           const again = objMenuPanel.querySelector('[data-move="' + dir + '"]');
           if (again) again.focus();
@@ -23280,9 +23287,12 @@
     strictAxis: true,
     fixedTrash: true,
     get root() { return recipeSheet; },
-    trashBtn: () => null,
-    canTrash: () => false,
-    dropTrash: () => {},
+    /* Redigeringens kasse i foten sletter med én gang, uten bekreftelse og uten
+       noe å hente tilbake: en linje eller en gruppe er lite å miste, og slippet
+       betyr nøyaktig det menyens «Slett» betyr (`deleteRecipePart`). */
+    trashBtn: () => recipeEditTrashBtn,
+    canTrash: () => recipeEditing,
+    dropTrash: (kind, id) => deleteRecipePart(id, { focus: false }),
   };
 
   function recipeDragBegin(b, S, kind) {
@@ -23912,6 +23922,7 @@
   const recipeMenuBtn = document.getElementById('recipe-menu-btn');
   const recipeTitleEl = document.getElementById('recipe-title');
   const recipeTitleInput = document.getElementById('recipe-title-input');
+  const recipeEditTrashBtn = document.getElementById('recipe-edit-trash-btn');
   const RECIPE_SAVE_DEBOUNCE = 400;
   let recipeOpenId = null;
   let recipeReturn = null;
@@ -24109,15 +24120,6 @@
     }
     return i;
   }
-  function recipeIconBtn(cls, icon, label, fn) {
-    const b = recipeEl('button', 'icon-btn ' + cls);
-    b.type = 'button';
-    b.innerHTML = icon;
-    labelBtn(b, label);
-    b.dataset.dndIgnore = '';
-    b.addEventListener('click', (ev) => { ev.stopPropagation(); fn(); });
-    return b;
-  }
   // Grønn ＋ legger til en linje (som listepunktets ＋), gul en underinndeling
   // med kategoriens ikon — som de to knappene i en liste.
   function recipeAddBtn(color, icon, label, fn) {
@@ -24187,6 +24189,9 @@
     wrap.appendChild(add);
     return wrap;
   }
+  /* En gruppe er en OVERSKRIFT over et kort med linjene, som en kategori i en
+     liste: overskriften er håndtaket, og navnet endres, gruppen flyttes, løses
+     opp eller slettes fra menyknappen til høyre. */
   function buildRecipeEditSub(sec, u) {
     const L = RECIPE.LABELS[sec];
     const box = recipeEl('div', 'recipe-sub');
@@ -24194,26 +24199,117 @@
     box.dataset.sec = sec;
     const head = recipeEl('div', 'recipe-sub-head');
     const label = u.name || tr(L.subUntitled);
-    const name = recipeInput('recipe-sub-name-input', u.name, L.subPlaceholder, tr('recipes.groupName'));
-    name.addEventListener('input', () => mutateRecipe((d) => RECIPE.renameSub(d, sec, u.id, name.value)));
-    name.addEventListener('keydown', (ev) => {
-      if (ev.key !== 'Enter') return;
-      ev.preventDefault();
-      addRecipeLine(sec, u.id, 0);
-    });
-    head.append(
-      recipeGrip(tr('recipes.dragGroup', { name: quoted(label) })),
-      name,
-      recipeIconBtn('recipe-sub-dissolve', ICONS.bubbleBurst, tr('recipes.dissolveGroup', { name: quoted(label) }),
-        () => dissolveRecipeSub(sec, u.id)),
-      recipeIconBtn('recipe-sub-delete', ICONS.trashGlyph, tr('recipes.deleteGroup', { name: quoted(label) }),
-        () => deleteRecipeSub(sec, u.id)));
-    box.appendChild(head);
-    box.appendChild(buildRecipeEditLines(sec, u.id, u.items));
+    const title = recipeEl('h3', 'recipe-sub-name recipe-sub-title', label);
+    title.classList.toggle('is-untitled', !u.name);
+    head.append(title, recipePartMenuBtn('cat-cog', tr('recipes.menuGroup', { name: quoted(label) }), {
+      kind: 'recipeSub', id: u.id,
+      rename: true, renameFn: () => renameRecipeSub(sec, u.id),
+      move: (dir) => stepRecipePart(sec, u.id, dir),
+      extraRows: [{ icon: ICONS.bubbleBurst, label: tr('recipes.dissolveGroup'), fn: () => dissolveRecipeSub(sec, u.id) }],
+      remove: () => deleteRecipeSub(sec, u.id),
+      removeLabel: tr('recipes.deleteGroup'),
+    }));
+    const body = recipeEl('div', 'recipe-sub-body');
+    body.appendChild(buildRecipeEditLines(sec, u.id, u.items));
     const add = recipeEl('div', 'recipe-sub-add');
     add.appendChild(recipeAddBtn('btn-green', ICONS.plus, tr(L.addLineIn, { name: quoted(label) }), () => addRecipeLine(sec, u.id)));
-    box.appendChild(add);
+    body.appendChild(add);
+    box.append(head, body);
     return box;
+  }
+  // Objektmenyen for en linje eller en gruppe i redigeringen (`recipeEditPart`).
+  function recipePartMenuBtn(cls, label, spec) {
+    const b = recipeEl('button', cls + ' obj-menu-btn');
+    b.type = 'button';
+    b.setAttribute('aria-haspopup', 'menu');
+    b.setAttribute('aria-expanded', 'false');
+    attachObjMenu(b, Object.assign({ scope: recipeEditScope }, spec));
+    labelBtn(b, label);
+    return b;
+  }
+  /* Det menyen står på, slått opp på id i oppskriften som redigeres — linjene
+     og gruppene er deler av dokumentet, ikke egne objekter (recipe-core.js). */
+  const RECIPE_PART_KINDS = new Set(['recipeSub', 'recipeIng', 'recipeStep']);
+  function recipeEditPart(id) {
+    const n = recipeEditing && findRecipe(recipeOpenId);
+    if (!n || !id) return null;
+    for (const sec of RECIPE.SECTIONS) {
+      const sub = n.recipe[sec].subs.find((u) => u.id === id);
+      if (sub) return { id, sec, kind: 'recipeSub', name: sub.name || tr(RECIPE.LABELS[sec].subUntitled) };
+      const at = RECIPE.locate(n.recipe, sec, id);
+      if (at) {
+        const t = at.list[at.index].t;
+        return { id, sec, kind: sec === 'ing' ? 'recipeIng' : 'recipeStep',
+          name: t || tr(sec === 'ing' ? 'recipes.ingredient' : 'recipes.line') };
+      }
+    }
+    return null;
+  }
+  /* Flytt opp/ned uten dra-og-slipp. En linje går forbi kanten av gruppen sin
+     og inn i naboen, så hver plass i seksjonen kan nås med de to alene. */
+  function stepRecipePart(sec, id, dir) {
+    const part = recipeEditPart(id);
+    if (!part) return;
+    let moved = null;
+    mutateRecipe((d) => {
+      moved = part.kind === 'recipeSub' ? RECIPE.stepSub(d, sec, id, dir) : RECIPE.stepLine(d, sec, id, dir);
+    });
+    if (!moved) {
+      announce(tr(dir < 0 ? 'a11y.alreadyFirst' : 'a11y.alreadyLast', { name: quoted(part.name) }));
+      return;
+    }
+    renderRecipeView();
+    announce(tr(dir < 0 ? 'a11y.movedUp' : 'a11y.movedDown',
+      { name: quoted(part.name), pos: moved.pos, total: moved.total }));
+  }
+  // Navnet endres på plassen: overskriften blir et felt til Enter eller blur.
+  function renameRecipeSub(sec, subId) {
+    const n = findRecipe(recipeOpenId);
+    const sub = n && n.recipe[sec].subs.find((u) => u.id === subId);
+    const title = recipeSheet.querySelector('.recipe-sub[data-id="' + subId + '"] > .recipe-sub-head > .recipe-sub-title');
+    if (!sub || !title) return;
+    const input = recipeInput('recipe-sub-name-input', sub.name, RECIPE.LABELS[sec].subPlaceholder, tr('recipes.groupName'));
+    input.addEventListener('input', () => mutateRecipe((d) => RECIPE.renameSub(d, sec, subId, input.value)));
+    let done = false;
+    /* Tittelen settes tilbake PÅ PLASSEN, uten ommaling: feltet forlates
+       oftest med et trykk på en annen knapp, og en ommaling midt i trykket
+       ville byttet ut knappen under fingeren. */
+    const finish = (thenLine) => {
+      if (done) return;
+      done = true;
+      const live = findRecipe(recipeOpenId);
+      const u = live && live.recipe[sec].subs.find((x) => x.id === subId);
+      const label = (u && u.name) || tr(RECIPE.LABELS[sec].subUntitled);
+      title.textContent = label;
+      title.classList.toggle('is-untitled', !(u && u.name));
+      input.replaceWith(title);
+      const box = title.closest('.recipe-sub');
+      if (box) {
+        labelBtn(box.querySelector(':scope > .recipe-sub-head > .obj-menu-btn'), tr('recipes.menuGroup', { name: quoted(label) }));
+        labelBtn(box.querySelector('.recipe-sub-add .btn-add'), tr(RECIPE.LABELS[sec].addLineIn, { name: quoted(label) }));
+      }
+      // En ny, tom gruppe: Enter går rett videre til gruppens første linje.
+      if (thenLine) addRecipeLine(sec, subId, 0);
+    };
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== 'Escape') return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const live = findRecipe(recipeOpenId);
+      const u = live && live.recipe[sec].subs.find((x) => x.id === subId);
+      finish(ev.key === 'Enter' && !!u && !u.items.length);
+    });
+    input.addEventListener('blur', () => finish(false));
+    title.replaceWith(input);
+    input.focus();
+    input.select();
+  }
+  // «Slett» fra menyen og slipp i kassen: en gruppe med angre, en linje rett ut.
+  function deleteRecipePart(id, o) {
+    const part = recipeEditPart(id);
+    if (!part) return;
+    if (part.kind === 'recipeSub') deleteRecipeSub(part.sec, id);
+    else removeRecipeLine(part.sec, id, false, o && o.focus === false);
   }
   function buildRecipeEditLines(sec, subId, items) {
     const ul = recipeEl('ul', 'recipe-lines');
@@ -24230,6 +24326,9 @@
     field.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {
         ev.preventDefault();
+        // Enter i en tom linje avslutter, som i en liste: linjen forsvinner
+        // når feltet forlates (`dropEmptyRecipeLine`).
+        if (isEmpty()) { field.blur(); return; }
         const at = RECIPE.locate(findRecipe(recipeOpenId).recipe, sec, line.id);
         addRecipeLine(sec, subId, at ? at.index + 1 : undefined);
       } else if (ev.key === 'Backspace' && isEmpty()) {
@@ -24247,6 +24346,8 @@
     amt.inputMode = 'decimal';
     const unit = recipeInput('recipe-unit-input', line.u, 'recipes.unit', tr('recipes.unit'));
     const name = recipeInput('recipe-name-input', line.t, 'recipes.ingredient', tr('recipes.ingredient'));
+    // «dl melk», ikke «Dl melk»: mobiltastaturet skal ikke gi stor forbokstav.
+    [unit, name].forEach((f) => f.setAttribute('autocapitalize', 'none'));
     const amountFields = (text) => {
       const a = RECIPE.parseAmount(text);
       return { q: a && a.q != null ? a.q : null, q2: a && a.q2 != null ? a.q2 : null,
@@ -24279,8 +24380,8 @@
     li.append(
       recipeGrip(tr('recipes.dragLine')),
       amt, unit, name,
-      recipeIconBtn('recipe-line-del', ICONS.xmark, tr('recipes.deleteIngredient', { name: quoted(line.t || '') }),
-        () => removeRecipeLine('ing', line.id)));
+      recipePartMenuBtn('item-cog', tr('recipes.menuIngredient', { name: quoted(line.t || '') }),
+        recipeLineMenu('ing', line.id, 'recipes.deleteIngredient')));
     return li;
   }
   function buildRecipeStepLine(line, subId, i) {
@@ -24296,9 +24397,47 @@
     li.append(
       recipeGrip(tr('recipes.dragLine')),
       num, text,
-      recipeIconBtn('recipe-line-del', ICONS.xmark, tr('recipes.deleteStep', { n: i + 1 }),
-        () => removeRecipeLine('step', line.id)));
+      recipePartMenuBtn('item-cog', tr('recipes.menuStep', { n: i + 1 }),
+        recipeLineMenu('step', line.id, 'recipes.deleteStep')));
     return li;
+  }
+  function recipeLineMenu(sec, id, removeKey) {
+    return {
+      kind: sec === 'ing' ? 'recipeIng' : 'recipeStep', id,
+      move: (dir) => stepRecipePart(sec, id, dir),
+      remove: () => deleteRecipePart(id),
+      removeLabel: tr(removeKey),
+    };
+  }
+
+  /* En TOM linje forsvinner når fokus forlater den, som en ny rad i en liste
+     (`nameNewRow`): den står der for å ta imot neste ingrediens eller steg, og
+     er ingenting å ta vare på. Et trykk som pågår får fullføre først — ellers
+     flytter ommalingen knappen under fingeren, og trykket går tapt. */
+  let recipePressing = false;
+  const recipeAfterPress = [];
+  function dropEmptyRecipeLine(recipeId, lineId) {
+    if (drag.active || recipeOpenId !== recipeId) return;
+    const a = document.activeElement;
+    if (a && a.closest && a.closest('.recipe-line[data-id="' + lineId + '"]')) return;
+    if (objMenuCtx && objMenuCtx.spec.id === lineId) return;
+    const part = recipeEditPart(lineId);
+    const n = part && part.kind !== 'recipeSub' && findRecipe(recipeId);
+    const at = n && RECIPE.locate(n.recipe, part.sec, lineId);
+    if (at && RECIPE.isEmptyLine(part.sec, at.list[at.index])) removeRecipeLine(part.sec, lineId, false, true);
+  }
+  function wireEmptyRecipeLines() {
+    recipeSheet.addEventListener('focusout', (ev) => {
+      const li = ev.target.closest && ev.target.closest('.recipe-line');
+      if (!li || (ev.relatedTarget && li.contains(ev.relatedTarget))) return;
+      const ids = [recipeOpenId, li.dataset.id];
+      const run = () => setTimeout(() => dropEmptyRecipeLine(...ids), 0);
+      if (recipePressing) recipeAfterPress.push(run); else run();
+    });
+    document.addEventListener('pointerdown', () => { recipePressing = true; }, true);
+    const released = () => { recipePressing = false; recipeAfterPress.splice(0).forEach((f) => f()); };
+    document.addEventListener('pointerup', released, true);
+    document.addEventListener('pointercancel', released, true);
   }
 
   function addRecipeLine(sec, subId, index) {
@@ -24307,7 +24446,7 @@
     renderRecipeView();
     focusRecipeLine(line.id, sec === 'ing' ? 'recipe-amt-input' : 'recipe-step-input');
   }
-  function removeRecipeLine(sec, lineId, focusPrev) {
+  function removeRecipeLine(sec, lineId, focusPrev, noFocus) {
     const n = findRecipe(recipeOpenId);
     if (!n) return;
     // Naboen fokus skal til, regnet ut FØR linjen forsvinner.
@@ -24315,13 +24454,13 @@
     const nb = li && ((focusPrev && li.previousElementSibling) || li.nextElementSibling || li.previousElementSibling);
     mutateRecipe((d) => RECIPE.removeLine(d, sec, lineId));
     renderRecipeView();
-    if (nb && nb.dataset.id) focusRecipeLine(nb.dataset.id, sec === 'ing' ? 'recipe-name-input' : 'recipe-step-input');
+    if (!noFocus && nb && nb.dataset.id) focusRecipeLine(nb.dataset.id, sec === 'ing' ? 'recipe-name-input' : 'recipe-step-input');
   }
   function addRecipeSub(sec) {
     const sub = mutateRecipe((d) => RECIPE.addSub(d, sec, ''));
     if (!sub) return;
     renderRecipeView();
-    focusRecipeLine(sub.id, 'recipe-sub-name-input');
+    renameRecipeSub(sec, sub.id);
   }
   // Oppløs: underinndelingen forsvinner, linjene blir (recipe-core.js).
   function dissolveRecipeSub(sec, subId) {
@@ -24357,22 +24496,31 @@
   function ensureRecipeEditBoard() {
     if (recipeEditBoard || !recipeSheet || typeof Smett === 'undefined' || !Smett.SortableBoard) return;
     recipeEditBoard = new Smett.SortableBoard({
-      root: recipeSheet,
-      itemSelector: '.recipe-line, .recipe-sub',
-      containerSelector: '.recipe-lines, .recipe-subs',
-      handleSelector: '.recipe-grip',
+      // Roten er hele redigeringen: kassen står i foten, utenfor arket.
+      root: recipeView,
+      itemSelector: '#recipe-sheet .recipe-line, #recipe-sheet .recipe-sub',
+      containerSelector: '#recipe-sheet .recipe-lines, #recipe-sheet .recipe-subs',
+      // En linje dras i håndtaket, en gruppe i overskriften.
+      handleSelector: '.recipe-grip, .recipe-sub-head',
       idAttribute: 'data-id',
       axis: 'vertical',
       keyboard: false,
       safeInsets: safeInsets,
       itemType: (el) => el.dataset.sec + (el.classList.contains('recipe-sub') ? '-sub' : '-line'),
       containerAccept: (c) => [c.dataset.sec + (c.classList.contains('recipe-subs') ? '-sub' : '-line')],
+      zoneSelector: '#recipe-edit-trash-btn',
       describeItem: (el) => {
-        const t = el && el.querySelector('input, textarea');
-        return (t && t.value) || tr(el && el.classList.contains('recipe-sub') ? 'recipes.groupName' : 'recipes.line');
+        const part = el && recipeEditPart(el.dataset.id);
+        return part ? part.name : tr('recipes.line');
       },
       phrases: notesPhrases(),
       onCommit: recipeEditCommit,
+      onZoneDrop: (result) => { if (drag.trashReady) notesCanDrop(recipeEditScope, result); },
+      onDropTarget: (target) => {
+        recipeTrashTarget = target;
+        recipeTrashWatch();
+        notesCanTarget(drag.trashReady ? target : null);
+      },
       onError: (err) => { if (window.console) console.error('[huskis] recipe-edit-dnd', err); },
     });
     recipeWire(recipeEditBoard, (b) => {
@@ -24381,6 +24529,9 @@
       // Et felt med fokus i det som løftes ville tatt med seg markøren.
       if (el.contains(document.activeElement)) document.activeElement.blur();
       recipeEditDragBegin(el);
+      drag.trashReady = false;
+      recipeTrashTarget = null;
+      armDragTrash();
       // Ingen kompakt løft: raden løftes i full bredde og blir liggende der
       // den lå, så feltene står rett over sine egne plasser.
       dndNoteLiftedBox(el);
@@ -24390,6 +24541,19 @@
       if (!recipeDragEnd(event)) return;
       dndAfterCloneGone(recipeSheet, () => recipeEditDragSettle(id));
     });
+    recipeEditBoard.manager.monitor.addEventListener('dragmove', recipeTrashWatch);
+  }
+  /* Kassen tar imot først når pekeren har vært UTENFOR den. Den folder seg ut
+     nederst i det draget starter, og en linje som løftes der skal ikke slettes
+     av at fingeren allerede står der kassen kom fram. */
+  let recipeTrashTarget = null;
+  function recipeTrashWatch() {
+    if (!drag.active || drag.trashReady || !recipeEditBoard) return;
+    const pos = recipeEditBoard.manager.dragOperation.position;
+    const pt = pos && pos.current;
+    if (!pt || pointerOnCan(pt.x, pt.y, recipeEditTrashBtn)) return;
+    drag.trashReady = true;
+    notesCanTarget(recipeTrashTarget);
   }
   /* Draget svarer bare i SIN EGEN seksjon. En linje åpner den tomme
      hovedsonen i sin seksjon (`.is-drag-lines`) — den andre hoveddelen tar
@@ -24453,7 +24617,7 @@
         const order = [...subsEl.children].filter((el) => real(el, 'recipe-sub') && subs[el.dataset.id]);
         const nextSubs = order.map((el) => {
           const u = subs[el.dataset.id];
-          return { id: u.id, name: u.name, items: linesIn(el.querySelector(':scope > .recipe-lines')) };
+          return { id: u.id, name: u.name, items: linesIn(el.querySelector(':scope > .recipe-sub-body > .recipe-lines')) };
         });
         s.subs.forEach((u) => {
           if (!nextSubs.some((x) => x.id === u.id)) {
@@ -24490,6 +24654,7 @@
       const first = recipeSheet.querySelector('.recipe-desc-input');
       if (first) first.focus();
     });
+    wireEmptyRecipeLines();
     // En ommaling synken utsatte mens noen skrev, tas når feltet forlates.
     recipeView.addEventListener('focusout', () => {
       setTimeout(() => {
@@ -29365,11 +29530,14 @@
      Bare for den som kan styre medlemmene (serveren håndhever det samme i
      recipe_link_*). Lenken gir KUN lesetilgang, viser alltid nåtilstanden og
      kan slås av; nøkkelen er tilfeldig og lages av databasen. */
-  function recipePublicUrl(token) {
-    // I testmodus (lokalt og i preview) må lenken gå mot mock-backenden på
-    // DENNE adressen — mock-databasen finnes bare her, ikke på huskis.no.
-    const base = useMock() ? location.origin + '/' : authRedirectUrl();
-    return base + 'oppskrift.html' + (useMock() ? '?mock=1' : '') + '#' + token;
+  function recipePublicUrl(token, at) {
+    at = at || { mock: useMock(), deploy: deployKind() };
+    // Lenken går til DENNE adressen i testmodus — mock-databasen finnes bare
+    // her — og i en preview-deploy, som skal vise sin egen versjon av siden,
+    // ikke produksjonens. Ellers til det kanoniske domenet.
+    const here = at.mock || at.deploy === 'preview';
+    const base = here ? location.origin + '/' : authRedirectUrl();
+    return base + 'oppskrift.html' + (at.mock ? '?mock=1' : '') + '#' + token;
   }
   function recipeLinkSection(type, id) {
     const el = document.createElement('div');

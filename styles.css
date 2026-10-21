@@ -6633,18 +6633,34 @@ body.note-editing .corner-controls { display: none; }
   touch-action: none;
   font-size: 30px;
 }
-.recipe-line .icon-btn { align-self: center; }
-.recipe-subs { display: flex; flex-direction: column; gap: 10px; }
-.recipe-subs:not(:empty) { margin-bottom: 10px; }
-.recipe-sub {
+.recipe-line .item-cog { opacity: 1; }
+.recipe-subs { display: flex; flex-direction: column; gap: 14px; }
+.recipe-subs:not(:empty) { margin-bottom: 14px; }
+/* En gruppe er en OVERSKRIFT over et kort, som en kategori i en liste:
+   overskriften står på egen linje over kortet og er håndtaket, menyknappen står
+   til høyre for den. Kortet bærer bare linjene og gruppens ＋. */
+.recipe-sub-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  margin-bottom: 6px;
+  padding-left: 2px;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.recipe-sub-title { flex: 1 1 auto; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.recipe-sub-title.is-untitled { color: var(--ink-soft); font-style: italic; }
+.recipe-sub-head .recipe-sub-name-input { flex: 1 1 auto; font-weight: 700; cursor: text; }
+.recipe-sub-head .cat-cog { background: var(--wash); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); }
+.recipe-sub-body {
   padding: 6px 8px 8px;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   border: 1px solid var(--line);
 }
 .recipe-sub .recipe-line { background: var(--surface-2); }
-.recipe-sub-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-.recipe-sub-head .recipe-sub-name-input { flex: 1 1 auto; font-weight: 700; }
 .recipe-sub-add { display: flex; justify-content: center; margin-top: 4px; }
 .recipe-sub-add .btn-add.icon-only { width: 34px; height: 34px; }
 .recipe-sub-add .btn-add.icon-only .icon { font-size: 26px; }
@@ -6655,10 +6671,12 @@ body.note-editing .corner-controls { display: none; }
 .recipe-sec-edit.is-drag-lines .recipe-main.has-subs.is-empty > .recipe-other-name { display: block; }
 .recipe-sec-edit.is-drag-lines .recipe-main .recipe-lines:empty { min-height: 36px; }
 /* En løftet underinndeling og søsknene i seksjonen er bare overskriften sin. */
-.recipe-sec-edit.is-drag-subs .recipe-sub > .recipe-lines,
-.recipe-sec-edit.is-drag-subs .recipe-sub > .recipe-sub-add { display: none; }
+.recipe-sec-edit.is-drag-subs .recipe-sub > .recipe-sub-body { display: none; }
 .recipe-sec-edit.is-drag-subs .recipe-sub-head { margin-bottom: 0; }
 .recipe-add-row { margin-top: 8px; padding: 0; }
+/* Redigeringens kasse står i foten av redigeringen (`.drop-dock`), over
+   kroppen som ruller under den, og vises bare mens noe dras. */
+.recipe-edit-dock { z-index: 2; }
 
 @media (max-width: 560px) {
   .recipe-serv-reset { margin-left: 0; }
@@ -6668,9 +6686,8 @@ body.note-editing .corner-controls { display: none; }
   .recipe-line .recipe-name-input { flex: 1 1 0; }
   .recipe-line .recipe-amt-input { flex: 0 0 3.4em; }
   .recipe-line .recipe-unit-input { flex: 0 0 3.2em; }
-  .recipe-line .icon-btn { width: 30px; }
   .recipe-grip { width: 18px; }
-  .recipe-sub { padding: 6px 4px 8px; }
+  .recipe-sub-body { padding: 6px 4px 8px; }
   .recipe-sheet { font-size: var(--fs-base); }
 }
 

@@ -161,6 +161,34 @@ R.moveLine(doc, 'ing', a.id, s1.id, 0);
 log('en linje kan flyttes til en plass i en annen underinndeling',
   R.findSub(doc, 'ing', s1.id).items[0].id === a.id);
 
+// ---- 6b. Ett steg opp/ned (tilgjengelig flytting uten dra-og-slipp) ----
+{
+  const d = R.emptyRecipe();
+  const u1 = R.addSub(d, 'step', 'Deig');
+  const u2 = R.addSub(d, 'step', 'Fyll');
+  const x = R.addLine(d, 'step', u1.id, { t: 'x' });
+  const y = R.addLine(d, 'step', u1.id, { t: 'y' });
+  const z = R.addLine(d, 'step', null, { t: 'z' });
+  const order = () => d.step.subs.map((u) => u.items.map((l) => l.t).join('')).concat(d.step.items.map((l) => l.t).join('')).join('|');
+  log('et steg ned bytter plass med naboen i samme liste',
+    eq(R.stepLine(d, 'step', x.id, 1), { pos: 2, total: 3 }) && order() === 'yx||z', order());
+  log('i kanten av lista går linjen først i den neste (også en tom gruppe)',
+    eq(R.stepLine(d, 'step', x.id, 1), { pos: 2, total: 3 }) && order() === 'y|x|z', order());
+  R.stepLine(d, 'step', x.id, 1);
+  log('fra siste gruppe går den over til hovednivået', order() === 'y||xz', order());
+  log('ytterst i seksjonen står den stille (false)', R.stepLine(d, 'step', z.id, 1) === false &&
+    R.stepLine(d, 'step', y.id, -1) === false);
+  R.stepLine(d, 'step', x.id, -1);
+  log('et steg opp fra hovednivået legger den SIST i forrige gruppe', order() === 'y|x|z', order());
+  log('en gruppe flyttes ett steg blant gruppene', eq(R.stepSub(d, 'step', u2.id, -1), { pos: 1, total: 2 }) &&
+    d.step.subs[0].id === u2.id && R.stepSub(d, 'step', u2.id, -1) === false);
+}
+
+log('en linje er tom bare når den ikke har noe i seg',
+  R.isEmptyLine('step', { t: '  ' }) && !R.isEmptyLine('step', { t: 'x' }) &&
+  R.isEmptyLine('ing', { q: null, qs: '', u: ' ', t: '' }) &&
+  !R.isEmptyLine('ing', { q: 2, qs: '', u: '', t: '' }) && !R.isEmptyLine('ing', { q: null, qs: 'en klype', u: '', t: '' }));
+
 // ---- 7. Normalisering og søketekst ----
 const raw = {
   v: 1, desc: 'Godt', serv: 4, hack: '<script>',

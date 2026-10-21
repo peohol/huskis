@@ -143,12 +143,29 @@ finnes bare når oppskriften har et grunnlag.
 
 - Tittel, beskrivelse og antall porsjoner står øverst.
 - Ingredienser har tre felt: mengde, enhet og navn. Skrives «2 dl melk» i
-  navnefeltet mens de to andre er tomme, deles det opp.
+  navnefeltet mens de to andre er tomme, deles det opp. Enhet og navn gir ikke
+  stor forbokstav på mobiltastaturet (`autocapitalize="none"`).
 - Grønn ＋ under en seksjon lager en linje på hovednivå (regel 1/3 over), grønn
   ＋ i en underinndeling en linje der, og gul ＋ en ny underinndeling.
 - Enter lager neste linje; Backspace i en tom linje fjerner den.
-- En underinndeling kan gis navn, løses opp (linjene blir) eller slettes (med
-  angre).
+- En TOM linje forsvinner når fokus forlater den (klikk et annet sted, eller
+  Enter i den), som en ny rad i en liste (`nameNewRow`): den står der for å ta
+  imot neste linje (`dropEmptyRecipeLine`, `isEmptyLine`). Et trykk som pågår
+  får fullføre før linjen fjernes, så knappen under fingeren ikke byttes ut.
+- En underinndeling er en OVERSKRIFT på egen linje over et kort med linjene,
+  som en kategori i en liste. Overskriften er håndtaket; menyknappen til høyre
+  (objektmenyen) gir «Endre navn», «Flytt» (opp/ned), «Løs opp» (linjene blir)
+  og «Slett» (med angre).
+- Hver linje har en menyknapp i stedet for et slett-kryss: «Flytt» (opp/ned)
+  og «Slett». Flyttingen er for den som ikke kan bruke dra-og-slipp
+  (`stepRecipePart` → `stepLine`/`stepSub` i `recipe-core.js`): en linje i
+  kanten av sin liste går over i nabolista, så hver plass i seksjonen nås.
+- Søppelkassen i foten (`#recipe-edit-trash`, den vanlige `.drop-dock`-kassen)
+  vises bare mens noe dras, og et slipp der sletter med én gang, uten
+  bekreftelse og uten noe å hente tilbake fra en kasse — det menyens «Slett»
+  gjør. Den tar først imot når pekeren har vært utenfor den
+  (`recipeTrashWatch`): den folder seg ut nederst, og en linje som løftes der
+  skal ikke slettes av at fingeren allerede står på den.
 - Alt lagres fortløpende (debounce 400 ms, og alltid ved lukking/`pagehide`).
 
 ## Dra-og-slipp
@@ -160,7 +177,7 @@ Tre dnd-kit-board gjennom Smett, med den delte limkoden
 |---|---|---|
 | `recipesScope` | oppskriftskortene på flaten | omrokkering |
 | `recipesNavScope` | kokebøkene (kort) + kapitlene og oppskriftene (rader) | kapittel bare i en kokebok; oppskrift i et kapittel eller rett i en kokebok |
-| `recipeEditScope` | linjene og underinndelingene i redigeringen | ingrediens bare blant ingrediensene, steg bare blant stegene, underinndeling bare innen sin seksjon |
+| `recipeEditScope` | linjene og underinndelingene i redigeringen | ingrediens bare blant ingrediensene, steg bare blant stegene, underinndeling bare innen sin seksjon; kassen i foten sletter direkte |
 
 Hva som kan slippes hvor, er typestyrt (`itemType`/`containerAccept`), så et
 ulovlig slipp aldri får et mål. En flytting til en kokebok man ikke kan legge
@@ -178,7 +195,7 @@ bok raden også kunne landet i (`recipesNavScope.refusesRow`).
 
 **I redigeringen er draget låst til den loddrette aksen** (`strictAxis`): en
 linje dras bare opp og ned, og står i ro sidelengs. Håndtaket er nesten like
-høyt som feltene og midtstilt på linjen. Arket er en `.dnd-surface`, så det som
+høyt som feltene og midtstilt på linjen; en underinndeling dras i overskriften. Arket er en `.dnd-surface`, så det som
 dras er halvgjennomsiktig i kortform og hullet det kom fra er malt, som på alle
 andre dra-flater. Draget svarer bare i sin egen seksjon
 (`recipeEditDragBegin`): en linje åpner den tomme hovedsonen i SIN seksjon
@@ -241,7 +258,8 @@ delingsmodalen: `https://huskis.no/oppskrift.html#<nøkkel>`.
 - Klienten er laget uten økt (`persistSession: false`), så en innlogget
   Huskis-bruker tar ikke med seg sine rettigheter dit.
 - Svaret valideres ved grensen (`sanitizeRecipe`) og tegnes med den samme
-  lesevisningen som appen (`renderReader`). Porsjonene kan skaleres lokalt.
+  lesevisningen som appen (`renderReader`), men uten porsjoner
+  (`servings: false`): mengdene står slik de er lagret.
 - Toppmenyen er appens glass (gjennomskinnelig, blur) og står fast. Huskis-merket
   står i midten og lenker til appens forside på samme domene (`./`, altså
   huskis.no — siden ligger der, se lenken over). Relativt med vilje: webkoden
@@ -259,8 +277,10 @@ delingsmodalen: `https://huskis.no/oppskrift.html#<nøkkel>`.
   i den nettleseren (`hk-pub-invite-closed` i localStorage).
 - Byttes fragmentet mens en henting pågår, hentes den nye nøkkelen, og svaret
   for den gamle kastes.
-- I testmodus (`?mock=1`, lokalt og i preview) peker lenken på adressen appen
-  kjører på, der mock-databasen finnes; ellers på det kanoniske domenet.
+- I testmodus (`?mock=1`) og i en preview-deploy peker lenken på adressen
+  appen kjører på — mock-databasen finnes bare der, og en preview skal vise
+  sin egen kode; i produksjon peker den på det kanoniske domenet
+  (`recipePublicUrl`).
 - Samme innholdssikkerhetspolicy som appen, ingen inline-kode, og
   `noindex` ([sikkerhetsheadere.md](sikkerhetsheadere.md)).
 

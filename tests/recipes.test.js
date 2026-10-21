@@ -524,7 +524,8 @@ async function runOwner(navn, viewport, touch) {
     blokk.ing.indexOf('i1') > -1 && blokk.step.indexOf('i1') === -1, JSON.stringify(blokk));
 
   /* 8. Oppløs gruppa */
-  await p.click('.recipe-sec[data-sec="ing"] .recipe-sub .recipe-sub-dissolve');
+  await p.click('.recipe-sec[data-sec="ing"] .recipe-sub .recipe-sub-head .cat-cog');
+  await p.click('.obj-menu-row:has-text("Løs opp gruppen")');
   await p.waitForTimeout(300);
   const oppløst = await p.evaluate((id) => {
     const d = window.__huskis.findRecipe(id).recipe;
@@ -588,29 +589,116 @@ async function runOwner(navn, viewport, touch) {
   await G.travel(p, melFra, touch);
   await G.drop(p, undefined, touch);
   await p.waitForTimeout(300);
-  log(navn + ': en løftet ingrediens rører ikke fremgangsmåten, hullet er malt og linjen slipper lys gjennom',
-    Math.abs(h1 - h0) < 1 && linjeMalt.hull && linjeMalt.gjennomsiktig, JSON.stringify({ h0, h1, linjeMalt }));
+  // Løftet der kassen folder seg ut (nederst på telefonen) og sluppet på
+  // samme sted: kassen tar ikke imot før pekeren har vært utenfor den.
+  const melIgjen = await p.evaluate((id) => window.__huskis.findRecipe(id).recipe.ing.items.length, ids.R3);
+  log(navn + ': en løftet ingrediens rører ikke fremgangsmåten, hullet er malt og linjen slipper lys gjennom — og den finnes fortsatt etter slippet',
+    Math.abs(h1 - h0) < 1 && linjeMalt.hull && linjeMalt.gjennomsiktig && melIgjen === 1,
+    JSON.stringify({ h0, h1, linjeMalt, melIgjen }));
   await nyGruppe('step', 'Forberedelse');
   await p.waitForTimeout(250);
-  const fyllFra = await G.centre(p, sec('ing') + ' .recipe-sub:last-child .recipe-sub-head .recipe-grip');
+  const fyllFra = await G.centre(p, sec('ing') + ' .recipe-sub:last-child .recipe-sub-head .recipe-sub-title');
   await G.lift(p, fyllFra, touch);
   await G.travel(p, { x: fyllFra.x, y: fyllFra.y + 4 }, touch);
   await p.waitForTimeout(150);
   const foldet = await p.evaluate(([ing, step]) => {
     const shown = (el) => !!el && getComputedStyle(el).display !== 'none';
     const subs = (s) => [...document.querySelectorAll(s + ' .recipe-sub:not([data-dnd-placeholder])')]
-      .map((u) => shown(u.querySelector('.recipe-lines')));
+      .map((u) => shown(u.querySelector('.recipe-sub-body')));
     return { ing: subs(ing), step: subs(step) };
   }, [sec('ing'), sec('step')]);
   const gruppeMalt = await malt();
   await G.travel(p, fyllFra, touch);
   await G.drop(p, undefined, touch);
   await p.waitForTimeout(400);
-  const utfoldet = await p.evaluate((s) => [...document.querySelectorAll(s + ' .recipe-sub .recipe-lines')]
+  const utfoldet = await p.evaluate((s) => [...document.querySelectorAll(s + ' .recipe-sub .recipe-sub-body')]
     .every((el) => getComputedStyle(el).display !== 'none'), sec('ing'));
   log(navn + ': en løftet ingrediensgruppe foldes sammen med søsknene, og gruppene i fremgangsmåten står urørt',
     foldet.ing.length === 2 && foldet.ing.every((v) => !v) && foldet.step.length === 1 && foldet.step[0] &&
     gruppeMalt.hull && gruppeMalt.gjennomsiktig && utfoldet, JSON.stringify({ foldet, gruppeMalt, utfoldet }));
+
+  /* 8c. Gruppene er overskrifter over et kort, og alt flyttes og slettes også
+     uten dra-og-slipp: fra menyknappen. Kassen i foten sletter direkte. */
+  const doc3 = () => p.evaluate((id) => window.__huskis.findRecipe(id).recipe, ids.R3);
+  const oppsett = await p.evaluate((s) => {
+    const u = document.querySelector(s + ' .recipe-sub');
+    const head = u.querySelector(':scope > .recipe-sub-head');
+    const body = u.querySelector(':scope > .recipe-sub-body');
+    const t = head.querySelector('.recipe-sub-title').getBoundingClientRect();
+    const m = head.querySelector('.cat-cog').getBoundingClientRect();
+    return { over: head.getBoundingClientRect().bottom <= body.getBoundingClientRect().top + 0.5,
+      utenforKortet: !body.contains(head), menyTilHøyre: m.left >= t.right - 0.5,
+      ingenSlettX: !document.querySelector('#recipe-sheet .recipe-line .icon-btn'),
+      linjemeny: document.querySelectorAll('#recipe-sheet .recipe-line .item-cog.obj-menu-btn').length ===
+        document.querySelectorAll('#recipe-sheet .recipe-line').length,
+      småBokstaver: [...document.querySelectorAll('#recipe-sheet .recipe-unit-input, #recipe-sheet .recipe-name-input')]
+        .every((f) => f.getAttribute('autocapitalize') === 'none') };
+  }, sec('ing'));
+  log(navn + ': gruppens tittel står over kortet med menyen til høyre; linjene har meny i stedet for slett-kryss, og ingrediensfeltene gir ikke stor forbokstav',
+    Object.values(oppsett).every(Boolean), JSON.stringify(oppsett));
+
+  const menyFlytt = async (knapp, retning) => {
+    await p.click(knapp);
+    await p.locator('.obj-menu-row.obj-menu-toggle', { hasText: 'Flytt' }).click();
+    await p.waitForTimeout(250);
+    await p.click('.obj-menu-row[data-move="' + retning + '"]');
+    await p.waitForTimeout(200);
+    await p.keyboard.press('Escape');
+    await p.waitForTimeout(200);
+  };
+  await menyFlytt(sec('ing') + ' .recipe-sub:last-child .recipe-sub-head .cat-cog', '-1');
+  const gruppeOpp = (await doc3()).ing.subs.map((u) => u.name);
+  log(navn + ': «Flytt opp» i gruppens meny flytter gruppen', JSON.stringify(gruppeOpp) === '["Fyll","Deig"]',
+    JSON.stringify(gruppeOpp));
+  await menyFlytt(sec('ing') + ' .recipe-main .recipe-line .item-cog', '-1');
+  const linjeOpp = await doc3();
+  log(navn + ': «Flytt opp» på første linje utenfor gruppene legger den sist i gruppen over',
+    linjeOpp.ing.items.length === 0 && linjeOpp.ing.subs[1].items.map((l) => l.t || l.qs).join() === 'mel',
+    JSON.stringify(linjeOpp.ing));
+
+  // Kassen i foten: synlig mens noe dras, sletter med én gang ved slipp.
+  const melId = linjeOpp.ing.subs[1].items[0].id;
+  const kasseFra = await G.centre(p, '.recipe-line[data-id="' + melId + '"] .recipe-grip');
+  await G.lift(p, kasseFra, touch);
+  await G.travel(p, () => G.centre(p, '#recipe-edit-trash-btn'), touch);
+  const kasse = await p.evaluate(() => {
+    const r = document.getElementById('recipe-edit-trash-btn').getBoundingClientRect();
+    return { synlig: !document.getElementById('recipe-edit-trash').hidden && r.height > 0,
+      nederst: Math.abs(r.bottom - innerHeight) < 60, bred: r.width > innerWidth * 0.6,
+      sikter: document.getElementById('recipe-edit-trash-btn').classList.contains('drop-target') };
+  });
+  await G.drop(p, undefined, touch);
+  await p.waitForTimeout(300);
+  const etterKasse = await p.evaluate(() => ({ skjult: document.getElementById('recipe-edit-trash').hidden,
+    modal: !document.getElementById('confirm-modal').hidden }));
+  const ingEtter = (await doc3()).ing;
+  log(navn + ': kassen i foten vises under draget og sletter linjen direkte, uten spørsmål',
+    Object.values(kasse).every(Boolean) && etterKasse.skjult && !etterKasse.modal &&
+    !ingEtter.subs.some((u) => u.items.some((l) => l.id === melId)), JSON.stringify({ kasse, etterKasse }));
+  await G.dragFromTo(p, await G.centre(p, sec('step') + ' .recipe-sub .recipe-sub-title'),
+    () => G.centre(p, '#recipe-edit-trash-btn'), { touch });
+  await p.waitForTimeout(300);
+  log(navn + ': en gruppe slippes i kassen og er borte', (await doc3()).step.subs.length === 0);
+
+  // En tom linje forsvinner når man går ut av den — med klikk andre steder eller Enter.
+  await p.click(sec('step') + ' .recipe-add-row .btn-green');
+  await p.waitForTimeout(200);
+  const tomInne = (await doc3()).step.items.length;
+  await p.click('.recipe-desc-input');
+  await p.waitForTimeout(300);
+  const tomUte = (await doc3()).step.items.length;
+  await p.click(sec('step') + ' .recipe-add-row .btn-green');
+  await p.waitForTimeout(200);
+  await p.keyboard.type('Rør');
+  await p.keyboard.press('Enter');
+  await p.waitForTimeout(200);
+  const nesteRad = (await doc3()).step.items.length;
+  await p.keyboard.press('Enter');
+  await p.waitForTimeout(300);
+  const stegEtter = (await doc3()).step.items.map((l) => l.t);
+  log(navn + ': en tom ny linje forsvinner når man klikker et annet sted eller trykker Enter i den',
+    tomInne === 1 && tomUte === 0 && nesteRad === 2 && JSON.stringify(stegEtter) === '["Rør"]',
+    JSON.stringify({ tomInne, tomUte, nesteRad, stegEtter }));
   await p.evaluate(() => window.__huskis.closeRecipe());
   await p.waitForTimeout(200);
 
@@ -766,12 +854,15 @@ async function runSharing() {
     !topp.tilbake && topp.hjem && topp.logo && !topp.lesing, JSON.stringify(topp));
   log('lenke: en som ikke er logget inn får invitasjonen nederst', topp.invitasjon, JSON.stringify(topp));
   await anon.click('.pub-recipe');
-  await anon.waitForSelector('.recipe-serv-more');
+  await anon.waitForSelector('.recipe-ing-list li');
   log('lenke: inne i en oppskrift står Tilbake i toppmenyen',
     await anon.evaluate(() => !document.getElementById('pub-back').hidden && !document.querySelector('#pub-main .pub-back')));
-  await anon.click('.recipe-serv-more');
-  const pubSkalert = await anon.evaluate(() => document.querySelector('.recipe-ing-list li').textContent);
-  log('lenke: leseren kan skalere porsjonene lokalt', pubSkalert === '500 g hermetiske tomater', pubSkalert);
+  const pubLese = await anon.evaluate(() => ({
+    første: document.querySelector('.recipe-ing-list li').textContent,
+    porsjoner: !!document.querySelector('#pub-main .recipe-serv'),
+  }));
+  log('lenke: oppskriften viser mengdene slik de er lagret, uten antall porsjoner',
+    pubLese.første === '400 g hermetiske tomater' && !pubLese.porsjoner, JSON.stringify(pubLese));
 
   // Eieren endrer — lenken viser det ved neste henting.
   await a.evaluate((id) => {
@@ -855,6 +946,15 @@ async function runSharing() {
   const altUrl = await alt.evaluate(() => window.__huskis.recipePublicUrl('abc'));
   log('lenke: i testmodus peker lenken på adressen appen kjører på',
     altUrl === altBase + '/oppskrift.html?mock=1#abc', altUrl);
+  // En preview-deploy viser sin EGEN versjon av siden; produksjonen lenker til
+  // det kanoniske domenet.
+  const deployUrl = await alt.evaluate(() => ({
+    preview: window.__huskis.recipePublicUrl('abc', { mock: false, deploy: 'preview' }),
+    production: window.__huskis.recipePublicUrl('abc', { mock: false, deploy: 'production' }),
+  }));
+  log('lenke: en preview peker på seg selv, produksjonen på huskis.no',
+    deployUrl.preview === altBase + '/oppskrift.html#abc'
+      && deployUrl.production === 'https://huskis.no/oppskrift.html#abc', JSON.stringify(deployUrl));
   await alt.close();
 
   // Slå av lenken.

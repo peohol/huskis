@@ -1648,6 +1648,17 @@
         <div class="note-sheet recipe-sheet dnd-surface" id="recipe-sheet"></div>
       </div>
     </div>
+    <!-- Redigeringens kasse: dukker opp mens en linje eller en gruppe dras, og
+         sletter med én gang (docs/oppskrifter.md, «Redigering»). -->
+    <div class="drop-dock recipe-edit-dock" id="recipe-edit-dock">
+      <span class="item-trash" id="recipe-edit-trash" hidden>
+        <button class="trashcan" id="recipe-edit-trash-btn" type="button"
+                data-dnd-zone="recipe-edit-trash"
+                data-i18n-title="recipes.editTrash" data-i18n-aria-label="recipes.editTrash">
+          <svg class="icon trashcan-icon" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11" fill="#c0c4c9" stroke="none"></path><path d="M4.5 7.5h15"></path><path d="M9.5 7.5V6a2.5 2.5 0 0 1 5 0v1.5"></path><path d="M6.3 7.5l.9 11a2 2 0 0 0 2 1.9h5.6a2 2 0 0 0 2-1.9l.9-11"></path><path d="M9.7 11v6"></path><path d="M12 11v6"></path><path d="M14.3 11v6"></path></svg>
+        </button>
+      </span>
+    </div>
   </div>
 
   <script src="vendor/supabase-js-2.111.0.js"></script>

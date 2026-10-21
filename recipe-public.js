@@ -39,7 +39,6 @@
 
   var data = null;     // det siste svaret fra serveren
   var view = { c: null, r: null, title: '' };  // hvor leseren står (indekser i svaret)
-  var chosen = {};     // valgt antall porsjoner per oppskrift, kun i denne fanen
   var inflight = null; // nøkkelen som hentes nå
 
   function token() {
@@ -125,13 +124,12 @@
     });
     return ul;
   }
-  function renderRecipe(x, key) {
+  function renderRecipe(x) {
     var wrap = el('div', 'note-sheet-wrap');
     wrap.appendChild(heading(titleOf(x), 'recipe'));
     var sheet = el('div', 'note-sheet recipe-sheet');
     RECIPE.renderReader(sheet, x.recipe, {
-      tr: tr, icons: ICONS, dec: dec, chosen: chosen[key],
-      onServings: function (v) { chosen[key] = v; render(); },
+      tr: tr, icons: ICONS, dec: dec, servings: false,
     });
     wrap.appendChild(sheet);
     return wrap;
@@ -193,13 +191,13 @@
       var only = data.recipes[0];
       if (!only) { message('public.gone', 'public.goneHint'); return; }
       setTitle(titleOf(only));
-      main.appendChild(renderRecipe(only, '0'));
+      main.appendChild(renderRecipe(only));
       return;
     }
     var x = view.r == null ? null : recipeAt(view.c, view.r);
     if (x) {
       setTitle(titleOf(x));
-      main.appendChild(renderRecipe(x, view.c + ':' + view.r));
+      main.appendChild(renderRecipe(x));
     } else {
       setTitle(data.name);
       main.appendChild(renderIndex());
