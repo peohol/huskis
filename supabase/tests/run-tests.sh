@@ -26,6 +26,7 @@ $PSQL --no-psqlrc --echo-errors -f tests/test-roles-and-sharing.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-group-moves.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-email-sharing.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-tombstones.sql
+$PSQL --no-psqlrc --echo-errors -f tests/test-trash-retention.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-ideas.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-notes.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-note-sharing.sql
@@ -82,7 +83,7 @@ $PSQL --no-psqlrc --echo-errors -f tests/test-list-share-migration.sql
 $PSQL --no-psqlrc --echo-errors -f smoke-test.sql
 
 echo "✅ Alle SQL-tester grønne (roller, capabilities, mappeflytting, e-postvarsel,"
-echo "   gravsteiner, idéer, notater, arkiv, koblinger, notatdeling, samskriving og
+echo "   gravsteiner, automatisk tømming av søppelkassene, idéer, notater, arkiv, koblinger, notatdeling, samskriving og
    notathistorikk (òg samtidighet), oppskrifter og offentlige lenker,
    kontosletting, varsler,"
 echo "   web push (òg samtidighet), økter,"

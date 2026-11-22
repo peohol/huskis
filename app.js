@@ -4453,13 +4453,17 @@
   // FØRST: navnet kan være vilkårlig langt, og det er navnet som skal brekke
   // nedover i toasten, ikke poenget.
   function deleteMsg(kind, ids, lastName) {
-    if (ids.length === 1) return tr('trash.movedOne', { name: quoted(lastName || '') });
+    // Står søppelkassen på «umiddelbart», havner ingenting der — si det som skjer.
+    const now = trashImmediate();
+    if (ids.length === 1) {
+      return tr(now ? 'trash.deletedOne' : 'trash.movedOne', { name: quoted(lastName || '') });
+    }
     const w = kind === 'item' ? itemWord : kind === 'idea' ? ideaWord
       : kind === 'card' ? listWord : kind === 'group' ? groupWord
         : kind === 'note' ? noteWord : kind === 'noteFolder' ? noteFolderWord
           : kind === 'noteProject' ? noteProjectWord
             : RECIPE_KINDS[kind] ? (n) => countWord(kind, n) : uniWord;
-    return tr('trash.movedMany', { what: w(ids.length) });
+    return tr(now ? 'trash.deletedMany' : 'trash.movedMany', { what: w(ids.length) });
   }
   // Committer bunken i toasten nå (angre-vinduet er over — timeren utløp, en ny
   // kategori slettes, eller brukeren sveipet toasten bort). Skjuler ikke toasten:
@@ -9564,7 +9568,8 @@
     if (demoActive && !demoAllowsTrashModal()) return;
     modalCfg = cfg;
     trashTitle.textContent = cfg.title;
-    modalNote.textContent = cfg.note;
+    // Kassen (ikke arkivet) sier også hvor lenge det man sletter blir liggende.
+    modalNote.textContent = cfg.danger === false ? cfg.note : cfg.note + ' ' + trashRetentionNote();
     /* ARKIVET LÅNER SKALLET. Det er den samme modalen, den samme raden og den
        samme foten — bare et annet ikon i hodet, og en fot som legger i
        søppelkassen i stedet for å slette for godt (og derfor ikke er rød).
@@ -27944,6 +27949,18 @@
       }
       // Alt lokalt som fantes da staten ble lest, ligger nå på serveren.
       if (allPushed) syncedSeq = seq;
+      /* «UMIDDELBART»: det som nettopp havnet i kassen ligger nå på serveren —
+         be den tømme det med en gang i stedet for å vente på kjøreplanens neste
+         minutt. Bare når innholdet i kassene har endret seg siden sist, så et
+         poll som ikke har noe nytt å si ikke koster et kall til. */
+      if (allPushed && trashImmediate()) {
+        const sig = trashedSignature(remote);
+        if (sig && sig !== trashPurgeSig) {
+          const n = await purgeMyExpiredTrash();
+          if (n >= 0) trashPurgeSig = sig;
+          if (n > 0) cloudAgain = true;   // neste pull ser radene forsvinne
+        }
+      }
       updateInbox(my);
       /* ER ØKTEN VÅR FJERN-UTLOGGET? Doc-et bærer svaret (`session_ok`), og
          det er derfor pollet — som allerede går hvert 5. sekund — er det som
@@ -28423,6 +28440,97 @@
     }
   });
 
+  /* ---------------- Automatisk tømming av søppelkassene ----------------
+     Hvor lenge det man sletter ligger i kassene før det slettes for godt av
+     seg selv. Valget ligger på KONTOEN (`user_metadata.trash_retention`, i
+     sekunder), for det er serveren som tømmer: kjøreplanen i databasen går
+     hvert minutt og bruker valget til den som la noe i kassen — også når appen
+     er lukket. Klienten viser bare valget og ber om en tømming med en gang når
+     det trengs (`purgeMyExpiredTrash`). Gjelder alle kassene i appen.
+     Autoritativt: docs/trash.md. */
+  const TRASH_RETENTION = [
+    // `label` er valget i lista, `span` er tiden slik den står i en setning.
+    // Den første er standarden — og taket serveren håndhever.
+    { secs: 30 * 86400, label: 'trash.retention.d30', span: 'trash.span.d30' },
+    { secs: 7 * 86400, label: 'trash.retention.d7', span: 'trash.span.d7' },
+    { secs: 86400, label: 'trash.retention.h24', span: 'trash.span.h24' },
+    { secs: 3600, label: 'trash.retention.h1', span: 'trash.span.h1' },
+    { secs: 0, label: 'trash.retention.now', span: null },
+  ];
+  const trashRetentionSelect = document.getElementById('trash-retention-select');
+  const menuTrashRetention = document.getElementById('menu-trash-retention');
+  // Et ukjent tall (en eldre eller fremmed verdi) gir standarden, som serveren.
+  function trashRetention() {
+    const v = authUser && authUser.meta ? authUser.meta.trash_retention : undefined;
+    return TRASH_RETENTION.find((o) => o.secs === v) || TRASH_RETENTION[0];
+  }
+  const trashImmediate = () => trashRetention().secs === 0;
+  function trashRetentionNote() {
+    const o = trashRetention();
+    return o.secs === 0 ? tr('trash.retentionNoteNow')
+      : tr('trash.retentionNote', { time: tr(o.span) });
+  }
+  function paintTrashRetention() {
+    if (!trashRetentionSelect) return;
+    const icon = document.getElementById('trash-retention-icon');
+    if (icon && !icon.innerHTML) icon.innerHTML = ICONS.trash;
+    if (!trashRetentionSelect.options.length) {
+      TRASH_RETENTION.forEach((o) => {
+        const el = document.createElement('option');
+        el.value = String(o.secs);
+        el.textContent = tr(o.label);
+        trashRetentionSelect.appendChild(el);
+      });
+      trashRetentionSelect.addEventListener('change',
+        () => setTrashRetention(Number(trashRetentionSelect.value)));
+    }
+    trashRetentionSelect.value = String(trashRetention().secs);
+  }
+  /* Optimistisk, som e-postvarselet. Når kontoen har tatt imot valget, tømmes
+     det som ALLEREDE er utløpt etter den nye fristen med én gang — ellers ville
+     «1 time» først virket ved neste tikk i kjøreplanen. */
+  async function setTrashRetention(secs) {
+    if (!authUser) return;
+    const before = authUser.meta ? authUser.meta.trash_retention : undefined;
+    authUser.meta = Object.assign({}, authUser.meta, { trash_retention: secs });
+    paintTrashRetention();
+    try {
+      const { error } = await acli().auth.updateUser({ data: { trash_retention: secs } });
+      if (error) throw error;
+    } catch (e) {
+      authUser.meta = Object.assign({}, authUser.meta, { trash_retention: before });
+      paintTrashRetention();
+      showToast(friendlyAuthError(e));
+      return;
+    }
+    if (await purgeMyExpiredTrash() > 0) scheduleCloud(0);
+  }
+  /* «Tøm det som er utløpt av MITT, nå.» Svarer med antall slettede rader, eller
+     -1 når kallet ikke nådde fram (da tar kjøreplanen det innen et minutt).
+     Radene forsvinner lokalt ved neste synk-runde, som all annen sletting gjort
+     et annet sted: basen har dem, serveren ikke lenger. */
+  async function purgeMyExpiredTrash() {
+    const client = acli();
+    if (!authUser || !client || demoActive) return -1;
+    try {
+      const { data, error } = await client.rpc('purge_my_expired_trash');
+      if (error) throw error;
+      return Number(data) || 0;
+    } catch (e) {
+      return -1;
+    }
+  }
+  // Hva som ligger i kassene ifølge serveren — så «umiddelbart» bare spør
+  // serveren når noe NYTT har havnet der, ikke ved hvert eneste poll.
+  let trashPurgeSig = '';
+  function trashedSignature(doc) {
+    const ids = [];
+    Object.keys(doc).forEach((k) => {
+      if (Array.isArray(doc[k])) doc[k].forEach((r) => { if (r && r.trashed) ids.push(r.id); });
+    });
+    return ids.sort().join(',');
+  }
+
   /* ============================================================
      PROFILBILDE
      ------------------------------------------------------------
@@ -28714,9 +28822,11 @@
     if (authUser) {
       menuAccount.hidden = false;
       menuEmailPref.hidden = false;
+      if (menuTrashRetention) menuTrashRetention.hidden = false;
       if (menuTour) menuTour.hidden = false;
       accountEdit.hidden = false;
       paintEmailPref();
+      paintTrashRetention();
       paintAccountForms(false);
       const prof = (my && my.user) || {};
       accountEmail.textContent = personName(prof) || authUser.email || '';
@@ -29826,6 +29936,8 @@
     setAuthMode('login');
     menuAccount.hidden = true;
     menuEmailPref.hidden = true;
+    if (menuTrashRetention) menuTrashRetention.hidden = true;
+    trashPurgeSig = '';
     if (menuTour) menuTour.hidden = true;
     menuInvites.hidden = true;
     accountBadge.hidden = true;
@@ -31495,6 +31607,9 @@
     state, render, logout, addGroup, deleteGroup,
     addUniverse, deleteUniverse, setActiveUniverse, setActiveGroup,
     emptyUniversesTrash, emptyGroupsTrash, emptyCardsTrash, emptyItemsTrash,
+    // Den automatiske tømmingen (docs/trash.md): å slette ett listepunkt og
+    // åpne kassen dets er det testen måler fristen gjennom.
+    deleteItem, openItemsTrash,
     openNavModal, closeNavModal,
     // Globalt søk + den generelle navigasjonsmekanismen. Testene bruker
     // `searchObjects` til å måle rangeringen uten å gå gjennom UI-et, og

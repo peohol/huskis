@@ -2173,6 +2173,71 @@
       }
     });
   }
+  /* ---------------- Automatisk tømming av søppelkassene ----------------
+     Speiler seksjon 9g i users-and-sharing.sql (docs/trash.md):
+       • `stampTrashClock` er `stamp_trash_clock`-triggeren — serverens klokke
+         settes når `trashed` blir sann, nullstilles når raden gjenopprettes,
+         og det klienten selv sender overses. Den kjøres som en etterpass over
+         alle søppeltabellene etter hver skriving (mockens tabeller er små).
+       • `purgeExpiredTrash` er `purge_expired_trash`: fristen er valget til den
+         som la raden i kassen (`trashed_by`, ellers `owner_id`), og den som
+         slettet må FORTSATT ha sletterett. Selve slettingen er den vanlige
+         veien (`applyDelete`): gravsteiner og kaskader som ved manuell tømming.
+     `trashed_at` er millisekunder her, ikke timestamptz. */
+  var TRASH_TABLES = ['universes', 'groups', 'cards', 'items', 'ideas',
+    'note_projects', 'note_folders', 'notes'];
+  var TRASH_DEFAULT_S = 30 * 24 * 3600;
+  function stampTrashClock(db, uid, before) {
+    TRASH_TABLES.forEach(function (t) {
+      (db[t] || []).forEach(function (r) {
+        var was = before && before[t] ? before[t][r.id] : undefined;
+        if (!r.trashed) { delete r.trashed_at; delete r.trashed_by; return; }
+        if (was && was.trashed) { r.trashed_at = was.trashed_at != null ? was.trashed_at : Date.now(); r.trashed_by = was.trashed_by || null; return; }
+        r.trashed_at = Date.now();
+        r.trashed_by = uid || null;
+      });
+    });
+  }
+  // Øyeblikksbildet `stampTrashClock` sammenligner mot: hva var allerede i kassen.
+  function trashSnapshot(db) {
+    var snap = {};
+    TRASH_TABLES.forEach(function (t) {
+      snap[t] = {};
+      (db[t] || []).forEach(function (r) {
+        if (r.trashed) snap[t][r.id] = { trashed: true, trashed_at: r.trashed_at, trashed_by: r.trashed_by };
+      });
+    });
+    return snap;
+  }
+  function trashRetentionS(db, uid) {
+    var p = (db.profiles || []).find(function (x) { return x.id === uid; });
+    var v = p && p.user_metadata ? p.user_metadata.trash_retention : undefined;
+    if (v == null || !/^[0-9]{1,9}$/.test(String(v))) return TRASH_DEFAULT_S;
+    return Math.min(TRASH_DEFAULT_S, Number(v));
+  }
+  function purgeExpiredTrash(db, onlyUid) {
+    var now = Date.now(), total = 0;
+    TRASH_TABLES.forEach(function (t) {
+      var type = TYPE_OF_TABLE[t];
+      var doomed = (db[t] || []).filter(function (r) {
+        if (!r.trashed || r.trashed_at == null) return false;
+        var who = r.trashed_by || r.owner_id;
+        if (onlyUid && who !== onlyUid) return false;
+        if (r.trashed_at + trashRetentionS(db, who) * 1000 > now) return false;
+        return type === 'idea' || canDeleteObject(db, type, r.id, who);
+      });
+      doomed.forEach(function (r) {
+        // Kategorier tar ikke medlemmene med seg (`on delete set null`).
+        if (t === 'groups' || t === 'items' || t === 'ideas') {
+          db[t].forEach(function (x) { if (x.cat_id === r.id && x.id !== r.id) x.cat_id = null; });
+        }
+        applyDelete(db, t, r.trashed_by || r.owner_id, { id: { op: 'eq', val: r.id } });
+        total++;
+      });
+    });
+    return total;
+  }
+
   // Gravstein (write_tombstone-triggeren). Idempotent, som `on conflict do update`.
   function writeTombstone(db, type, id) {
     // Koblingene til raden går med (`on delete cascade` på begge sider), og
@@ -2679,6 +2744,8 @@
         return recipeChapterDissolve(db, p.p_folder, p.p_ts, p.p_org, uid);
       },
       get_my_doc: function () { return getMyDoc(db, uid); },
+      // «Tøm det som er utløpt av MITT, nå» (purge_my_expired_trash).
+      purge_my_expired_trash: function () { return purgeExpiredTrash(db, uid); },
       note_crdt_load: function (p) { return noteCrdtLoad(db, p.p_note, uid, null); },
       note_crdt_since: function (p) { return noteCrdtLoad(db, p.p_note, uid, p.p_mark); },
       note_crdt_push: function (p) { return noteCrdtPush(db, p.p_note, uid, p.p_updates); },
@@ -3329,7 +3396,9 @@
                 if (tomb) return { data: null, error: tomb };
                 var fk = catFkError(db, table, payload);
                 if (fk) return { data: null, error: fk };
+                var førInsert = trashSnapshot(db);
                 applyInsert(db, table, u.id, payload);
+                stampTrashClock(db, u.id, førInsert);
                 return { data: null, error: null };
               });
             });
@@ -3340,7 +3409,9 @@
               return transact(function (db) {
                 var fk = catFkError(db, table, payload);
                 if (fk) return { data: null, error: fk };
+                var førUpdate = trashSnapshot(db);
                 applyUpdate(db, table, u.id, clone(payload), filters);
+                stampTrashClock(db, u.id, førUpdate);
                 return { data: null, error: null };
               });
             });
@@ -3384,7 +3455,10 @@
             sessionId(db, u);
             var h = rpcHandlers(db, u.id)[name];
             if (!h) return { data: null, error: { message: 'ukjent rpc: ' + name } };
-            return { data: h(params || {}), error: null };
+            var førRpc = trashSnapshot(db);
+            var svar = h(params || {});
+            stampTrashClock(db, u.id, førRpc);
+            return { data: svar, error: null };
           });
         });
       },
@@ -3413,5 +3487,10 @@
     // Nettbrudd på bestilling — se serverCall(). Brukes av
     // tests/notes-collab.test.js til å måle reconnect etter et kort brudd.
     setOffline: setOffline, isOffline: function () { return OFFLINE; },
+    /* Kjøreplanens tikk (`purge_expired_trash()` hvert minutt i produksjon).
+       Mocken har ingen klokke som går av seg selv, så en test som vil se den
+       automatiske tømmingen, tikker selv — gjerne etter å ha flyttet
+       `trashed_at` bakover med `_edit`. */
+    purgeExpiredTrash: function () { return transact(function (db) { return purgeExpiredTrash(db, null); }); },
   };
 })();

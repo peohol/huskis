@@ -7412,6 +7412,192 @@ create trigger notes_recipe_links after update of project_id, folder_id on publi
   execute function public.recipe_links_after_move();
 
 -- ------------------------------------------------------------
+-- 9g. AUTOMATISK TØMMING AV SØPPELKASSENE (docs/trash.md)
+--
+--    Alt som ligger i en søppelkasse — på alle åtte radtypene, og dermed også
+--    oppskriftene — slettes for godt når det har ligget der lenger enn den som
+--    LA DET DER har valgt. Valget er personlig (`user_metadata.trash_retention`,
+--    sekunder: 30 døgn som standard, ellers 7 døgn, 24 t, 1 t eller 0 =
+--    umiddelbart), men søpla er felles — derfor er det den som slettet, ikke den
+--    som ser på kassen, som bestemmer hvor lenge det ligger.
+--
+--    KLOKKA ER SERVERENS. `trashed_at`/`trashed_by` stemples av en trigger når
+--    `trashed` går fra usann til sann og nullstilles når raden gjenopprettes;
+--    klienten skriver dem aldri, og en verdi den likevel sender overses. Da kan
+--    verken en klient med feil klokke eller en gammel klientversjon flytte
+--    fristen.
+--
+--    MYNDIGHETEN SJEKKES PÅ NYTT ved tømming: raden slettes bare hvis den som la
+--    den i kassen FORTSATT har sletterett (`can_delete_object`). Er den blitt
+--    låst i mellomtiden — eller personen har mistet rollen — blir den liggende,
+--    akkurat som den manuelle tømmingen lar låst innhold ligge. Rader fra før
+--    feltet fantes har ingen `trashed_by`; der står opphavspersonen
+--    (`owner_id`) for både valget og myndigheten.
+--
+--    Selve slettingen er en vanlig DELETE: kaskadene, gravsteinene og
+--    koblingene oppfører seg nøyaktig som når kassen tømmes for hånd, og
+--    klientene ser raden forsvinne ved neste synk.
+-- ------------------------------------------------------------
+
+alter table public.universes     add column if not exists trashed_at timestamptz;
+alter table public.universes     add column if not exists trashed_by uuid;
+alter table public.groups        add column if not exists trashed_at timestamptz;
+alter table public.groups        add column if not exists trashed_by uuid;
+alter table public.cards         add column if not exists trashed_at timestamptz;
+alter table public.cards         add column if not exists trashed_by uuid;
+alter table public.items         add column if not exists trashed_at timestamptz;
+alter table public.items         add column if not exists trashed_by uuid;
+alter table public.ideas         add column if not exists trashed_at timestamptz;
+alter table public.ideas         add column if not exists trashed_by uuid;
+alter table public.note_projects add column if not exists trashed_at timestamptz;
+alter table public.note_projects add column if not exists trashed_by uuid;
+alter table public.note_folders  add column if not exists trashed_at timestamptz;
+alter table public.note_folders  add column if not exists trashed_by uuid;
+alter table public.notes         add column if not exists trashed_at timestamptz;
+alter table public.notes         add column if not exists trashed_by uuid;
+
+-- Søpla er en liten brøkdel av hver tabell; tømmingen kjører hvert minutt og
+-- skal bare se på den.
+create index if not exists universes_trash_idx     on public.universes (trashed_at) where trashed;
+create index if not exists groups_trash_idx        on public.groups (trashed_at) where trashed;
+create index if not exists cards_trash_idx         on public.cards (trashed_at) where trashed;
+create index if not exists items_trash_idx         on public.items (trashed_at) where trashed;
+create index if not exists ideas_trash_idx         on public.ideas (trashed_at) where trashed;
+create index if not exists note_projects_trash_idx on public.note_projects (trashed_at) where trashed;
+create index if not exists note_folders_trash_idx  on public.note_folders (trashed_at) where trashed;
+create index if not exists notes_trash_idx         on public.notes (trashed_at) where trashed;
+
+-- Stempelet. Kjører SIST av BEFORE-triggerne (navnet `*_zz_trash_clock` —
+-- PostgreSQL fyrer dem i navnerekkefølge), altså etter LWW-vakten: det er den
+-- FERDIGE verdien av `trashed` som teller, ikke den klienten foreslo. En
+-- utdatert skriving som vakten ruller tilbake, flytter dermed ikke klokka.
+-- En søppelrad uten stempel (fra før feltet fantes) får det ved første
+-- berøring — se etterfyllingen under.
+create or replace function public.stamp_trash_clock()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if not new.trashed then
+    new.trashed_at := null;
+    new.trashed_by := null;
+  elsif tg_op = 'INSERT' or not old.trashed then
+    new.trashed_at := now();
+    new.trashed_by := auth.uid();
+  else
+    new.trashed_at := coalesce(old.trashed_at, now());
+    new.trashed_by := old.trashed_by;
+  end if;
+  return new;
+end;
+$$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['universes', 'groups', 'cards', 'items', 'ideas',
+                           'note_projects', 'note_folders', 'notes'] loop
+    execute format('drop trigger if exists %I on public.%I', t || '_zz_trash_clock', t);
+    execute format('create trigger %I before insert or update on public.%I
+                      for each row execute function public.stamp_trash_clock()',
+                   t || '_zz_trash_clock', t);
+    -- Etterfylling: det som lå i kassen før feltet fantes, får fristen sin
+    -- regnet fra NÅ — ingenting forsvinner i det øyeblikket funksjonen kommer.
+    -- Idempotent: neste kjøring finner ingen rader uten stempel.
+    execute format('update public.%I set trashed_at = now() where trashed and trashed_at is null', t);
+  end loop;
+end $$;
+
+-- Hvor lenge en persons slettinger ligger i kassen. Leses fra kontoens
+-- metadata, som språket (`send_invite_email`): det er klientens eneste
+-- kontoinnstilling serveren også trenger å se. Alt som ikke er et rent
+-- sekundtall — eller som overstiger standarden — gir standarden: valget kan
+-- bare gjøre fristen KORTERE. INTERN: ingen EXECUTE til klientroller.
+create or replace function public.trash_retention_default()
+returns integer language sql immutable as $$ select 30 * 24 * 3600 $$;
+
+create or replace function public.trash_retention(p_uid uuid)
+returns interval language sql stable security definer set search_path = public, auth as $$
+  select make_interval(secs => least(public.trash_retention_default(), coalesce(
+    (select case when (u.raw_user_meta_data ->> 'trash_retention') ~ '^[0-9]{1,9}$'
+                 then (u.raw_user_meta_data ->> 'trash_retention')::integer end
+       from auth.users u where u.id = p_uid),
+    public.trash_retention_default())));
+$$;
+
+-- Tømmingen. `p_uid` null = alle (kjøreplanen); ellers bare det `p_uid` selv
+-- har lagt i kassen (`purge_my_expired_trash`). Foreldre før barn, så en
+-- kaskade tar barna med seg i stedet for at de slettes hver for seg. Idéene
+-- deles aldri: eierskapet er myndigheten. Returnerer antall rader som ble
+-- slettet direkte (kaskaderte barn telles ikke).
+-- INTERN: ingen EXECUTE til klientroller (se grants nederst).
+create or replace function public.purge_expired_trash(p_uid uuid default null)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  t text; rtype text; ids uuid[]; total integer := 0;
+  -- Et ferskt posisjonsstempel for pekerne som løsnes (se under). Strengt
+  -- nyere enn alt en klient har skrevet hittil, så LWW-vakten slipper det inn.
+  stamp bigint := (extract(epoch from clock_timestamp()) * 1000)::bigint;
+begin
+  foreach t in array array['universes', 'groups', 'cards', 'items', 'ideas',
+                           'note_projects', 'note_folders', 'notes'] loop
+    rtype := case t when 'universes' then 'universe' when 'groups' then 'group'
+                    when 'cards' then 'card' when 'items' then 'item' when 'ideas' then 'idea'
+                    when 'note_projects' then 'note_project' when 'note_folders' then 'note_folder'
+                    else 'note' end;
+    execute format($q$
+      select coalesce(array_agg(r.id), '{}') from public.%I r
+       where r.trashed
+         and r.trashed_at is not null
+         and ($1 is null or coalesce(r.trashed_by, r.owner_id) = $1)
+         and r.trashed_at + public.trash_retention(coalesce(r.trashed_by, r.owner_id)) <= now()
+         and (%L = 'idea' or public.can_delete_object(%L, r.id, coalesce(r.trashed_by, r.owner_id)))
+    $q$, t, rtype, rtype) into ids using p_uid;
+    if cardinality(ids) = 0 then continue; end if;
+    /* PEKERE SOM SKAL LØSNES, IKKE SLETTES. En kategori (listepunkt, mappe,
+       idé) og en notatbok tar ikke medlemmene sine med seg — fremmednøkkelen er
+       `on delete set null`. Men pekeren rir på POSISJONSREGISTERET, og
+       kaskadens UPDATE har det gamle stempelet: LWW-vakten ville forsvart den
+       gamle verdien, og medlemmet pekt på noe som ikke finnes. Den manuelle
+       tømmingen i klienten løsner dem derfor med et nytt stempel FØR
+       slettingen; det samme gjøres her. */
+    if t in ('groups', 'items', 'ideas') then
+      execute format($q$
+        update public.%I set cat_id = null, pos_ts = greatest(pos_ts + 1, $2), pos_org = 'server'
+         where cat_id = any($1) and not (id = any($1))
+      $q$, t) using ids, stamp;
+    elsif t = 'note_folders' then
+      update public.notes set folder_id = null, pos_ts = greatest(pos_ts + 1, stamp), pos_org = 'server'
+       where folder_id = any(ids);
+    end if;
+    execute format('delete from public.%I where id = any($1)', t) using ids;
+    total := total + cardinality(ids);
+  end loop;
+  return total;
+end;
+$$;
+
+-- Klientens vei inn: «tøm det som er utløpt av MITT, nå». Brukes når fristen er
+-- «umiddelbart» (kjøreplanen ville ellers latt det ligge til neste minutt) og
+-- rett etter at valget er endret. Den kan ikke nå andres slettinger.
+create or replace function public.purge_my_expired_trash()
+returns integer language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid();
+begin
+  if uid is null then return 0; end if;
+  return public.purge_expired_trash(uid);
+end;
+$$;
+
+-- KJØREPLANEN: hvert minutt, som varseltikket. Hoppes over uten pg_cron (lokal
+-- PostgreSQL, testsuiten). Idempotent: samme navn erstatter den forrige.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule('huskis-trash-purge', '* * * * *', 'select public.purge_expired_trash()');
+  end if;
+exception when others then null;   -- manglende rettighet skal ikke velte migreringen
+end $$;
+
+-- ------------------------------------------------------------
 -- 10. import_doc(p_doc) — migrering av dagens (lokale) doc inn som
 --     den innloggede brukerens egne data. Klienten normaliserer
 --     doc-et først (samme migreringssteg som i dag) og sender
@@ -7976,7 +8162,8 @@ begin
     'public.recipe_link_get(text, uuid)',
     'public.recipe_link_create(text, uuid)',
     'public.recipe_link_revoke(text, uuid)',
-    'public.recipe_chapter_dissolve(uuid, bigint, text)'
+    'public.recipe_chapter_dissolve(uuid, bigint, text)',
+    'public.purge_my_expired_trash()'
   ] loop
     execute format('revoke execute on function %s from public, anon', fn);
     execute format('grant execute on function %s to authenticated', fn);
@@ -8024,6 +8211,12 @@ revoke all on function public.recipe_links_after_membership() from public, anon,
 revoke all on function public.recipe_links_after_move() from public, anon, authenticated;
 revoke all on function public.recipe_link_authorize(text, uuid) from public, anon, authenticated;
 revoke all on function public.recipe_public_items(uuid, uuid) from public, anon, authenticated;
+-- Den automatiske tømmingen (seksjon 9g): `purge_expired_trash` sletter ANDRES
+-- utløpte søppel uten å spørre om kalleren, og fristen leses fra kontoens
+-- metadata. Klienten når bare sitt eget, gjennom purge_my_expired_trash().
+revoke all on function public.purge_expired_trash(uuid) from public, anon, authenticated;
+revoke all on function public.trash_retention(uuid) from public, anon, authenticated;
+revoke all on function public.trash_retention_default() from public, anon, authenticated;
 -- DEN ENE funksjonen anon får kalle: lesingen bak en offentlig lenke. Den
 -- sjekker nøkkelen selv og svarer null på alt annet (seksjon 9f).
 revoke all on function public.recipe_public_get(text) from public;

@@ -420,7 +420,9 @@ begin
     'public.recipe_link_get(text, uuid)',
     'public.recipe_link_create(text, uuid)',
     'public.recipe_link_revoke(text, uuid)',
-    'public.recipe_chapter_dissolve(uuid, bigint, text)'
+    'public.recipe_chapter_dissolve(uuid, bigint, text)',
+    -- Den automatiske tømmingen av søppelkassene (docs/trash.md).
+    'public.purge_my_expired_trash()'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
@@ -499,7 +501,12 @@ begin
     'public.prune_device_sessions(uuid)',
     -- Det aktive native settet for én bruker. Kallerne sender sin egen
     -- auth.uid() inn; funksjonen har ingen egen autorisasjonssjekk.
-    'public.native_notif_active(uuid)'
+    'public.native_notif_active(uuid)',
+    -- Den automatiske tømmingen: sletter ANDRES utløpte søppel, og leser
+    -- fristen fra kontoens metadata. Kjøreplanen kaller den; klienten kan ikke.
+    'public.purge_expired_trash(uuid)',
+    'public.trash_retention(uuid)',
+    'public.trash_retention_default()'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
@@ -578,7 +585,13 @@ begin
     'note_projects:note_projects_owner_seed', 'note_folders:note_folders_owner_seed',
     'notes:notes_owner_seed',
     'memberships:memberships_guard', 'memberships:memberships_last_owner_guard',
-    'share_invites:on_share_invite_created'
+    'share_invites:on_share_invite_created',
+    -- Søppelkassens klokke: uten den får ingenting en frist, og ingenting
+    -- tømmes automatisk (docs/trash.md).
+    'universes:universes_zz_trash_clock', 'groups:groups_zz_trash_clock',
+    'cards:cards_zz_trash_clock', 'items:items_zz_trash_clock',
+    'ideas:ideas_zz_trash_clock', 'note_projects:note_projects_zz_trash_clock',
+    'note_folders:note_folders_zz_trash_clock', 'notes:notes_zz_trash_clock'
   ] loop
     select count(*) into n from pg_trigger
      where tgrelid = to_regclass('public.' || split_part(tg, ':', 1))
