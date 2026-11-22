@@ -28518,27 +28518,34 @@
     return trashRetentionWriter;
   }
   async function writeTrashRetention(forUser) {
-    let sent, failed = null, landed = false;
-    do {
-      sent = trashRetentionWant;
+    // Løkka eier ALT som hører til et bytte — skrivingen og tømmingen etter
+    // den — og ser etter et nyere valg etter hvert steg. Et valg gjort mens
+    // tømmingen står, blir dermed også sendt; ellers ville skriveren gått ut
+    // med det, og kontoen blitt stående på det forrige.
+    for (;;) {
+      const sent = trashRetentionWant;
+      let failed = null;
       try {
         const { error } = await acli().auth.updateUser({ data: { trash_retention: sent } });
         if (error) throw error;
         trashRetentionSaved = sent;
-        failed = null;
-        landed = true;
       } catch (e) {
         failed = e;
       }
       // Kontoen byttet mens kallet sto: ingenting her hører til den nye.
       if (!authUser || authUser.id !== forUser) return;
-    } while (sent !== trashRetentionWant);
-    if (failed) {
-      authUser.meta = Object.assign({}, authUser.meta, { trash_retention: trashRetentionSaved });
-      paintTrashRetention();
-      showToast(friendlyAuthError(failed));
+      if (sent !== trashRetentionWant) continue;   // et nyere valg venter
+      if (failed) {
+        authUser.meta = Object.assign({}, authUser.meta, { trash_retention: trashRetentionSaved });
+        paintTrashRetention();
+        showToast(friendlyAuthError(failed));
+        return;
+      }
+      const n = await purgeMyExpiredTrash();
+      if (!authUser || authUser.id !== forUser) return;
+      if (n > 0) scheduleCloud(0);
+      if (sent === trashRetentionWant) return;     // ingenting nytt mens tømmingen sto
     }
-    if (landed && await purgeMyExpiredTrash() > 0) scheduleCloud(0);
   }
   /* Valget kan endres på en annen enhet mens denne står åpen. Doc-et bærer
      kontoens verdi (`my.user.trash_retention`), så den følger pollet — ellers

@@ -262,7 +262,8 @@ slette noe for godt — velger man «Umiddelbart» og så «30 dager» før det 
 kallet er ferdig, må kontoen ende på 30 dager. Klienten sender derfor aldri mer
 enn ett kall om gangen (`setTrashRetention`): et nytt valg mens et kall står,
 blir bare stående som ønsket, og når kallet er ferdig, sendes det SISTE ønskede
-valget. Et kall som feiler, ruller bare tilbake når det var det siste valget,
+valget. Tømmingen etter et bekreftet bytte hører til den samme løkka, så et valg
+gjort mens den står, blir også sendt. Et kall som feiler, ruller bare tilbake når det var det siste valget,
 og da til det kontoen sist bekreftet.
 
 Kassen sier selv hvor lenge det man sletter blir liggende (notatet i modalen).

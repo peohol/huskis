@@ -23,6 +23,9 @@
     9. Et eldre valg som feiler, ruller ikke tilbake et nyere som lyktes; feiler
        det SISTE, går lista tilbake til det kontoen faktisk har — ikke til
        valget før det hele, og ikke til det som feilet.
+   9d. Et nytt valg mens tømmingen etter et bekreftet bytte står og venter,
+       blir også sendt: «Umiddelbart» lander, tømmingen holdes igjen,
+       «30 dager» velges — og kontoen og lista ender på 30 dager.
    10. Ingen JS-feil.
 
   Logikk, ikke layout: ett viewport holder.
@@ -253,7 +256,15 @@ async function age(p, id, ms) {
         g.maxInFlight = Math.max(g.maxInFlight, g.pending.length);
       });
     };
-    g.restore = () => { c.auth.updateUser = orig; };
+    // Tømmingen etter et bekreftet bytte kan holdes igjen på samme måte.
+    const origRpc = c.rpc.bind(c);
+    g.purges = [];
+    g.holdPurge = false;
+    c.rpc = (name, ...rest) => {
+      if (name !== 'purge_my_expired_trash' || !g.holdPurge) return origRpc(name, ...rest);
+      return new Promise((res) => g.purges.push(() => res(origRpc(name, ...rest))));
+    };
+    g.restore = () => { c.auth.updateUser = orig; c.rpc = origRpc; };
   });
   const serverRetention = () => p.evaluate(() => {
     const me = window.HK_MOCK._loadDB().profiles.find((x) => x.id === window.__huskis.authUser.id);
@@ -301,6 +312,32 @@ async function age(p, id, ms) {
     (await serverRetention()) === 3600 && s9b.meta === 3600 && s9b.sel === 3600,
     JSON.stringify({ server: await serverRetention(), ...s9b, ...r9b }));
   log('9c: … og sier fra om feilen', /Nettverksfeil/.test(await toastText(p)), await toastText(p));
+
+  // 9d: «Umiddelbart» bekreftes, tømmingen etter det holdes igjen, og «30 dager»
+  // velges mens den står. Så slippes alt som kommer, til skriveren er ferdig.
+  await p.evaluate(() => { window.__gate.sent = []; window.__gate.holdPurge = true; });
+  await p.locator('#trash-retention-select').selectOption('0');
+  await p.waitForFunction(() => window.__gate.pending.length > 0, null, { timeout: 5000, polling: 50 });
+  await p.evaluate(() => window.__gate.pending.pop()(true));
+  await p.waitForFunction(() => window.__gate.purges.length > 0, null, { timeout: 5000, polling: 50 });
+  await p.locator('#trash-retention-select').selectOption(String(30 * 86400));
+  await p.evaluate(() => window.__gate.purges.shift()());
+  for (let i = 0; i < 40; i++) {
+    const st = await p.evaluate(() => {
+      const g = window.__gate;
+      if (g.pending.length) g.pending.pop()(true);
+      else if (g.purges.length) g.purges.shift()();
+      return { busy: window.__huskis.trashRetentionBusy, left: g.pending.length + g.purges.length };
+    });
+    if (!st.busy && !st.left) break;
+    await p.waitForTimeout(100);
+  }
+  const s9d = await shown();
+  const sent9d = await p.evaluate(() => window.__gate.sent.slice());
+  log('9d: et valg gjort mens tømmingen venter, blir også lagret — kontoen ender på 30 dager',
+    (await serverRetention()) === 30 * 86400 && s9d.meta === 30 * 86400 && s9d.sel === 30 * 86400
+      && sent9d[sent9d.length - 1] === 30 * 86400,
+    JSON.stringify({ server: await serverRetention(), ...s9d, sent: sent9d }));
   await p.evaluate(() => { window.__gate.restore(); window.__huskis.closeAccount(); });
 
   log('10: ingen JS-feil', errs.length === 0, errs.join(' | '));
