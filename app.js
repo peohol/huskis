@@ -28489,11 +28489,15 @@
   /* Optimistisk, som e-postvarselet. Når kontoen har tatt imot valget, tømmes
      det som ALLEREDE er utløpt etter den nye fristen med én gang — ellers ville
      «1 time» først virket ved neste tikk i kjøreplanen. */
+  let trashRetentionSaving = 0;
+  let trashRetentionChangedAt = 0;
   async function setTrashRetention(secs) {
     if (!authUser) return;
+    trashRetentionChangedAt = Date.now();
     const before = authUser.meta ? authUser.meta.trash_retention : undefined;
     authUser.meta = Object.assign({}, authUser.meta, { trash_retention: secs });
     paintTrashRetention();
+    trashRetentionSaving++;
     try {
       const { error } = await acli().auth.updateUser({ data: { trash_retention: secs } });
       if (error) throw error;
@@ -28502,8 +28506,27 @@
       paintTrashRetention();
       showToast(friendlyAuthError(e));
       return;
+    } finally {
+      trashRetentionSaving--;
+      trashRetentionChangedAt = Date.now();
     }
     if (await purgeMyExpiredTrash() > 0) scheduleCloud(0);
+  }
+  /* Valget kan endres på en annen enhet mens denne står åpen. Doc-et bærer
+     kontoens verdi (`my.user.trash_retention`), så den følger pollet — ellers
+     ville kassens notat, toasten og «umiddelbart»-tømmingen gått på en
+     utdatert verdi resten av økten. Ikke mens vårt eget bytte er underveis,
+     og ikke rett etter: et doc som ble hentet FØR byttet landet, kan komme
+     etterpå, og det ville snudd valget tilbake til neste poll rettet det.
+     En eldre server uten feltet rører ingenting. */
+  const TRASH_RETENTION_SETTLE_MS = 15000;
+  function adoptTrashRetention(my) {
+    const u = my && my.user;
+    if (!authUser || !u || !('trash_retention' in u) || trashRetentionSaving) return;
+    if (Date.now() - trashRetentionChangedAt < TRASH_RETENTION_SETTLE_MS) return;
+    const v = u.trash_retention == null ? undefined : u.trash_retention;
+    if ((authUser.meta && authUser.meta.trash_retention) === v) return;
+    authUser.meta = Object.assign({}, authUser.meta, { trash_retention: v });
   }
   /* «Tøm det som er utløpt av MITT, nå.» Svarer med antall slettede rader, eller
      -1 når kallet ikke nådde fram (da tar kjøreplanen det innen et minutt).
@@ -28826,6 +28849,7 @@
       if (menuTour) menuTour.hidden = false;
       accountEdit.hidden = false;
       paintEmailPref();
+      adoptTrashRetention(my);
       paintTrashRetention();
       paintAccountForms(false);
       const prof = (my && my.user) || {};

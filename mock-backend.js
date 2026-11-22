@@ -1425,7 +1425,10 @@
     var email = emailOf(db, uid);
     var selfProf = db.profiles.find(function (x) { return x.id === uid; }) || {};
     return {
-      user: { id: uid, email: email, display_name: selfProf.display_name || (email || '').split('@')[0] },
+      user: { id: uid, email: email, display_name: selfProf.display_name || (email || '').split('@')[0],
+        // Kontoens frist for søppelkassene (get_my_doc i users-and-sharing.sql).
+        trash_retention: selfProf.user_metadata && selfProf.user_metadata.trash_retention != null
+          ? selfProf.user_metadata.trash_retention : null },
       universes: myUni.map(function (u) {
         var m = uniMembership(db, uid, u.id);
         return {

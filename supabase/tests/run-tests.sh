@@ -55,6 +55,10 @@ tests/test-note-version-race.sh
 # kapittelet» er alt eller ingenting også når rettighetene endres midt i.
 tests/test-recipe-race.sh
 
+# Den automatiske tømmingen: en gjenoppretting som lyktes, skal aldri bli
+# slettet etterpå — kandidatene låses mellom valget og slettingen.
+tests/test-trash-race.sh
+
 # Smoke-testen som produksjonsdeployen henger på (release.yml) må bevises her:
 # den skal være GRØNN mot et ferdig migrert skjema. Er den det ikke lokalt,
 # blokkerer den deployen i produksjon uten at noe faktisk er galt.

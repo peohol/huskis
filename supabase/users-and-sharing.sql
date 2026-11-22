@@ -6247,8 +6247,14 @@ begin
     select l.* from public.object_links l where l.owner_id = uid
   )
   select jsonb_build_object(
+    -- `trash_retention`: kontoens frist for søppelkassene (seksjon 9g). Den
+    -- bor i Auth-metadataen, men følger med her så en åpen fane på en annen
+    -- enhet ser et bytte ved neste poll i stedet for først ved neste innlogging.
     'user', (select jsonb_build_object('id', pr.id, 'email', pr.email,
-                                       'display_name', pr.display_name)
+                                       'display_name', pr.display_name,
+                                       'trash_retention',
+                                       (select au.raw_user_meta_data -> 'trash_retention'
+                                          from auth.users au where au.id = uid))
              from public.profiles pr where pr.id = uid),
     'universes', coalesce((select jsonb_agg(jsonb_build_object(
         'id', u.id, 'creator', u.owner_id, 'createdByMe', u.owner_id = uid,
@@ -7543,13 +7549,22 @@ begin
                     when 'cards' then 'card' when 'items' then 'item' when 'ideas' then 'idea'
                     when 'note_projects' then 'note_project' when 'note_folders' then 'note_folder'
                     else 'note' end;
+    /* Kandidatene LÅSES til transaksjonen er over (`for update`), så valget og
+       slettingen er ett: en gjenoppretting som kommer i mellomtiden venter, og
+       finner raden borte — den kan ikke lykkes og så bli slettet likevel. En
+       gjenoppretting som rakk å bli committet FØR låsen, får raden vurdert på
+       nytt (PostgreSQL leser den ferske versjonen) og faller ut. `skip locked`:
+       en rad noen holder på å skrive i, tas neste minutt i stedet for å holde
+       hele tømmingen igjen. */
     execute format($q$
-      select coalesce(array_agg(r.id), '{}') from public.%I r
-       where r.trashed
-         and r.trashed_at is not null
-         and ($1 is null or coalesce(r.trashed_by, r.owner_id) = $1)
-         and r.trashed_at + public.trash_retention(coalesce(r.trashed_by, r.owner_id)) <= now()
-         and (%L = 'idea' or public.can_delete_object(%L, r.id, coalesce(r.trashed_by, r.owner_id)))
+      select array(
+        select r.id from public.%I r
+         where r.trashed
+           and r.trashed_at is not null
+           and ($1 is null or coalesce(r.trashed_by, r.owner_id) = $1)
+           and r.trashed_at + public.trash_retention(coalesce(r.trashed_by, r.owner_id)) <= now()
+           and (%L = 'idea' or public.can_delete_object(%L, r.id, coalesce(r.trashed_by, r.owner_id)))
+         for update of r skip locked)
     $q$, t, rtype, rtype) into ids using p_uid;
     if cardinality(ids) = 0 then continue; end if;
     /* PEKERE SOM SKAL LØSNES, IKKE SLETTES. En kategori (listepunkt, mappe,

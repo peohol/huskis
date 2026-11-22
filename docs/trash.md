@@ -237,6 +237,11 @@ har den, serveren ikke lenger). To ting skiller den fra en rå sletting:
   mellomtiden, eller personen har mistet rollen, blir den liggende — akkurat
   som den manuelle tømmingen lar låst innhold ligge. Rader uten `trashed_by`
   følger opphavspersonen (`owner_id`).
+- **Valget og slettingen er ett.** Kandidatene låses (`for update … skip
+  locked`) til slettingen er committet. En gjenoppretting som kommer i
+  mellomtiden venter og finner raden borte; en som allerede holder raden, blir
+  hoppet over til neste minutt. En gjenoppretting som lyktes, kan dermed aldri
+  bli slettet etterpå (`supabase/tests/test-trash-race.sh`).
 - **Pekere løsnes med et nytt stempel.** En kategori (listepunkt, mappe, idé)
   og en notatbok tar ikke medlemmene med seg (`on delete set null`), men
   pekeren rir på posisjonsregisteret, og LWW-vakten ville forsvart den gamle
@@ -251,9 +256,14 @@ kallet gjøres når fristen endres, så «1 time» virker med én gang på det s
 allerede er eldre enn det.
 
 Kassen sier selv hvor lenge det man sletter blir liggende (notatet i modalen).
+Endres valget på en annen enhet, følger en åpen fane etter ved neste synk:
+`get_my_doc()` bærer kontoens verdi (`user.trash_retention`), og klienten tar
+den inn (`adoptTrashRetention`) — men ikke rett etter et eget bytte, så et doc
+som ble hentet før byttet landet ikke snur det tilbake.
 Arkivet har ingen frist — det er ikke en søppelkasse.
 
-Regresjonstester: `supabase/tests/test-trash-retention.sql` (serveren) og
+Regresjonstester: `supabase/tests/test-trash-retention.sql` og
+`test-trash-race.sh` (serveren) og
 `tests/trash-retention.test.js` (appen mot mock-backenden, som speiler
 reglene; `HK_MOCK.purgeExpiredTrash()` er kjøreplanens tikk).
 

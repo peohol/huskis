@@ -170,6 +170,11 @@ select public.purge_my_expired_trash() as tømt \gset
 select public.t_check('B sin «tøm mitt» når ikke As søppel og ikke sitt eget før fristen',
   :tømt = 0 and exists (select 1 from public.cards where id = :'C2'));
 
+select set_config('request.jwt.claim.sub', :'A', false); set role authenticated;
+select public.t_check('get_my_doc bærer kontoens frist, så en åpen fane ser et bytte',
+  (public.get_my_doc() -> 'user' ->> 'trash_retention') = '0');
+reset role;
+
 -- ---------- 6. ugyldige valg ----------
 reset role;
 update auth.users set raw_user_meta_data = '{"trash_retention": "tull"}' where id = :'B';

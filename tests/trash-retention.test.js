@@ -14,7 +14,9 @@
        fristen med én gang — uten å vente på kjøreplanen.
     6. «Umiddelbart»: toasten sier «Slettet», og listepunktet er slettet for
        godt på serveren og borte fra appen uten noe tikk i kjøreplanen.
-    7. Ingen JS-feil.
+    7. Endres valget på en annen enhet, følger en åpen fane etter ved neste
+       synk (doc-et bærer kontoens verdi).
+    8. Ingen JS-feil.
 
   Logikk, ikke layout: ett viewport holder.
 
@@ -213,7 +215,23 @@ async function age(p, id, ms) {
   log('6c: … og borte fra appen', !(await inState(p, NOW)));
   log('6d: «Timen» som aldri ble slettet, står urørt', !!(await dbItem(p, HOUR)) && await inState(p, HOUR));
 
-  log('7: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  /* ---------- 7. valget endres på en annen enhet ---------- */
+  await p.evaluate(() => window.HK_MOCK._edit((db) => {
+    const me = db.profiles.find((x) => x.id === window.__huskis.authUser.id);
+    me.user_metadata = Object.assign({}, me.user_metadata, { trash_retention: 7 * 86400 });
+  }));
+  // Et eget bytte holdes i ro et kort øyeblikk (se adoptTrashRetention), og så
+  // kommer neste poll.
+  await p.waitForFunction(() => window.__huskis.authUser.meta.trash_retention === 7 * 86400,
+    null, { timeout: 40000, polling: 250 }).catch(() => {});
+  const fulgt = await p.evaluate(() => ({
+    meta: window.__huskis.authUser.meta.trash_retention,
+    sel: document.getElementById('trash-retention-select').value,
+  }));
+  log('7: et valg gjort på en annen enhet når en åpen fane ved neste synk',
+    fulgt.meta === 7 * 86400 && fulgt.sel === String(7 * 86400), JSON.stringify(fulgt));
+
+  log('8: ingen JS-feil', errs.length === 0, errs.join(' | '));
   await b.close();
   const ok = results.filter(Boolean).length;
   console.log('\n==== ' + ok + '/' + results.length + ' PASS ====');
