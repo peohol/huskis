@@ -5554,7 +5554,10 @@ begin
   if exists (select 1 from pg_extension where extname = 'pg_cron') then
     perform cron.schedule('huskis-push-tick', '* * * * *', 'select public.push_tick()');
   end if;
-exception when others then null;   -- manglende rettighet skal ikke velte migreringen
+-- En manglende rettighet skal ikke velte migreringen; smoke-testen (seksjon 11)
+-- stopper deployen hvis jobben ikke ligger der etterpå.
+exception when others then
+  raise warning 'kjøreplanen: fikk ikke lagt inn huskis-push-tick: %', sqlerrm;
 end $$;
 
 -- ------------------------------------------------------------
@@ -7609,7 +7612,9 @@ begin
   if exists (select 1 from pg_extension where extname = 'pg_cron') then
     perform cron.schedule('huskis-trash-purge', '* * * * *', 'select public.purge_expired_trash()');
   end if;
-exception when others then null;   -- manglende rettighet skal ikke velte migreringen
+-- Som varseltikket: smoke-testen (seksjon 11) stopper deployen uten jobben.
+exception when others then
+  raise warning 'kjøreplanen: fikk ikke lagt inn huskis-trash-purge: %', sqlerrm;
 end $$;
 
 -- ------------------------------------------------------------

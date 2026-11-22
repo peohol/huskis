@@ -64,6 +64,16 @@ tests/test-trash-race.sh
 # blokkerer den deployen i produksjon uten at noe faktisk er galt.
 $PSQL --no-psqlrc --echo-errors -f smoke-test.sql
 
+# …og den må BITE der produksjonen krever kjøreplanen (`-v require_cron=1`, som
+# release.yml sender): her finnes ingen pg_cron, så da skal den feile.
+if $PSQL --no-psqlrc -v require_cron=1 -f smoke-test.sql >/tmp/smoke-cron.out 2>&1; then
+  echo "FAIL: smoke-testen slapp gjennom en database uten kjøreplan med require_cron=1" >&2; exit 1
+fi
+grep -q 'pg_cron er ikke installert' /tmp/smoke-cron.out \
+  || { cat /tmp/smoke-cron.out >&2; echo "FAIL: smoke-testen feilet av en annen grunn enn kjøreplanen" >&2; exit 1; }
+echo "PASS: smoke-testen stopper deployen når kjøreplanen mangler (require_cron=1)"
+rm -f /tmp/smoke-cron.out
+
 # ---- 2. Oppgraderingsløp: den GAMLE databasefasongen med data, migrert ----
 fresh_schema
 $PSQL -f tests/legacy-share-fixture.sql

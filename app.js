@@ -28486,31 +28486,59 @@
     }
     trashRetentionSelect.value = String(trashRetention().secs);
   }
-  /* Optimistisk, som e-postvarselet. Når kontoen har tatt imot valget, tømmes
-     det som ALLEREDE er utløpt etter den nye fristen med én gang — ellers ville
-     «1 time» først virket ved neste tikk i kjøreplanen. */
-  let trashRetentionSaving = 0;
+  /* Optimistisk, som e-postvarselet — men SERIALISERT, for her kan en
+     forsinket skriving slette noe for godt: velger man «Umiddelbart» og så
+     «30 dager» før det første kallet er ferdig, må kontoen ende på 30 dager.
+     Det går derfor aldri mer enn ett kall om gangen. Et nytt valg mens et
+     kall er underveis blir bare stående som ØNSKET, og når kallet er ferdig,
+     sender løkka det siste ønskede valget — mellomvalg hoppes over. Et kall
+     som feiler, ruller bare tilbake når det var det SISTE valget, og da til
+     det kontoen sist bekreftet; en feil på et eldre valg som et nyere har
+     erstattet, betyr ingenting.
+     Når kontoen har tatt imot valget, tømmes det som ALLEREDE er utløpt etter
+     den nye fristen med én gang — ellers ville «1 time» først virket ved neste
+     tikk i kjøreplanen. */
+  let trashRetentionWant;            // det siste valget i lista
+  let trashRetentionSaved;           // det kontoen sist bekreftet
+  let trashRetentionWriter = null;   // løkka som skriver, mens den går
   let trashRetentionChangedAt = 0;
-  async function setTrashRetention(secs) {
-    if (!authUser) return;
+  function setTrashRetention(secs) {
+    if (!authUser) return null;
+    if (!trashRetentionWriter) trashRetentionSaved = authUser.meta ? authUser.meta.trash_retention : undefined;
+    trashRetentionWant = secs;
     trashRetentionChangedAt = Date.now();
-    const before = authUser.meta ? authUser.meta.trash_retention : undefined;
     authUser.meta = Object.assign({}, authUser.meta, { trash_retention: secs });
     paintTrashRetention();
-    trashRetentionSaving++;
-    try {
-      const { error } = await acli().auth.updateUser({ data: { trash_retention: secs } });
-      if (error) throw error;
-    } catch (e) {
-      authUser.meta = Object.assign({}, authUser.meta, { trash_retention: before });
-      paintTrashRetention();
-      showToast(friendlyAuthError(e));
-      return;
-    } finally {
-      trashRetentionSaving--;
-      trashRetentionChangedAt = Date.now();
+    if (!trashRetentionWriter) {
+      trashRetentionWriter = writeTrashRetention(authUser.id).finally(() => {
+        trashRetentionWriter = null;
+        trashRetentionChangedAt = Date.now();
+      });
     }
-    if (await purgeMyExpiredTrash() > 0) scheduleCloud(0);
+    return trashRetentionWriter;
+  }
+  async function writeTrashRetention(forUser) {
+    let sent, failed = null, landed = false;
+    do {
+      sent = trashRetentionWant;
+      try {
+        const { error } = await acli().auth.updateUser({ data: { trash_retention: sent } });
+        if (error) throw error;
+        trashRetentionSaved = sent;
+        failed = null;
+        landed = true;
+      } catch (e) {
+        failed = e;
+      }
+      // Kontoen byttet mens kallet sto: ingenting her hører til den nye.
+      if (!authUser || authUser.id !== forUser) return;
+    } while (sent !== trashRetentionWant);
+    if (failed) {
+      authUser.meta = Object.assign({}, authUser.meta, { trash_retention: trashRetentionSaved });
+      paintTrashRetention();
+      showToast(friendlyAuthError(failed));
+    }
+    if (landed && await purgeMyExpiredTrash() > 0) scheduleCloud(0);
   }
   /* Valget kan endres på en annen enhet mens denne står åpen. Doc-et bærer
      kontoens verdi (`my.user.trash_retention`), så den følger pollet — ellers
@@ -28522,7 +28550,7 @@
   const TRASH_RETENTION_SETTLE_MS = 15000;
   function adoptTrashRetention(my) {
     const u = my && my.user;
-    if (!authUser || !u || !('trash_retention' in u) || trashRetentionSaving) return;
+    if (!authUser || !u || !('trash_retention' in u) || trashRetentionWriter) return;
     if (Date.now() - trashRetentionChangedAt < TRASH_RETENTION_SETTLE_MS) return;
     const v = u.trash_retention == null ? undefined : u.trash_retention;
     if ((authUser.meta && authUser.meta.trash_retention) === v) return;
@@ -31634,6 +31662,7 @@
     // Den automatiske tømmingen (docs/trash.md): å slette ett listepunkt og
     // åpne kassen dets er det testen måler fristen gjennom.
     deleteItem, openItemsTrash,
+    get trashRetentionBusy() { return !!trashRetentionWriter; },
     openNavModal, closeNavModal,
     // Globalt søk + den generelle navigasjonsmekanismen. Testene bruker
     // `searchObjects` til å måle rangeringen uten å gå gjennom UI-et, og

@@ -227,7 +227,9 @@ utdatert skriving som vakten ruller tilbake heller ikke starter klokka. Rader so
 lå i kassen før feltet fantes, fikk fristen regnet fra da migreringen kjørte.
 
 **Tømmingen gjøres av databasen**: `purge_expired_trash()` kjøres hvert minutt
-av `pg_cron` (`huskis-trash-purge`), også når ingen har appen oppe. Den er en
+av `pg_cron` (`huskis-trash-purge`), også når ingen har appen oppe. Mangler
+jobben i produksjonen, stopper smoke-testen deployen
+(`docs/release-og-deploy.md`). Den er en
 vanlig DELETE, så kaskadene, gravsteinene og koblingene oppfører seg nøyaktig
 som ved manuell tømming, og klientene ser raden forsvinne ved neste synk (basen
 har den, serveren ikke lenger). To ting skiller den fra en rå sletting:
@@ -254,6 +256,14 @@ tømming, men bare for det man selv har slettet. Angre-vinduet (under) er det
 samme, og toasten sier «Slettet» i stedet for «Lagt i søppelkassen». Det samme
 kallet gjøres når fristen endres, så «1 time» virker med én gang på det som
 allerede er eldre enn det.
+
+**Det siste valget vinner, også på kontoen.** En forsinket skriving kan her
+slette noe for godt — velger man «Umiddelbart» og så «30 dager» før det første
+kallet er ferdig, må kontoen ende på 30 dager. Klienten sender derfor aldri mer
+enn ett kall om gangen (`setTrashRetention`): et nytt valg mens et kall står,
+blir bare stående som ønsket, og når kallet er ferdig, sendes det SISTE ønskede
+valget. Et kall som feiler, ruller bare tilbake når det var det siste valget,
+og da til det kontoen sist bekreftet.
 
 Kassen sier selv hvor lenge det man sletter blir liggende (notatet i modalen).
 Endres valget på en annen enhet, følger en åpen fane etter ved neste synk:

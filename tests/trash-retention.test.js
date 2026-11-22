@@ -16,7 +16,14 @@
        godt på serveren og borte fra appen uten noe tikk i kjøreplanen.
     7. Endres valget på en annen enhet, følger en åpen fane etter ved neste
        synk (doc-et bærer kontoens verdi).
-    8. Ingen JS-feil.
+    8. Raske bytter: det SISTE valget vinner også på kontoen. Kontoens svar
+       holdes tilbake og slippes nyeste først — slik et eldre kall ville kommet
+       sist uten serialisering — og det går aldri mer enn ett kall om gangen.
+       «Umiddelbart» og så «30 dager» ender på 30 dager.
+    9. Et eldre valg som feiler, ruller ikke tilbake et nyere som lyktes; feiler
+       det SISTE, går lista tilbake til det kontoen faktisk har — ikke til
+       valget før det hele, og ikke til det som feilet.
+   10. Ingen JS-feil.
 
   Logikk, ikke layout: ett viewport holder.
 
@@ -231,7 +238,72 @@ async function age(p, id, ms) {
   log('7: et valg gjort på en annen enhet når en åpen fane ved neste synk',
     fulgt.meta === 7 * 86400 && fulgt.sel === String(7 * 86400), JSON.stringify(fulgt));
 
-  log('8: ingen JS-feil', errs.length === 0, errs.join(' | '));
+  /* ---------- 8–9. raske bytter, svar i feil rekkefølge, feil ---------- */
+  // Kontoens svar på `trash_retention` holdes tilbake til testen slipper dem —
+  // NYESTE først, og som suksess eller feil.
+  await p.evaluate(() => {
+    const c = window.__huskis.client;
+    const orig = c.auth.updateUser.bind(c.auth);
+    const g = window.__gate = { pending: [], sent: [], maxInFlight: 0 };
+    c.auth.updateUser = (attrs) => {
+      if (!attrs || !attrs.data || !('trash_retention' in attrs.data)) return orig(attrs);
+      g.sent.push(attrs.data.trash_retention);
+      return new Promise((res) => {
+        g.pending.push((ok) => res(ok ? orig(attrs) : { data: null, error: { message: 'Nettverksfeil' } }));
+        g.maxInFlight = Math.max(g.maxInFlight, g.pending.length);
+      });
+    };
+    g.restore = () => { c.auth.updateUser = orig; };
+  });
+  const serverRetention = () => p.evaluate(() => {
+    const me = window.HK_MOCK._loadDB().profiles.find((x) => x.id === window.__huskis.authUser.id);
+    return me && me.user_metadata && me.user_metadata.trash_retention;
+  });
+  const shown = () => p.evaluate(() => ({
+    meta: window.__huskis.authUser.meta.trash_retention,
+    sel: Number(document.getElementById('trash-retention-select').value),
+  }));
+  // Velg flere tider etter hverandre, så slipp svarene ett og ett — nyeste
+  // først — med utfallene i `utfall` (true = lyktes), til ingenting står igjen.
+  async function rask(valg, utfall) {
+    await p.evaluate(() => { window.__gate.sent = []; window.__gate.maxInFlight = 0; });
+    for (const v of valg) await p.locator('#trash-retention-select').selectOption(String(v));
+    for (const ok of utfall) {
+      await p.waitForFunction(() => window.__gate.pending.length > 0, null, { timeout: 5000, polling: 50 });
+      await p.evaluate((ok) => window.__gate.pending.pop()(ok), ok);
+    }
+    await p.waitForFunction(() => !window.__huskis.trashRetentionBusy, null, { timeout: 5000, polling: 50 });
+    return p.evaluate(() => ({ sent: window.__gate.sent.slice(), maxInFlight: window.__gate.maxInFlight,
+      pending: window.__gate.pending.length }));
+  }
+  await p.evaluate(() => window.__huskis.openAccount());
+  await p.waitForTimeout(200);
+
+  const r8 = await rask([0, 30 * 86400], [true, true]);
+  const s8 = await shown();
+  log('8: «Umiddelbart» og så «30 dager» — kontoen ender på 30 dager',
+    (await serverRetention()) === 30 * 86400 && s8.meta === 30 * 86400 && s8.sel === 30 * 86400,
+    JSON.stringify({ server: await serverRetention(), ...s8, ...r8 }));
+  log('8b: aldri mer enn ett kall om gangen, og det siste kallet er det siste valget',
+    r8.maxInFlight === 1 && r8.pending === 0 && r8.sent[r8.sent.length - 1] === 30 * 86400, JSON.stringify(r8));
+
+  await p.evaluate(() => window.__huskis.showToast(''));
+  const r9 = await rask([3600, 86400], [false, true]);
+  const s9 = await shown();
+  log('9: et eldre valg som feiler, ruller ikke tilbake det nyere som lyktes',
+    (await serverRetention()) === 86400 && s9.meta === 86400 && s9.sel === 86400
+      && !/Nettverksfeil/.test(await toastText(p)),
+    JSON.stringify({ server: await serverRetention(), ...s9, ...r9, toast: await toastText(p) }));
+
+  const r9b = await rask([3600, 7 * 86400], [true, false]);
+  const s9b = await shown();
+  log('9b: feiler det SISTE valget, viser lista det kontoen faktisk har (1 time)',
+    (await serverRetention()) === 3600 && s9b.meta === 3600 && s9b.sel === 3600,
+    JSON.stringify({ server: await serverRetention(), ...s9b, ...r9b }));
+  log('9c: … og sier fra om feilen', /Nettverksfeil/.test(await toastText(p)), await toastText(p));
+  await p.evaluate(() => { window.__gate.restore(); window.__huskis.closeAccount(); });
+
+  log('10: ingen JS-feil', errs.length === 0, errs.join(' | '));
   await b.close();
   const ok = results.filter(Boolean).length;
   console.log('\n==== ' + ok + '/' + results.length + ' PASS ====');

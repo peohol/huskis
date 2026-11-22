@@ -19,6 +19,8 @@
      4. hver .rpc('...') klienten kaller står i RPC-listen
      5. hver RPC som er execute-grantet i users-and-sharing.sql står der også
         (så en ny serverside-RPC ikke blir usjekket)
+     6. hver jobb migreringen legger i kjøreplanen (`cron.schedule(...)`) står
+        i kjøreplan-sjekken med samme kommando — og ingen annen
 
    Ren node-test — ingen server, ingen nettleser.
 
@@ -176,6 +178,17 @@ const overflødige = smokeSignaturer.filter((s) => !grantet.includes(s));
 check('smoke-testen sjekker ingen RPC som ikke er grantet',
   overflødige.length === 0,
   overflødige.length ? 'ukjente: ' + overflødige.join(', ') : smokeSignaturer.length + ' signaturer');
+
+/* ---- 6. Kjøreplanen: hver cron.schedule(...) sjekkes, med samme kommando ---- */
+const jobber = (kilde) => [...kilde.matchAll(/\('(huskis-[a-z-]+)',\s*(?:'[^']*',\s*)?'([^']+)'\)/g)]
+  .map((m) => m[1] + ' → ' + m[2]).sort();
+const planlagt = jobber(sql.split('\n').filter((l) => /cron\.schedule\(/.test(l)).join('\n'));
+const cronSeksjon = smoke.slice(smoke.indexOf('11. Kjøreplanen'), smoke.indexOf('──────── Resultat'));
+const sjekket = jobber(cronSeksjon);
+check('fant jobbene migreringen legger i kjøreplanen', planlagt.length >= 2, planlagt.join(', '));
+check('kjøreplan-sjekken i smoke-testen har nøyaktig de samme jobbene og kommandoene',
+  planlagt.join('|') === sjekket.join('|'),
+  'migreringen: ' + planlagt.join(', ') + ' / smoke-testen: ' + sjekket.join(', '));
 
 console.log('\n==== ' + pass + '/' + (pass + fail) + ' PASS ====');
 process.exit(fail === 0 ? 0 : 1);
