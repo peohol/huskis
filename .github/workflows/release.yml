@@ -170,8 +170,10 @@ jobs:
           fi
           # Read-only og transaksjonell (se toppen av smoke-test.sql) — trygg
           # mot produksjon med brukere innlogget. Ingen retry: enten er skjemaet
-          # riktig, eller så skal deployen stoppe.
-          if ! psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/smoke-test.sql; then
+          # riktig, eller så skal deployen stoppe. `require_cron=1`: i
+          # produksjonen MÅ kjøreplanens jobber finnes og være aktive
+          # (smoke-test.sql, seksjon 11) — den lokale testsuiten har ingen pg_cron.
+          if ! psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -v require_cron=1 -f supabase/smoke-test.sql; then
             echo "::error::Smoke-testen feilet — produksjonsdeployen stoppes. Databasen er ikke klar for denne frontenden. Se docs/release-og-deploy.md."
             exit 1
           fi

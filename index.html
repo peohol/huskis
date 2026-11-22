@@ -671,6 +671,16 @@
              Raden står UTENFOR trekkspillet, nederst: den som ikke kan norsk
              skal ikke måtte gjette hvilken skuff språkvalget ligger i — derfor
              står etiketten også på begge språk. Se docs/sprak.md. -->
+        <!-- Innstilling: hvor lenge det man sletter ligger i søppelkassene før
+             det slettes for godt av seg selv (lagres på kontoen — serveren
+             tømmer etter den). Gjelder alle kassene i appen. Se docs/trash.md. -->
+        <div class="menu-setting menu-setting-wrap" id="menu-trash-retention">
+          <label class="menu-setting-label" for="trash-retention-select">
+            <span class="menu-setting-icon" id="trash-retention-icon" aria-hidden="true"></span>
+            <span data-i18n="trash.retentionLabel">Tøm søppelkassen automatisk etter</span>
+          </label>
+          <select class="field lang-select" id="trash-retention-select"></select>
+        </div>
         <div class="menu-setting" id="menu-language">
           <span class="menu-setting-label">
             <span class="menu-setting-icon" id="language-icon" aria-hidden="true"></span>

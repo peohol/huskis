@@ -15,6 +15,7 @@
         concurrency-gruppe som ikke avbryter en pågående kjøring
      2. kjeden tester → migrering → smoke → deploy henger sammen med `needs`
      3. migreringsjobben kjører begge SQL-filene, smoke-jobben smoke-test.sql
+        — med `require_cron=1`, så kjøreplanens jobber MÅ finnes i produksjonen
      4. `vercel deploy --prod` finnes KUN i jobben som `needs: smoke`
      5. vercel.json slår av Vercels egen git-deploy for main (ellers ville
         Vercel deployet parallelt med migreringen)
@@ -216,6 +217,8 @@ check('smoke-jobben kjører supabase/smoke-test.sql',
   !!relJobs.smoke && /supabase\/smoke-test\.sql/.test(relJobs.smoke));
 check('smoke-jobben stopper på feil (ON_ERROR_STOP)',
   !!relJobs.smoke && /ON_ERROR_STOP=1/.test(relJobs.smoke));
+check('smoke-jobben krever kjøreplanen (require_cron=1) — ellers hoppes sjekken over',
+  !!relJobs.smoke && /-v require_cron=1 -f supabase\/smoke-test\.sql/.test(relJobs.smoke));
 check('migreringen prøver på nytt ved feil',
   !!relJobs.migrering && /forsok/.test(relJobs.migrering));
 check('migreringen setter lock_timeout mot den levende databasen',

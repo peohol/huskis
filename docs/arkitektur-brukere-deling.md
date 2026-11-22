@@ -514,6 +514,12 @@ Full modell: [`rettigheter-og-deling.md`](rettigheter-og-deling.md).
   (`tombstones(resource_type, resource_id, ts)`) — én rad per slettet objekt,
   også for barna, siden `on delete cascade` sletter dem rad for rad og deres
   egne triggere fyrer.
+- **Automatisk tømming**: `trashed_at`/`trashed_by` stemples av
+  `stamp_trash_clock()` (BEFORE INSERT/UPDATE, `*_zz_trash_clock`, fyrer sist),
+  og `purge_expired_trash()` (pg_cron hvert minutt, intern) sletter det som har
+  ligget lenger enn fristen til den som slettet — så lenge vedkommende fortsatt
+  har sletterett. Klientens vei inn er `purge_my_expired_trash()`, som bare når
+  eget søppel. Autoritativt: [`trash.md`](trash.md), «Automatisk tømming».
 - **Gravsteinene håndheves av databasen** (`guard_object_insert`, BEFORE INSERT
   på alle fire objekttabellene): en id med gravstein kan ikke settes inn igjen.
   Avvisningen har en distinkt SQLSTATE, `PT409`, med meldingen «gravlagt: …»,

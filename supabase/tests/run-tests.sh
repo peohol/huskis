@@ -26,6 +26,7 @@ $PSQL --no-psqlrc --echo-errors -f tests/test-roles-and-sharing.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-group-moves.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-email-sharing.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-tombstones.sql
+$PSQL --no-psqlrc --echo-errors -f tests/test-trash-retention.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-ideas.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-notes.sql
 $PSQL --no-psqlrc --echo-errors -f tests/test-note-sharing.sql
@@ -54,10 +55,24 @@ tests/test-note-version-race.sh
 # kapittelet» er alt eller ingenting også når rettighetene endres midt i.
 tests/test-recipe-race.sh
 
+# Den automatiske tømmingen: en gjenoppretting som lyktes, skal aldri bli
+# slettet etterpå — kandidatene låses mellom valget og slettingen.
+tests/test-trash-race.sh
+
 # Smoke-testen som produksjonsdeployen henger på (release.yml) må bevises her:
 # den skal være GRØNN mot et ferdig migrert skjema. Er den det ikke lokalt,
 # blokkerer den deployen i produksjon uten at noe faktisk er galt.
 $PSQL --no-psqlrc --echo-errors -f smoke-test.sql
+
+# …og den må BITE der produksjonen krever kjøreplanen (`-v require_cron=1`, som
+# release.yml sender): her finnes ingen pg_cron, så da skal den feile.
+if $PSQL --no-psqlrc -v require_cron=1 -f smoke-test.sql >/tmp/smoke-cron.out 2>&1; then
+  echo "FAIL: smoke-testen slapp gjennom en database uten kjøreplan med require_cron=1" >&2; exit 1
+fi
+grep -q 'pg_cron er ikke installert' /tmp/smoke-cron.out \
+  || { cat /tmp/smoke-cron.out >&2; echo "FAIL: smoke-testen feilet av en annen grunn enn kjøreplanen" >&2; exit 1; }
+echo "PASS: smoke-testen stopper deployen når kjøreplanen mangler (require_cron=1)"
+rm -f /tmp/smoke-cron.out
 
 # ---- 2. Oppgraderingsløp: den GAMLE databasefasongen med data, migrert ----
 fresh_schema
@@ -82,7 +97,7 @@ $PSQL --no-psqlrc --echo-errors -f tests/test-list-share-migration.sql
 $PSQL --no-psqlrc --echo-errors -f smoke-test.sql
 
 echo "✅ Alle SQL-tester grønne (roller, capabilities, mappeflytting, e-postvarsel,"
-echo "   gravsteiner, idéer, notater, arkiv, koblinger, notatdeling, samskriving og
+echo "   gravsteiner, automatisk tømming av søppelkassene, idéer, notater, arkiv, koblinger, notatdeling, samskriving og
    notathistorikk (òg samtidighet), oppskrifter og offentlige lenker,
    kontosletting, varsler,"
 echo "   web push (òg samtidighet), økter,"

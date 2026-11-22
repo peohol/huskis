@@ -26,7 +26,7 @@ Ved motstrid gjelder det dokumentet som er merket autoritativt for feltet — og
 | [ideer.md](ideer.md) | idémodalen, `state.ideas`, `ideas`-tabellen, idéenes egen søppelkasse, og den flerlinjede inline-redigeringen | **ja** — idéene |
 | [drag-and-drop.md](drag-and-drop.md) | reorder, flytting mellom lister/mapper/områder, ekstrahering, peek, skillelinjer, kassene som slippmål, de tre dra-scopene og de fem dnd-kit-board-ene | **ja** — dra-og-slipp |
 | [board-layout.md](board-layout.md) | kolonnefordelingen i listevisningen og avstander/padding/gap der | **ja** — board-layouten |
-| [trash.md](trash.md) | sletting (menyen og **slipp i kassen**), gjenoppretting og tømming på alle fire nivåene + idéene, buffret sletting, angre | **ja** — søppelkassene |
+| [trash.md](trash.md) | sletting (menyen og **slipp i kassen**), gjenoppretting og tømming på alle fire nivåene + idéene, buffret sletting, angre, **automatisk tømming** etter kontoens frist | **ja** — søppelkassene |
 | [scheduling.md](scheduling.md) | tids-editoren (objektmenyens tidsskuff + tids-popoveren), start-/fristtider, semantikken for dato uten klokkeslett, den harde fristinvarianten, indikator-chipene | **ja** — tidsplanlegging |
 | [feature-plan-search-events-notifications.md](feature-plan-search-events-notifications.md) | planlagt implementering av globalt søk, kommende hendelser, fristinvariant og varsler | **ja** — arbeidsplanen for denne funksjonsserien |
 | [notater-plan.md](notater-plan.md) | den nye hovedfanen Notater, hierarki, editor, synk, sanntids samskriving, historikk, søk, koblinger, arkiv/søppel, deling og leveransesteg | **ja** — levende produkt- og implementeringsplan for Notater |

@@ -201,6 +201,83 @@ bort med hver sin gravstein.
 Regresjonstest: `tests/notes-lifecycle-links.test.js` og
 `supabase/tests/test-note-links.sql`.
 
+## Automatisk tømming
+
+Det som ligger i en søppelkasse, slettes for godt av seg selv når det har
+ligget der lenge nok. Det gjelder ALLE kassene — de fire hierarkinivåene,
+idéene, de tre notatnivåene og dermed også oppskriftene.
+
+**Fristen er et kontovalg** (`user_metadata.trash_retention`, i sekunder), satt
+i konto-modalen under «Tøm søppelkassen automatisk etter»: 30 dager
+(standarden), 7 dager, 24 timer, 1 time eller umiddelbart (0). Serveren leser
+den samme verdien (`trash_retention()`), og alt den ikke kjenner igjen — eller
+som er lengre enn standarden — gir standarden. Valget kan bare gjøre fristen
+kortere.
+
+**Det er den som SLETTET som bestemmer**, ikke den som ser på kassen. Søpla er
+felles, så to medlemmer med ulike valg ser den samme raden — men raden har bare
+én frist: valget til den som la den der.
+
+**Klokka er serverens.** `trashed_at`/`trashed_by` på hver av de åtte tabellene
+stemples av triggeren `*_zz_trash_clock` når `trashed` blir sann, og nullstilles
+når raden gjenopprettes. Klienten skriver dem aldri, og verdier den likevel
+sender overses — en enhet med feil klokke eller en gammel klientversjon kan ikke
+flytte fristen. Triggeren fyrer SIST (navnerekkefølgen), etter LWW-vakten, så en
+utdatert skriving som vakten ruller tilbake heller ikke starter klokka. Rader som
+lå i kassen før feltet fantes, fikk fristen regnet fra da migreringen kjørte.
+
+**Tømmingen gjøres av databasen**: `purge_expired_trash()` kjøres hvert minutt
+av `pg_cron` (`huskis-trash-purge`), også når ingen har appen oppe. Mangler
+jobben i produksjonen, stopper smoke-testen deployen
+(`docs/release-og-deploy.md`). Den er en
+vanlig DELETE, så kaskadene, gravsteinene og koblingene oppfører seg nøyaktig
+som ved manuell tømming, og klientene ser raden forsvinne ved neste synk (basen
+har den, serveren ikke lenger). To ting skiller den fra en rå sletting:
+
+- **Myndigheten sjekkes på nytt.** Raden slettes bare hvis den som la den i
+  kassen FORTSATT har sletterett (`can_delete_object`). Er den blitt låst i
+  mellomtiden, eller personen har mistet rollen, blir den liggende — akkurat
+  som den manuelle tømmingen lar låst innhold ligge. Rader uten `trashed_by`
+  følger opphavspersonen (`owner_id`).
+- **Valget og slettingen er ett.** Kandidatene låses (`for update … skip
+  locked`) til slettingen er committet. En gjenoppretting som kommer i
+  mellomtiden venter og finner raden borte; en som allerede holder raden, blir
+  hoppet over til neste minutt. En gjenoppretting som lyktes, kan dermed aldri
+  bli slettet etterpå (`supabase/tests/test-trash-race.sh`).
+- **Pekere løsnes med et nytt stempel.** En kategori (listepunkt, mappe, idé)
+  og en notatbok tar ikke medlemmene med seg (`on delete set null`), men
+  pekeren rir på posisjonsregisteret, og LWW-vakten ville forsvart den gamle
+  verdien. Medlemmene løsnes derfor med et ferskt `pos_ts` før slettingen —
+  det samme klienten gjør ved manuell tømming.
+
+**«Umiddelbart»** venter ikke på neste minutt: når en synk-runde ser at noe nytt
+har havnet i kassene, ber klienten om `purge_my_expired_trash()` — samme
+tømming, men bare for det man selv har slettet. Angre-vinduet (under) er det
+samme, og toasten sier «Slettet» i stedet for «Lagt i søppelkassen». Det samme
+kallet gjøres når fristen endres, så «1 time» virker med én gang på det som
+allerede er eldre enn det.
+
+**Det siste valget vinner, også på kontoen.** En forsinket skriving kan her
+slette noe for godt — velger man «Umiddelbart» og så «30 dager» før det første
+kallet er ferdig, må kontoen ende på 30 dager. Klienten sender derfor aldri mer
+enn ett kall om gangen (`setTrashRetention`): et nytt valg mens et kall står,
+blir bare stående som ønsket, og når kallet er ferdig, sendes det SISTE ønskede
+valget. Tømmingen etter et bekreftet bytte hører til den samme løkka, så et valg
+gjort mens den står, blir også sendt. Et kall som feiler, ruller bare tilbake når det var det siste valget,
+og da til det kontoen sist bekreftet.
+
+Kassen sier selv hvor lenge det man sletter blir liggende (notatet i modalen).
+Endres valget på en annen enhet, følger en åpen fane etter ved neste synk:
+`get_my_doc()` bærer kontoens verdi (`user.trash_retention`), og klienten tar
+den inn (`adoptTrashRetention`) — men ikke rett etter et eget bytte, så et doc
+som ble hentet før byttet landet ikke snur det tilbake.
+Arkivet har ingen frist — det er ikke en søppelkasse.
+
+Regresjonstester: `supabase/tests/test-trash-retention.sql` og
+`test-trash-race.sh` (serveren) og
+`tests/trash-retention.test.js` (appen mot mock-backenden, som speiler
+reglene; `HK_MOCK.purgeExpiredTrash()` er kjøreplanens tikk).
+
 ## Slette-animasjonen («pakk sammen og fly i søpla»)
 
 Når et objekt slettes (listepunkt/liste/mappe/område) kjøres `ghostFrom` +

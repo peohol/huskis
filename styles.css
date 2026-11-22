@@ -3976,6 +3976,12 @@ body.no-auth .corner-controls { display: none; }
   font-size: var(--fs-sm); font-weight: 600; color: var(--ink);
 }
 .menu-setting-label .icon { width: 22px; height: 22px; flex: 0 0 auto; color: var(--ink-soft); }
+/* En rad med lang etikett OG en bred velger (søppelkassens frist): etiketten har
+   et gulv, og når den ikke får plass ved siden av velgeren, faller velgeren ned
+   på sin egen linje (høyrestilt) i stedet for å klemme teksten til en søyle. */
+.menu-setting-wrap { flex-wrap: wrap; row-gap: 8px; }
+.menu-setting-wrap .menu-setting-label { flex: 1 1 11em; }
+.menu-setting-wrap > select { margin-left: auto; }
 .toggle-switch {
   touch-action: pan-y;       /* sidelengs er dragets, loddrett er scrollens */
   flex: 0 0 auto;

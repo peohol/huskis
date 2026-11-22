@@ -808,6 +808,10 @@ Mottakeren varsles på to måter når noe deles med hen:
   Standard PÅ (manglende flagg → på). E-post-triggeren respekterer flagget for
   registrerte mottakere. Mock-backenden speiler `user_metadata` (samme vei som
   `nav`), så toggelen persisterer på tvers av «faner» i test.
+- **Automatisk tømming av søppelkassene** (`user_metadata.trash_retention`,
+  sekunder): velgeren i konto-modalen (`#trash-retention-select`) lagrer
+  valget optimistisk, og serveren tømmer etter det. Autoritativt:
+  [`trash.md`](trash.md), «Automatisk tømming».
 
 ## Profilbilde
 

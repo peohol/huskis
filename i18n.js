@@ -948,6 +948,26 @@
 
     'trash.movedOne':  ['Lagt i søppelkassen: {name}', 'Moved to the trash: {name}'],
     'trash.movedMany': ['Lagt i søppelkassen: {what}', 'Moved to the trash: {what}'],
+    // Når søppelkassen tømmes «umiddelbart» havner ingenting der — toasten sier
+    // det som faktisk skjer (angre-vinduet er det samme).
+    'trash.deletedOne':  ['Slettet: {name}', 'Deleted: {name}'],
+    'trash.deletedMany': ['Slettet: {what}', 'Deleted: {what}'],
+
+    /* ---- Automatisk tømming (konto-innstilling, docs/trash.md) ---- */
+    'trash.retentionLabel': ['Tøm søppelkassen automatisk etter', 'Empty the trash automatically after'],
+    'trash.retention.d30':  ['30 dager (standard)', '30 days (default)'],
+    'trash.retention.d7':   ['7 dager', '7 days'],
+    'trash.retention.h24':  ['24 timer', '24 hours'],
+    'trash.retention.h1':   ['1 time', '1 hour'],
+    'trash.retention.now':  ['Umiddelbart', 'Immediately'],
+    'trash.span.d30': ['30 dager', '30 days'],
+    'trash.span.d7':  ['7 dager', '7 days'],
+    'trash.span.h24': ['24 timer', '24 hours'],
+    'trash.span.h1':  ['1 time', '1 hour'],
+    'trash.retentionNote':    ['Det du sletter, forsvinner for godt etter {time}. Endres under Konto.',
+                               'What you delete is gone for good after {time}. Change this under Account.'],
+    'trash.retentionNoteNow': ['Det du sletter, forsvinner for godt med én gang. Endres under Konto.',
+                               'What you delete is gone for good right away. Change this under Account.'],
     'move.cardPrompt': ['{name} flyttes til mappen du velger.',
                         '{name} will be moved to the folder you choose.'],
     'dnd.groupNeedsUniverse':    ['En mappe kan ikke flyttes hit — den må ligge i et område',

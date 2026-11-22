@@ -420,7 +420,9 @@ begin
     'public.recipe_link_get(text, uuid)',
     'public.recipe_link_create(text, uuid)',
     'public.recipe_link_revoke(text, uuid)',
-    'public.recipe_chapter_dissolve(uuid, bigint, text)'
+    'public.recipe_chapter_dissolve(uuid, bigint, text)',
+    -- Den automatiske tømmingen av søppelkassene (docs/trash.md).
+    'public.purge_my_expired_trash()'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
@@ -499,7 +501,12 @@ begin
     'public.prune_device_sessions(uuid)',
     -- Det aktive native settet for én bruker. Kallerne sender sin egen
     -- auth.uid() inn; funksjonen har ingen egen autorisasjonssjekk.
-    'public.native_notif_active(uuid)'
+    'public.native_notif_active(uuid)',
+    -- Den automatiske tømmingen: sletter ANDRES utløpte søppel, og leser
+    -- fristen fra kontoens metadata. Kjøreplanen kaller den; klienten kan ikke.
+    'public.purge_expired_trash(uuid)',
+    'public.trash_retention(uuid)',
+    'public.trash_retention_default()'
   ] loop
     oid_ := to_regprocedure(fn);
     if oid_ is null then
@@ -578,7 +585,13 @@ begin
     'note_projects:note_projects_owner_seed', 'note_folders:note_folders_owner_seed',
     'notes:notes_owner_seed',
     'memberships:memberships_guard', 'memberships:memberships_last_owner_guard',
-    'share_invites:on_share_invite_created'
+    'share_invites:on_share_invite_created',
+    -- Søppelkassens klokke: uten den får ingenting en frist, og ingenting
+    -- tømmes automatisk (docs/trash.md).
+    'universes:universes_zz_trash_clock', 'groups:groups_zz_trash_clock',
+    'cards:cards_zz_trash_clock', 'items:items_zz_trash_clock',
+    'ideas:ideas_zz_trash_clock', 'note_projects:note_projects_zz_trash_clock',
+    'note_folders:note_folders_zz_trash_clock', 'notes:notes_zz_trash_clock'
   ] loop
     select count(*) into n from pg_trigger
      where tgrelid = to_regclass('public.' || split_part(tg, ':', 1))
@@ -939,6 +952,62 @@ begin
   end if;
 end $$;
 reset role;
+
+\echo '──────── 11. Kjøreplanen (pg_cron) ────────'
+-- Det som skjer når appen er LUKKET, kjøres av kjøreplanen i databasen:
+-- varseltikket og den automatiske tømmingen av søppelkassene. Migreringen
+-- legger jobbene inn, men lar en feil der passere (en manglende rettighet skal
+-- ikke velte resten av migreringen) — så det er HER det må stoppe: uten jobben
+-- blir ingenting tømt før brukeren selv åpner appen.
+--
+-- Produksjonen kjører med `-v require_cron=1` (release.yml): da er en manglende
+-- pg_cron en feil, og hver jobb må finnes, være aktiv og kjøre det den skal.
+-- Den lokale testsuiten har ingen pg_cron og sender ikke flagget; der hoppes
+-- seksjonen over. Har en lokal database pg_cron likevel, sjekkes jobbene.
+--
+-- Lista er hver `cron.schedule(...)` i users-and-sharing.sql;
+-- `tests/db-contract.test.js` holder dem i takt.
+\if :{?require_cron}
+\else
+\set require_cron 0
+\endif
+select set_config('huskis.smoke_require_cron', :'require_cron', true);
+do $$
+declare
+  feil text[] := '{}';
+  kreves boolean := current_setting('huskis.smoke_require_cron', true) in ('1', 'on', 'true');
+  j record;
+  r record;
+begin
+  if not exists (select 1 from pg_extension where extname = 'pg_cron') then
+    if kreves then
+      feil := array_append(feil, 'pg_cron er ikke installert — varseltikket og tømmingen av søppelkassene kjører aldri');
+    else
+      raise notice '  – ingen pg_cron her (lokal database): hoppes over';
+    end if;
+  else
+    for j in select * from (values
+      ('huskis-push-tick',   'select public.push_tick()'),
+      ('huskis-trash-purge', 'select public.purge_expired_trash()')
+    ) as v(navn, kommando) loop
+      select c.schedule, c.command, c.active into r from cron.job c where c.jobname = j.navn;
+      if not found then
+        feil := array_append(feil, 'kjøreplanen mangler jobben «' || j.navn || '» (migreringen fikk ikke lagt den inn — se advarslene i migreringsloggen)');
+      elsif not r.active then
+        feil := array_append(feil, 'jobben «' || j.navn || '» finnes, men er slått av');
+      elsif r.command <> j.kommando or r.schedule <> '* * * * *' then
+        feil := array_append(feil, 'jobben «' || j.navn || '» kjører «' || r.command || '» etter «' || r.schedule
+          || '», ventet «' || j.kommando || '» hvert minutt');
+      else
+        raise notice '  ✓ %: aktiv, hvert minutt', j.navn;
+      end if;
+    end loop;
+  end if;
+  if array_length(feil, 1) > 0 then
+    perform set_config('huskis.smoke_feil',
+      current_setting('huskis.smoke_feil', true) || array_to_string(feil, E'\n') || E'\n', false);
+  end if;
+end $$;
 
 \echo '──────── Resultat ────────'
 do $$

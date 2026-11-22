@@ -212,6 +212,13 @@ nye frontenden trenger?** Kontrakten er hentet fra klienten, ikke fra skjemafila
    det er én funksjon som mangler — ikke en halvmigrert database
 9. **funksjonelt**: `get_my_doc()` kalt som en innlogget, ukjent bruker
    returnerer et komplett, tomt doc — og `anon` avvises på både tabeller og RPC
+10. **kjøreplanen**: at hver jobb migreringen legger i `pg_cron` — varseltikket
+   (`huskis-push-tick`) og den automatiske tømmingen av søppelkassene
+   (`huskis-trash-purge`) — finnes, er aktiv og kjører riktig kommando hvert
+   minutt. Det er alt som skjer mens appen er lukket, og migreringen lar en feil
+   der passere med en advarsel, så det er her den stopper. `release.yml` sender
+   `-v require_cron=1`; uten flagget (den lokale testsuiten, som ikke har
+   `pg_cron`) hoppes sjekken over
 
 Den kjører i ÉN `read only`-transaksjon som avsluttes med `rollback`, med
 `statement_timeout` og `lock_timeout` satt. Den kan ikke skrive og tar ikke
@@ -226,9 +233,12 @@ To tester holder den ærlig:
 - `tests/db-contract.test.js` leser `app.js` og krever at hver kolonne, tabell
   og `.rpc(...)` klienten bruker faktisk sjekkes av smoke-testen — og at hver
   `execute`-grantede RPC i `users-and-sharing.sql` står der med samme signatur.
+  Den krever også at kjøreplan-sjekken har nøyaktig de jobbene og kommandoene
+  `cron.schedule(...)` i `users-and-sharing.sql` legger inn.
 - `supabase/tests/run-tests.sh` kjører smoke-testen mot et ferdig migrert skjema
   i begge løp (nytt skjema og oppgradert gammelt), så den er bevist grønn før
-  den får lov til å blokkere en deploy.
+  den får lov til å blokkere en deploy. Den kjøres også én gang med `require_cron=1` og
+  skal da FEILE (ingen `pg_cron` lokalt) — beviset på at porten biter.
 
 ## Feil, retry og rollback
 
